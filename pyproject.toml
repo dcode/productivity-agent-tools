@@ -12,6 +12,7 @@ dependencies = [
     "keyring>=25.0",
     "mcp>=2.3,<3",
     "pydantic>=2.7",
+    "structlog>=25.1",
     "truststore>=0.10",
 ]
 

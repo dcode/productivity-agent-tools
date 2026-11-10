@@ -7,6 +7,7 @@ failures into plain-language errors.
 """
 
 import ssl
+import time
 from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
@@ -14,6 +15,7 @@ from types import TracebackType
 from typing import Self
 
 import httpx
+import structlog
 import truststore
 from pydantic import JsonValue
 
@@ -26,6 +28,17 @@ from productivity_agent_tools.errors import (
     InterstitialPageError,
     NotFoundError,
     PermissionDeniedError,
+)
+
+_log = structlog.get_logger(__name__)
+
+# Response headers that say who answered and why, without carrying secrets.
+_DIAGNOSTIC_HEADERS: tuple[str, ...] = (
+    "server",
+    "via",
+    "www-authenticate",
+    "x-seraph-loginreason",
+    "x-arequestid",
 )
 
 
@@ -94,6 +107,51 @@ def _is_certificate_error(exc: BaseException) -> bool:
             return True
         current = current.__cause__ or current.__context__
     return "certificate" in str(exc).lower()
+
+
+def _without_query(url: httpx.URL) -> str:
+    """Render a URL without its query string or fragment, which can carry sign-in state.
+
+    Args:
+        url: The URL to render.
+
+    Returns:
+        Scheme, host and path only.
+    """
+    return str(url.copy_with(query=None, fragment=None))
+
+
+def _response_event(response: httpx.Response, elapsed_seconds: float) -> dict[str, object]:
+    """Collect the loggable facts about a response.
+
+    Bodies, cookie values and query strings are left out; cookies the server
+    set are listed by name only.
+
+    Args:
+        response: The HTTP response.
+        elapsed_seconds: Time the request took.
+
+    Returns:
+        Fields for the ``http_response`` log event.
+    """
+    event: dict[str, object] = {
+        "method": response.request.method,
+        "path": response.url.path,
+        "status": response.status_code,
+        "content_type": response.headers.get("content-type"),
+        "bytes": len(response.content),
+        "elapsed_ms": round(elapsed_seconds * 1000),
+    }
+    location = response.headers.get("location")
+    if location:
+        event["location"] = _without_query(response.url.join(location))
+    set_cookies = [value.partition("=")[0] for value in response.headers.get_list("set-cookie")]
+    if set_cookies:
+        event["set_cookie_names"] = set_cookies
+    for name in _DIAGNOSTIC_HEADERS:
+        if name in response.headers:
+            event[name.replace("-", "_")] = response.headers[name]
+    return event
 
 
 def _error_detail(response: httpx.Response) -> str:
@@ -251,6 +309,7 @@ class AtlassianClient:
             AtlassianError: For any connectivity, auth, or API failure.
         """
         if self.dry_run:
+            _log.info("write_blocked_by_dry_run", method=method, path=path)
             return WriteOutcome(sent=False, method=method, path=path, payload=payload)
         response = await self._request(method, path, payload=payload)
         return WriteOutcome(sent=True, method=method, path=path, payload=payload, response=response)
@@ -278,15 +337,26 @@ class AtlassianClient:
             AtlassianError: For any connectivity, auth, or API failure.
         """
         extra = {"X-Atlassian-Token": "no-check"} if method != "GET" else None
+        _log.debug(
+            "http_request",
+            method=method,
+            url=f"{self.base_url}{path}",
+            param_names=sorted(params or {}),
+            cookie_names=list(self.cookie_names),
+            has_body=payload is not None,
+        )
+        started = time.perf_counter()
         try:
             response = await self._http.request(
                 method, path, params=params, json=payload, headers=extra
             )
         except httpx.TimeoutException as exc:
+            _log.warning("http_timeout", method=method, path=path, error=type(exc).__name__)
             raise ConnectivityError(
                 f"Timed out reaching {self.base_url}. Check your network or VPN connection."
             ) from exc
         except httpx.TransportError as exc:
+            _log.warning("http_transport_error", method=method, path=path, error=repr(exc))
             if _is_certificate_error(exc):
                 raise ConnectivityError(
                     "The server's TLS certificate is not trusted. If its CA is not in the "
@@ -298,6 +368,7 @@ class AtlassianClient:
             ) from exc
         finally:
             self._http.cookies.clear()
+        _log.debug("http_response", **_response_event(response, time.perf_counter() - started))
         return self._interpret(response)
 
     def _interpret(self, response: httpx.Response) -> JsonValue:
@@ -344,9 +415,7 @@ class AtlassianClient:
         if status >= 400:
             raise ApiError(status, f"The server returned HTTP {status}.{suffix}")
         if status in (301, 302, 303, 307, 308):
-            raise ApiError(
-                status, "The server redirected an API call, which usually means a login page."
-            )
+            raise ApiError(status, self._redirect_message(response))
         if status == 204 or not response.content:
             return None
         if "json" not in content_type:
@@ -355,3 +424,60 @@ class AtlassianClient:
             )
         body: JsonValue = response.json()
         return body
+
+    def _redirect_message(self, response: httpx.Response) -> str:
+        """Describe a redirect so the user can tell what intercepted the call.
+
+        The destination is named without its query string, which can carry
+        sign-in state, and cookies are named without their values.
+
+        Args:
+            response: The redirect response.
+
+        Returns:
+            A plain-language description with the most likely fixes.
+        """
+        source = response.url
+        location = response.headers.get("location", "")
+        opening = (
+            f"The server redirected the API call to {source.path} (HTTP {response.status_code})"
+        )
+        if not location:
+            return f"{opening} without saying where to, which usually means a login page."
+        target = source.join(location)
+        shown = _without_query(target)
+        if target.host != source.host:
+            return (
+                f"{opening} to {shown}, on a different host. If that is a sign-in service, "
+                "whatever sits in front of the application is not accepting the access token "
+                "for API calls. If it is the site's real address, set base_url to it."
+            )
+        if target.scheme == source.scheme and target.path.rstrip("/") == source.path.rstrip("/"):
+            return (
+                f"{opening} back to the same address, so something in front of it is waiting "
+                f"for a cookie it did not get. {self._cookie_hint()}"
+            )
+        return (
+            f"{opening} to {shown}. Open that address in a browser to see what it is. If it "
+            f"is a consent or login page: {self._cookie_hint()} If it is the application "
+            "under a different address, correct base_url or the product path (for example "
+            "path under [jira]) in the config."
+        )
+
+    def _cookie_hint(self) -> str:
+        """Say what to check about extra cookies, naming the ones that were sent.
+
+        Returns:
+            One sentence of advice.
+        """
+        if self.cookie_names:
+            sent = ", ".join(self.cookie_names)
+            return (
+                f"The configured cookies ({sent}) were sent, so check their names and values "
+                "against what a browser holds after you get past that page; more than one "
+                "cookie may be required."
+            )
+        return (
+            "If a cookie gets you past it in a browser, add it under [cookies] in the config "
+            "or pass --cookie name=value."
+        )

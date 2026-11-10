@@ -3,6 +3,7 @@ from pathlib import Path
 
 import httpx
 import pytest
+from structlog.testing import capture_logs
 
 from productivity_agent_tools.errors import (
     ApiError,
@@ -97,6 +98,101 @@ async def test_live_write_is_sent(
     assert len(fake.writes()) == 1
 
 
+def _redirect(location: str | None) -> httpx.Response:
+    return httpx.Response(302, headers={"location": location} if location else {})
+
+
+async def test_redirect_names_the_destination_without_its_query(
+    fake: FakeJira, make_core: Callable[..., AtlassianClient]
+) -> None:
+    fake.overrides[MYSELF] = _redirect("/consent/notice.html?state=s3cret#top")
+    with pytest.raises(ApiError, match=r"to /jira/rest/api/2/myself \(HTTP 302\)") as info:
+        await make_core().get(MYSELF)
+    message = str(info.value)
+    assert "https://host.example/consent/notice.html." in message
+    assert "s3cret" not in message
+    assert "(consent)" in message
+    assert "path under [jira]" in message
+
+
+async def test_redirect_to_another_host_points_at_sign_in_or_base_url(
+    fake: FakeJira, make_core: Callable[..., AtlassianClient]
+) -> None:
+    fake.overrides[MYSELF] = _redirect("https://sso.example/login?SAMLRequest=abc")
+    with pytest.raises(ApiError, match=r"https://sso\.example/login, on a different host") as info:
+        await make_core().get(MYSELF)
+    assert "SAMLRequest" not in str(info.value)
+    assert "base_url" in str(info.value)
+
+
+async def test_redirect_back_to_the_same_address_means_a_missing_cookie(
+    fake: FakeJira, make_core: Callable[..., AtlassianClient]
+) -> None:
+    fake.require_banner_cookie = False
+    fake.overrides[MYSELF] = _redirect(f"https://host.example{MYSELF}")
+    with pytest.raises(ApiError, match=r"back to the same address.*--cookie name=value"):
+        await make_core(cookies={}).get(MYSELF)
+
+
+async def test_redirect_without_a_location_still_explains_itself(
+    fake: FakeJira, make_core: Callable[..., AtlassianClient]
+) -> None:
+    fake.overrides[MYSELF] = _redirect(None)
+    with pytest.raises(ApiError, match="without saying where to"):
+        await make_core().get(MYSELF)
+
+
+async def test_debug_events_describe_the_exchange_without_secrets(
+    fake: FakeJira, make_core: Callable[..., AtlassianClient]
+) -> None:
+    fake.overrides["/jira/rest/api/2/search"] = httpx.Response(
+        302,
+        headers=[
+            ("location", "/login.jsp?os_destination=s3cret"),
+            ("set-cookie", "JSESSIONID=abc123; Path=/"),
+            ("x-seraph-loginreason", "AUTHENTICATED_FAILED"),
+        ],
+    )
+    with capture_logs() as events, pytest.raises(ApiError):
+        await make_core().get("/jira/rest/api/2/search", {"jql": "project = HUSH"})
+    request, response = events
+    assert request == {
+        "event": "http_request",
+        "log_level": "debug",
+        "method": "GET",
+        "url": "https://host.example/jira/rest/api/2/search",
+        "param_names": ["jql"],
+        "cookie_names": ["consent"],
+        "has_body": False,
+    }
+    assert response["event"] == "http_response"
+    assert response["status"] == 302
+    assert response["location"] == "https://host.example/login.jsp"
+    assert response["set_cookie_names"] == ["JSESSIONID"]
+    assert response["x_seraph_loginreason"] == "AUTHENTICATED_FAILED"
+    logged = repr(events)
+    for secret in ("good-token", "consent=yes", "abc123", "s3cret", "HUSH"):
+        assert secret not in logged
+
+
+async def test_dry_run_write_and_transport_failures_are_logged(
+    make_core: Callable[..., AtlassianClient],
+) -> None:
+    def stall(request: httpx.Request) -> httpx.Response:
+        raise httpx.ReadTimeout("slow", request=request)
+
+    with capture_logs() as events:
+        await make_core().write("POST", "/jira/rest/api/2/issue/ABC-1/comment", {"body": "x"})
+        async with AtlassianClient(
+            base_url="https://host.example", token="t", transport=httpx.MockTransport(stall)
+        ) as core:
+            with pytest.raises(ConnectivityError, match="Timed out"):
+                await core.get(MYSELF)
+    names = [event["event"] for event in events]
+    assert names == ["write_blocked_by_dry_run", "http_request", "http_timeout"]
+    assert events[0]["log_level"] == "info"
+
+
 async def test_connection_failure_mentions_vpn() -> None:
     def refuse(request: httpx.Request) -> httpx.Response:
         raise httpx.ConnectError("no route", request=request)
@@ -104,8 +200,9 @@ async def test_connection_failure_mentions_vpn() -> None:
     async with AtlassianClient(
         base_url="https://host.example", token="t", transport=httpx.MockTransport(refuse)
     ) as core:
-        with pytest.raises(ConnectivityError, match="VPN"):
+        with capture_logs() as events, pytest.raises(ConnectivityError, match="VPN"):
             await core.get(MYSELF)
+    assert events[-1]["event"] == "http_transport_error"
 
 
 def test_missing_ca_bundle_is_a_config_error(tmp_path: Path) -> None:
