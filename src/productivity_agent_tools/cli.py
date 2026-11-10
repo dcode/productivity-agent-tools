@@ -1,0 +1,263 @@
+"""Command-line entry point: run the MCP server and the setup commands."""
+
+import asyncio
+import getpass
+import logging
+import sys
+from pathlib import Path
+from typing import Annotated
+
+import httpx
+from cyclopts import App, Parameter
+
+from productivity_agent_tools import __version__
+from productivity_agent_tools.config import (
+    DEFAULT_CONFIG_PATH,
+    Settings,
+    apply_overrides,
+    load_settings,
+)
+from productivity_agent_tools.errors import AtlassianError
+from productivity_agent_tools.http import AtlassianClient
+from productivity_agent_tools.jira.client import JiraClient
+from productivity_agent_tools.server import build_server
+from productivity_agent_tools.tokens import resolve_token, store_token
+
+_KEYCHAINS: tuple[str, ...] = (
+    "/Library/Keychains/System.keychain",
+    "/System/Library/Keychains/SystemRootCertificates.keychain",
+)
+
+app = App(
+    name="productivity-agent-tools",
+    help="MCP server and setup commands for self-hosted Atlassian tools.",
+    version=__version__,
+)
+
+ConfigOption = Annotated[
+    Path, Parameter(name="--config", help="Path to the TOML configuration file.")
+]
+DryRunOption = Annotated[
+    bool | None,
+    Parameter(
+        name="--dry-run",
+        help="Block all writes and only show what would be sent. "
+        "Overrides the config file; the built-in default is on.",
+    ),
+]
+CookieOption = Annotated[
+    list[str] | None,
+    Parameter(
+        name="--cookie",
+        negative="",
+        help="Extra cookie to send with every request, as name=value. Repeatable. "
+        "Adds to, and overrides by name, the [cookies] table in the config file.",
+    ),
+]
+TokenEnvFileOption = Annotated[
+    Path | None,
+    Parameter(
+        name="--token-env-file",
+        help="Env file defining JIRA_TOKEN. Overrides the config file.",
+    ),
+]
+
+
+async def _resolve_settings(
+    config: Path,
+    dry_run: bool | None,
+    cookie: list[str] | None,
+    token_env_file: Path | None,
+) -> Settings:
+    """Load the config file and apply command-line overrides.
+
+    Args:
+        config: Path to the TOML configuration file.
+        dry_run: Override for dry-run, or None.
+        cookie: Extra ``name=value`` cookies from the command line, or None.
+        token_env_file: Override for the token env file, or None.
+
+    Returns:
+        The resolved settings.
+
+    Raises:
+        ConfigError: If the config file is missing or invalid.
+    """
+    return apply_overrides(
+        await load_settings(config),
+        dry_run=dry_run,
+        cookies=cookie,
+        token_env_file=token_env_file,
+    )
+
+
+async def _serve(settings: Settings, transport: httpx.AsyncBaseTransport | None = None) -> None:
+    """Run the MCP server over stdio until the client disconnects.
+
+    Args:
+        settings: The resolved settings.
+        transport: Replacement HTTP transport, used by tests.
+
+    Raises:
+        AtlassianError: If the token or CA bundle cannot be loaded.
+    """
+    token = await resolve_token("jira", settings.token_env_file)
+    logging.getLogger(__name__).info(
+        "Starting: dry_run=%s extra_cookies=%s token_source=%s",
+        settings.dry_run,
+        ",".join(settings.cookies) or "none",
+        token.source,
+    )
+    async with AtlassianClient.from_settings(settings, token.value, transport) as core:
+        await build_server(settings, core, token.source).run_stdio_async()
+
+
+async def _doctor(
+    config: Path, settings: Settings, transport: httpx.AsyncBaseTransport | None = None
+) -> bool:
+    """Run the connectivity checks and print one line per check.
+
+    Args:
+        config: Path of the config file that was loaded.
+        settings: The resolved settings.
+        transport: Replacement HTTP transport, used by tests.
+
+    Returns:
+        True if every check passed.
+    """
+    print(f"[ok]   config loaded from {config}")
+    print(f"[info] dry_run={settings.dry_run} extra_cookies={','.join(settings.cookies) or 'none'}")
+    print(f"[info] ca_bundle={settings.ca_bundle or 'system trust store'}")
+    try:
+        token = await resolve_token("jira", settings.token_env_file)
+        print(f"[ok]   token found in {token.source}")
+        async with AtlassianClient.from_settings(settings, token.value, transport) as core:
+            jira = JiraClient(core, settings.jira)
+            profile = await jira.myself()
+            print(f"[ok]   authenticated to {jira.base_url} as {profile.get('displayName')}")
+            print(f"[ok]   Jira version {await jira.server_version()}")
+            result = await jira.search(settings.jira.presets.get("mine-open", ""), 1)
+            print(f"[ok]   search works ({result.total} open issue(s) assigned to you)")
+    except AtlassianError as exc:
+        print(f"[fail] {exc}")
+        return False
+    return True
+
+
+async def _export_ca(output: Path) -> int:
+    """Export the keychain's trusted roots to a PEM bundle.
+
+    Args:
+        output: File to write.
+
+    Returns:
+        The number of certificates written.
+
+    Raises:
+        AtlassianError: If the ``security`` tool fails or finds nothing.
+    """
+    process = await asyncio.create_subprocess_exec(
+        "/usr/bin/security",
+        "find-certificate",
+        "-a",
+        "-p",
+        *_KEYCHAINS,
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.PIPE,
+    )
+    stdout, stderr = await process.communicate()
+    count = stdout.count(b"BEGIN CERTIFICATE")
+    if process.returncode != 0 or count == 0:
+        raise AtlassianError(
+            f"Could not export certificates: {stderr.decode(errors='replace').strip()}"
+        )
+    await asyncio.to_thread(output.write_bytes, stdout)
+    return count
+
+
+def _fail(exc: AtlassianError) -> None:
+    """Print an error to stderr and exit with status 1.
+
+    Args:
+        exc: The error to report.
+    """
+    print(f"error: {exc}", file=sys.stderr)
+    sys.exit(1)
+
+
+@app.command
+def serve(
+    *,
+    config: ConfigOption = DEFAULT_CONFIG_PATH,
+    dry_run: DryRunOption = None,
+    cookie: CookieOption = None,
+    token_env_file: TokenEnvFileOption = None,
+) -> None:
+    """Run the MCP server over stdio (this is what Goose launches)."""
+    logging.basicConfig(stream=sys.stderr, level=logging.INFO, format="%(name)s: %(message)s")
+
+    async def run() -> None:
+        await _serve(await _resolve_settings(config, dry_run, cookie, token_env_file))
+
+    try:
+        asyncio.run(run())
+    except AtlassianError as exc:
+        _fail(exc)
+
+
+@app.command
+def doctor(
+    *,
+    config: ConfigOption = DEFAULT_CONFIG_PATH,
+    dry_run: DryRunOption = None,
+    cookie: CookieOption = None,
+    token_env_file: TokenEnvFileOption = None,
+) -> None:
+    """Check configuration, token, TLS trust and login. Read-only."""
+    expanded = config.expanduser()
+
+    async def run() -> bool:
+        settings = await _resolve_settings(config, dry_run, cookie, token_env_file)
+        return await _doctor(expanded, settings)
+
+    try:
+        passed = asyncio.run(run())
+    except AtlassianError as exc:
+        _fail(exc)
+    else:
+        sys.exit(0 if passed else 1)
+
+
+@app.command(name="set-token")
+def set_token(product: str = "jira") -> None:
+    """Store a personal access token in the macOS Keychain (hidden prompt).
+
+    Args:
+        product: Which product the token is for.
+    """
+    token = getpass.getpass(f"{product} personal access token (hidden): ").strip()
+    if not token:
+        _fail(AtlassianError("No token entered; nothing was stored."))
+    asyncio.run(store_token(product, token))
+    print(f"Stored the {product} token in the macOS Keychain.")
+
+
+@app.command(name="export-ca")
+def export_ca(output: Path = Path("~/ca-bundle.pem")) -> None:
+    """Export the keychain's trusted root certificates to a PEM bundle.
+
+    Args:
+        output: Where to write the bundle.
+    """
+    target = output.expanduser()
+    try:
+        count = asyncio.run(_export_ca(target))
+    except AtlassianError as exc:
+        _fail(exc)
+    else:
+        print(f"Wrote {count} certificates to {target}. Set ca_bundle to this path.")
+
+
+def main() -> None:
+    """Run the command-line application."""
+    app(sys.argv[1:])
