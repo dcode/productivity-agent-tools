@@ -14,6 +14,8 @@ import structlog
 from cyclopts import App, Parameter
 from mcp.server.mcpserver import MCPServer
 from mcp.server.mcpserver.exceptions import ToolError
+from rich.console import Console
+from rich.syntax import Syntax
 
 from productivity_agent_tools import __version__
 from productivity_agent_tools.agents import (
@@ -272,6 +274,7 @@ async def _call(
     tool: str | None,
     pairs: tuple[str, ...],
     transport: httpx.AsyncBaseTransport | None = None,
+    field: str | None = None,
 ) -> str:
     """Run one tool directly, with no agent, and render its result.
 
@@ -280,12 +283,13 @@ async def _call(
         tool: Name of the tool, or None to list the tools instead.
         pairs: ``name=value`` arguments for the tool.
         transport: Replacement HTTP transport, used by tests.
+        field: Return only this top-level field of the result; text is returned as written.
 
     Returns:
-        The tool's result as indented JSON, or the tool list.
+        The tool's result as indented JSON, the chosen field, or the tool list.
 
     Raises:
-        AtlassianError: If the tool or an argument is unknown, or the tool fails.
+        AtlassianError: If the tool, an argument or the field is unknown, or the tool fails.
     """
     async with _open_server(settings, transport) as server:
         tools = {item.name: item for item in await server.list_tools()}
@@ -301,7 +305,35 @@ async def _call(
         except ToolError as exc:
             raise AtlassianError(str(exc)) from exc
         content = getattr(result, "structured_content", None)
+        if field is not None:
+            if not isinstance(content, dict) or field not in content:
+                fields = ", ".join(content) if isinstance(content, dict) else "none"
+                raise AtlassianError(f"The result has no field '{field}'. Fields: {fields}.")
+            content = content[field]
+            if isinstance(content, str):
+                return content
         return json.dumps(content, indent=2, ensure_ascii=False)
+
+
+# Result fields worth colouring when a person reads them in a terminal.
+_FIELD_LEXERS: dict[str, str] = {"diff": "diff"}
+
+
+def _show(text: str, field: str | None) -> None:
+    """Print a result, coloured when it is a known kind of text shown in a terminal.
+
+    Piped or redirected output is always the plain text, so scripts and
+    agents get exactly what the tool returned.
+
+    Args:
+        text: The rendered result.
+        field: The field that was asked for, if any.
+    """
+    lexer = _FIELD_LEXERS.get(field or "")
+    if lexer and sys.stdout.isatty():
+        Console().print(Syntax(text, lexer, theme="ansi_dark", background_color="default"))
+    else:
+        print(text)
 
 
 async def _doctor_jira(settings: Settings, transport: httpx.AsyncBaseTransport | None) -> bool:
@@ -491,6 +523,14 @@ def call(
     cookie: CookieOption = None,
     token_env_file: TokenEnvFileOption = None,
     log_level: LogLevelOption = None,
+    field: Annotated[
+        str | None,
+        Parameter(
+            name="--field",
+            help="Print only this field of the result. Text is printed as written, not as "
+            "JSON, and a diff is coloured when shown in a terminal.",
+        ),
+    ] = None,
 ) -> None:
     """Run one tool directly, without an agent, and print its result as JSON.
 
@@ -500,10 +540,10 @@ def call(
 
     async def run() -> str:
         settings = await _resolve_settings(config, dry_run, cookie, token_env_file, log_level)
-        return await _call(settings, tool, arguments)
+        return await _call(settings, tool, arguments, field=field)
 
     try:
-        print(asyncio.run(run()))
+        _show(asyncio.run(run()), field)
     except AtlassianError as exc:
         _fail(exc)
 
