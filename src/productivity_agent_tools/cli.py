@@ -2,12 +2,12 @@
 
 import asyncio
 import getpass
-import logging
 import sys
 from pathlib import Path
 from typing import Annotated
 
 import httpx
+import structlog
 from cyclopts import App, Parameter
 
 from productivity_agent_tools import __version__
@@ -20,6 +20,7 @@ from productivity_agent_tools.config import (
 from productivity_agent_tools.errors import AtlassianError
 from productivity_agent_tools.http import AtlassianClient
 from productivity_agent_tools.jira.client import JiraClient
+from productivity_agent_tools.logs import LOG_LEVELS, configure_logging
 from productivity_agent_tools.server import build_server
 from productivity_agent_tools.tokens import resolve_token, store_token
 
@@ -27,6 +28,8 @@ _KEYCHAINS: tuple[str, ...] = (
     "/Library/Keychains/System.keychain",
     "/System/Library/Keychains/SystemRootCertificates.keychain",
 )
+
+_log = structlog.get_logger(__name__)
 
 app = App(
     name="productivity-agent-tools",
@@ -61,6 +64,15 @@ TokenEnvFileOption = Annotated[
         help="Env file defining JIRA_TOKEN. Overrides the config file.",
     ),
 ]
+LogLevelOption = Annotated[
+    str | None,
+    Parameter(
+        name="--log-level",
+        help=f"Least severe level logged to stderr: {', '.join(LOG_LEVELS)}. debug adds one "
+        "line per HTTP request and response (no token, cookie values or bodies). "
+        "Overrides the config file; the built-in default is info.",
+    ),
+]
 
 
 async def _resolve_settings(
@@ -68,14 +80,16 @@ async def _resolve_settings(
     dry_run: bool | None,
     cookie: list[str] | None,
     token_env_file: Path | None,
+    log_level: str | None = None,
 ) -> Settings:
-    """Load the config file and apply command-line overrides.
+    """Load the config file, apply command-line overrides and set up logging.
 
     Args:
         config: Path to the TOML configuration file.
         dry_run: Override for dry-run, or None.
         cookie: Extra ``name=value`` cookies from the command line, or None.
         token_env_file: Override for the token env file, or None.
+        log_level: Override for the log level, or None.
 
     Returns:
         The resolved settings.
@@ -83,12 +97,15 @@ async def _resolve_settings(
     Raises:
         ConfigError: If the config file is missing or invalid.
     """
-    return apply_overrides(
+    settings = apply_overrides(
         await load_settings(config),
         dry_run=dry_run,
         cookies=cookie,
         token_env_file=token_env_file,
+        log_level=log_level,
     )
+    configure_logging(settings.log_level)
+    return settings
 
 
 async def _serve(settings: Settings, transport: httpx.AsyncBaseTransport | None = None) -> None:
@@ -102,11 +119,13 @@ async def _serve(settings: Settings, transport: httpx.AsyncBaseTransport | None 
         AtlassianError: If the token or CA bundle cannot be loaded.
     """
     token = await resolve_token("jira", settings.token_env_file)
-    logging.getLogger(__name__).info(
-        "Starting: dry_run=%s extra_cookies=%s token_source=%s",
-        settings.dry_run,
-        ",".join(settings.cookies) or "none",
-        token.source,
+    _log.info(
+        "server_starting",
+        base_url=settings.base_url,
+        dry_run=settings.dry_run,
+        extra_cookies=sorted(settings.cookies),
+        token_source=token.source,
+        log_level=settings.log_level,
     )
     async with AtlassianClient.from_settings(settings, token.value, transport) as core:
         await build_server(settings, core, token.source).run_stdio_async()
@@ -192,12 +211,12 @@ def serve(
     dry_run: DryRunOption = None,
     cookie: CookieOption = None,
     token_env_file: TokenEnvFileOption = None,
+    log_level: LogLevelOption = None,
 ) -> None:
     """Run the MCP server over stdio (this is what Goose launches)."""
-    logging.basicConfig(stream=sys.stderr, level=logging.INFO, format="%(name)s: %(message)s")
 
     async def run() -> None:
-        await _serve(await _resolve_settings(config, dry_run, cookie, token_env_file))
+        await _serve(await _resolve_settings(config, dry_run, cookie, token_env_file, log_level))
 
     try:
         asyncio.run(run())
@@ -212,12 +231,13 @@ def doctor(
     dry_run: DryRunOption = None,
     cookie: CookieOption = None,
     token_env_file: TokenEnvFileOption = None,
+    log_level: LogLevelOption = None,
 ) -> None:
     """Check configuration, token, TLS trust and login. Read-only."""
     expanded = config.expanduser()
 
     async def run() -> bool:
-        settings = await _resolve_settings(config, dry_run, cookie, token_env_file)
+        settings = await _resolve_settings(config, dry_run, cookie, token_env_file, log_level)
         return await _doctor(expanded, settings)
 
     try:

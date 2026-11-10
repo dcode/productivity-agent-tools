@@ -73,6 +73,9 @@ Check everything end to end (read-only):
 uv run productivity-agent-tools doctor
 ```
 
+If a check fails, run it again with `--log-level debug` to see each request and
+what the server answered (see [Logging](#logging)).
+
 ### Token sources
 
 Checked in this order; the first one found wins:
@@ -81,6 +84,27 @@ Checked in this order; the first one found wins:
 2. `JIRA_TOKEN=...` inside the env file named by `token_env_file` or `--token-env-file`
    (for example `.env` or `~/.secrets/jira_token.env`)
 3. macOS Keychain (written by `set-token`)
+
+## Logging
+
+Logs are structured ([structlog](https://www.structlog.org/)) and always go to
+stderr, because the MCP protocol owns stdout. They are readable lines in a
+terminal and one JSON object per line otherwise, such as in an agent host's log
+file.
+
+Set the level with `log_level` in the config or `--log-level` on `serve` and
+`doctor`: `debug`, `info` (default), `warning` or `error`.
+
+At `debug` every HTTP exchange is logged as an `http_request` and an
+`http_response` event: method, path, status, content type, size, duration, the
+redirect target if any, the names of cookies sent and set, and a few headers
+that say who answered (`server`, `via`, `www-authenticate`,
+`x-seraph-loginreason`). The token, cookie values, query-string values and
+request and response bodies are never logged.
+
+```bash
+uv run productivity-agent-tools doctor --log-level debug
+```
 
 ## Add to Goose
 

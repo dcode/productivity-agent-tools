@@ -47,6 +47,8 @@ def test_integer_booleans_are_accepted() -> None:
         {"base_url": "https://host.example", "cookies": "consent=yes"},
         {"base_url": "https://host.example", "cookies": {"consent": 1}},
         {"base_url": "https://host.example", "cookies": {"a;b": "x"}},
+        {"base_url": "https://host.example", "log_level": "chatty"},
+        {"base_url": "https://host.example", "log_level": 10},
     ],
 )
 def test_invalid_config_is_rejected(raw: dict[str, object]) -> None:
@@ -92,3 +94,13 @@ async def test_load_settings_reads_file_and_custom_presets(tmp_path: Path) -> No
 async def test_missing_config_file_explains_what_to_do(tmp_path: Path) -> None:
     with pytest.raises(ConfigError, match=r"config\.example\.toml"):
         await load_settings(tmp_path / "nope.toml")
+
+
+def test_log_level_defaults_to_info_and_flag_overrides_file() -> None:
+    assert parse_settings({"base_url": "https://host.example"}).log_level == "info"
+    settings = parse_settings({"base_url": "https://host.example", "log_level": "WARNING"})
+    assert settings.log_level == "warning"
+    assert apply_overrides(settings).log_level == "warning"
+    assert apply_overrides(settings, log_level="Debug").log_level == "debug"
+    with pytest.raises(ConfigError, match="debug, info, warning, error"):
+        apply_overrides(settings, log_level="loud")
