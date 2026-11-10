@@ -122,6 +122,98 @@ SEARCH: dict[str, Any] = {
 }
 
 
+BUILD_FULL: dict[str, Any] = {
+    "state": "SUCCESSFUL",
+    "key": "unit",
+    "name": "Unit tests",
+    "url": "https://ci.example/2",
+    "description": "134 passed",
+    "buildNumber": "17",
+    "ref": "refs/heads/feature/retry",
+    "updatedDate": 1794330000000,
+    "duration": 90500,
+    "testResults": {"successful": 134, "failed": 0, "skipped": 5},
+}
+BUILD_OLD: dict[str, Any] = {"state": "FAILED", "key": "lint", "dateAdded": 1794300000000}
+REQUIRED: list[dict[str, Any]] = [
+    {
+        "id": 15,
+        "buildParentKeys": ["unit", "lint", 7],
+        "refMatcher": {"displayId": "main", "id": "refs/heads/main", "type": {"id": "BRANCH"}},
+        "exemptRefMatcher": {"id": "release/*", "type": {"id": "PATTERN"}},
+    },
+    {"id": 16, "refMatcher": {"id": "ANY_REF_MATCHER_ID", "type": {"id": "ANY_REF"}}},
+    {"buildParentKeys": "unit", "refMatcher": {"type": {"id": "BRANCH"}}},
+]
+DEPLOYMENT: dict[str, Any] = {
+    "key": "deploy-api",
+    "displayName": "API deploy",
+    "description": "Ships the API",
+    "deploymentSequenceNumber": 7,
+    "state": "SUCCESSFUL",
+    "environment": {
+        "key": "prod",
+        "displayName": "Production",
+        "type": "PRODUCTION",
+        "url": "https://api.example",
+    },
+    "fromCommit": {"id": "0001111"},
+    "toCommit": {"id": "abc123"},
+    "url": "https://cd.example/7",
+    "lastUpdated": 1794330000,
+}
+MERGE: dict[str, Any] = {
+    "canMerge": False,
+    "conflicted": True,
+    "outcome": "CONFLICTED",
+    "vetoes": [
+        {"summaryMessage": "Needs 2 approvals", "detailedMessage": "1 of 2 reviewers approved."},
+        {},
+    ],
+}
+HISTORY: list[dict[str, Any]] = [
+    {
+        "id": 9,
+        "action": "COMMENTED",
+        "commentAction": "ADDED",
+        "createdDate": 1794330000000,
+        "user": {"displayName": "Pat Example"},
+        "comment": {
+            "id": 3,
+            "text": "why?",
+            "anchor": {"path": "src/upload.py", "line": 12},
+            "comments": [{"id": 4}, {"id": 5}],
+        },
+    },
+    {
+        "id": 8,
+        "action": "RESCOPED",
+        "user": {"name": "sauthor"},
+        "added": {"commits": [{"displayId": "abc123d"}, {"id": "fullhash"}]},
+        "removed": {"commits": [{"displayId": "0001111"}]},
+    },
+    {"id": 7, "action": "REVIEWED", "commentAnchor": {"path": "a.py", "line": 3}},
+    {},
+]
+TASKS: list[dict[str, Any]] = [
+    {
+        "id": 21,
+        "text": "Add a test",
+        "state": "RESOLVED",
+        "author": {"displayName": "Pat Example"},
+        "createdDate": 1794300000000,
+        "resolver": {"displayName": "Sam Author"},
+        "resolvedDate": 1794330000000,
+    },
+    {"id": 22, "author": {"name": "rlee"}},
+]
+ISSUES: list[Any] = [
+    {"key": "ABC-1", "url": "https://host.example/jira/browse/ABC-1"},
+    {"url": "https://nowhere.example"},
+    "junk",
+]
+
+
 class FakeBitbucket:
     """Answers the Bitbucket endpoints the client uses."""
 
@@ -134,6 +226,14 @@ class FakeBitbucket:
         self.last_page = True
         self.diff: httpx.Response = httpx.Response(200, text=DIFF)
         self.search: httpx.Response = httpx.Response(200, json=SEARCH)
+        self.required: httpx.Response = httpx.Response(
+            200, json={"values": REQUIRED, "isLastPage": True}
+        )
+        self.deployment: httpx.Response = httpx.Response(200, json=DEPLOYMENT)
+        self.tasks: httpx.Response = httpx.Response(
+            200, json={"values": TASKS, "isLastPage": False}
+        )
+        self.issues: httpx.Response = httpx.Response(200, json=ISSUES)
 
     def handler(self, request: httpx.Request) -> httpx.Response:
         self.requests.append(request)
@@ -166,9 +266,26 @@ class FakeBitbucket:
         if path == f"{base}.diff":
             return self.diff
         if path == f"{base}/activities":
+            if "limit" in request.url.params and request.url.params["limit"] != "100":
+                return httpx.Response(200, json={"values": HISTORY, "isLastPage": True})
             return httpx.Response(200, json=ACTIVITIES)
+        if path == f"{base}/merge":
+            return httpx.Response(200, json=MERGE)
+        if path == f"{base}/blocker-comments":
+            return self.tasks
+        if (
+            path
+            == "/bitbucket/rest/jira/latest/projects/OPS/repos/uploader/pull-requests/42/issues"
+        ):
+            return self.issues
         if path == "/bitbucket/rest/build-status/1.0/commits/abc123":
             return self.builds
+        if path == "/bitbucket/rest/build-status/1.0/commits/stats/abc123":
+            return httpx.Response(200, json={"successful": 3, "failed": 1, "inProgress": 2})
+        if path == "/bitbucket/rest/required-builds/latest/projects/OPS/repos/uploader/conditions":
+            return self.required
+        if path == f"{API}/projects/OPS/repos/uploader/commits/abc123/deployments":
+            return self.deployment
         return httpx.Response(
             404, json={"errors": [{"message": "Pull request 7 does not exist in OPS/uploader."}]}
         )
@@ -351,14 +468,21 @@ async def test_tools_are_registered_only_when_bitbucket_is_connected(
     )
     tools = {t.name: t for t in await server.list_tools() if t.name.startswith("bitbucket_")}
     assert sorted(tools) == [
+        "bitbucket_get_commit_builds",
+        "bitbucket_get_deployment",
         "bitbucket_get_pull_request",
+        "bitbucket_get_pull_request_activity",
         "bitbucket_get_pull_request_changes",
         "bitbucket_get_pull_request_commits",
         "bitbucket_get_pull_request_diff",
+        "bitbucket_get_pull_request_issues",
+        "bitbucket_get_pull_request_merge_status",
         "bitbucket_list_projects",
+        "bitbucket_list_pull_request_tasks",
         "bitbucket_list_pull_requests",
         "bitbucket_list_repositories",
         "bitbucket_list_repository_pull_requests",
+        "bitbucket_list_required_builds",
         "bitbucket_search_code",
         "bitbucket_set_default_project",
         "bitbucket_status",
@@ -407,8 +531,28 @@ async def test_tools_are_registered_only_when_bitbucket_is_connected(
         ("bitbucket_get_pull_request_commits", "commits"),
         ("bitbucket_get_pull_request_changes", "files"),
         ("bitbucket_get_pull_request_diff", "diff"),
+        ("bitbucket_get_pull_request_merge_status", "vetoes"),
+        ("bitbucket_get_pull_request_activity", "activities"),
+        ("bitbucket_list_pull_request_tasks", "tasks"),
+        ("bitbucket_get_pull_request_issues", "issues"),
     ]:
         assert _structured(await server.call_tool(tool, pull))[key]
+    for tool, arguments, key in [
+        ("bitbucket_get_commit_builds", {"commit_id": "abc123"}, "builds"),
+        ("bitbucket_list_required_builds", {"repository": "uploader"}, "checks"),
+        (
+            "bitbucket_get_deployment",
+            {
+                "repository": "uploader",
+                "commit_id": "abc123",
+                "deployment_key": "deploy-api",
+                "environment_key": "prod",
+                "sequence_number": 7,
+            },
+            "environment",
+        ),
+    ]:
+        assert _structured(await server.call_tool(tool, arguments))[key]
     listed_in_repo = _structured(
         await server.call_tool(
             "bitbucket_list_repository_pull_requests", {"repository": "uploader"}
@@ -699,3 +843,207 @@ async def test_jira_adapter_without_a_jira_table_registers_nothing(
 ) -> None:
     server = build_server(_bitbucket_only(), make_core(), "jira source")
     assert await server.list_tools() == []
+
+
+async def test_pull_request_builds_carry_the_richer_fields_when_reported(
+    bitbucket: FakeBitbucket, client: BitbucketClient
+) -> None:
+    bitbucket.builds = httpx.Response(200, json={"values": [BUILD_FULL, BUILD_OLD]})
+    detail = await client.get_pull_request("uploader", 42, "OPS", max_comments=0)
+    full, old = detail.builds
+    assert (full.name, full.key, full.build_number, full.ref) == (
+        "Unit tests",
+        "unit",
+        "17",
+        "refs/heads/feature/retry",
+    )
+    assert (full.updated, full.duration_seconds, full.description) == (
+        "2026-11-10T17:00:00+00:00",
+        90.5,
+        "134 passed",
+    )
+    assert full.tests is not None
+    assert (full.tests.successful, full.tests.failed, full.tests.skipped) == (134, 0, 5)
+    assert (old.name, old.key, old.updated, old.tests, old.duration_seconds) == (
+        "lint",
+        "lint",
+        "2026-11-10T08:40:00+00:00",
+        None,
+        None,
+    )
+
+
+async def test_commit_builds_have_totals_and_newest_first(
+    bitbucket: FakeBitbucket, client: BitbucketClient
+) -> None:
+    bitbucket.builds = httpx.Response(200, json={"values": [BUILD_FULL], "isLastPage": False})
+    result = await client.get_commit_builds(" abc123 ", 500)
+    stats, page = bitbucket.requests
+    assert stats.url.path.endswith("/commits/stats/abc123")
+    assert dict(page.url.params) == {"limit": "100", "orderBy": "NEWEST"}
+    assert result.commit == "abc123"
+    assert result.counts.model_dump() == {
+        "successful": 3,
+        "failed": 1,
+        "in_progress": 2,
+        "cancelled": 0,
+        "unknown": 0,
+    }
+    assert (result.returned, result.more_available, result.builds[0].key) == (1, True, "unit")
+
+
+@pytest.mark.parametrize("commit", ["", "abc", "xyz123", "abc123/../x"])
+async def test_commit_hashes_are_validated_before_any_request(
+    bitbucket: FakeBitbucket, client: BitbucketClient, commit: str
+) -> None:
+    with pytest.raises(AtlassianError, match="not a valid commit hash"):
+        await client.get_commit_builds(commit)
+    assert bitbucket.requests == []
+
+
+async def test_required_builds_describe_their_branches(
+    bitbucket: FakeBitbucket, client: BitbucketClient
+) -> None:
+    result = await client.list_required_builds("uploader", "OPS")
+    assert (result.project, result.repository, result.returned) == ("OPS", "uploader", 3)
+    first, second, third = result.checks
+    assert (first.id, first.build_keys, first.branches, first.exempt_branches) == (
+        15,
+        ["unit", "lint"],
+        "main",
+        "pattern: release/*",
+    )
+    assert (second.branches, second.exempt_branches, second.build_keys) == ("any branch", None, [])
+    assert (third.id, third.build_keys, third.branches) == (None, [], None)
+
+    bitbucket.required = httpx.Response(404, json={"errors": [{"message": "Not found"}]})
+    with pytest.raises(AtlassianError, match=r"older than 7\.14"):
+        await client.list_required_builds("uploader", "OPS")
+
+
+async def test_deployment_is_fetched_by_its_three_identifiers(
+    bitbucket: FakeBitbucket, client: BitbucketClient
+) -> None:
+    found = await client.get_deployment("uploader", "abc123", " deploy-api ", " prod ", 7, "OPS")
+    assert dict(bitbucket.requests[0].url.params) == {
+        "key": "deploy-api",
+        "environmentKey": "prod",
+        "deploymentSequenceNumber": "7",
+    }
+    assert (found.key, found.name, found.state, found.sequence_number) == (
+        "deploy-api",
+        "API deploy",
+        "SUCCESSFUL",
+        7,
+    )
+    assert found.environment is not None
+    assert (found.environment.key, found.environment.name, found.environment.type) == (
+        "prod",
+        "Production",
+        "PRODUCTION",
+    )
+    assert (found.from_commit, found.to_commit, found.url) == (
+        "0001111",
+        "abc123",
+        "https://cd.example/7",
+    )
+    assert found.updated == "2026-11-10T17:00:00+00:00"
+
+    bitbucket.deployment = httpx.Response(
+        200, json={"environment": {}, "lastUpdated": 1794330000000}
+    )
+    sparse = await client.get_deployment("uploader", "abc123", "deploy-api", "prod", 7, "OPS")
+    assert (sparse.key, sparse.state, sparse.updated) == (
+        "deploy-api",
+        "UNKNOWN",
+        "2026-11-10T17:00:00+00:00",
+    )
+    assert sparse.environment is not None and sparse.environment.key == "prod"
+    bitbucket.deployment = httpx.Response(200, json={})
+    assert (
+        await client.get_deployment("uploader", "abc123", "d", "e", 1, "OPS")
+    ).environment is None
+
+
+async def test_deployment_problems_are_explained(
+    bitbucket: FakeBitbucket, client: BitbucketClient
+) -> None:
+    with pytest.raises(AtlassianError, match="both its key and its environment key"):
+        await client.get_deployment("uploader", "abc123", " ", "prod", 7, "OPS")
+    assert bitbucket.requests == []
+    bitbucket.deployment = httpx.Response(404, json={"errors": [{"message": "No deployment"}]})
+    with pytest.raises(AtlassianError, match="cannot list deployments"):
+        await client.get_deployment("uploader", "abc123", "deploy-api", "prod", 7, "OPS")
+
+
+async def test_merge_status_lists_what_blocks_the_merge(client: BitbucketClient) -> None:
+    status = await client.get_merge_status("uploader", 42, "OPS")
+    assert (status.can_merge, status.conflicted, status.outcome) == (False, True, "CONFLICTED")
+    assert [(v.summary, v.detail) for v in status.vetoes] == [
+        ("Needs 2 approvals", "1 of 2 reviewers approved."),
+        ("Blocked by a merge check.", None),
+    ]
+
+
+async def test_activity_reads_comments_pushes_and_reviews(
+    bitbucket: FakeBitbucket, client: BitbucketClient
+) -> None:
+    result = await client.get_pull_request_activity("uploader", 42, "OPS", 5)
+    assert dict(bitbucket.requests[0].url.params) == {"limit": "5"}
+    comment, push, review, empty = result.activities
+    assert (comment.action, comment.user, comment.comment, comment.comment_id) == (
+        "COMMENTED",
+        "Pat Example",
+        "why?",
+        3,
+    )
+    assert (comment.comment_action, comment.file, comment.line, comment.replies) == (
+        "ADDED",
+        "src/upload.py",
+        12,
+        2,
+    )
+    assert comment.created == "2026-11-10T17:00:00+00:00"
+    assert (push.user, push.commits_added, push.commits_removed) == (
+        "sauthor",
+        ["abc123d", "fullhash"],
+        ["0001111"],
+    )
+    assert (review.action, review.file, review.line, review.replies) == ("REVIEWED", "a.py", 3, 0)
+    assert (empty.action, empty.id, empty.user) == ("UNKNOWN", None, None)
+
+
+async def test_tasks_filter_by_state(bitbucket: FakeBitbucket, client: BitbucketClient) -> None:
+    result = await client.list_pull_request_tasks("uploader", 42, "OPS", " Resolved ")
+    assert dict(bitbucket.requests[0].url.params) == {"limit": "25", "state": "RESOLVED"}
+    assert (result.state, result.returned, result.more_available) == ("resolved", 2, True)
+    done, open_task = result.tasks
+    assert (done.id, done.text, done.state, done.author) == (
+        21,
+        "Add a test",
+        "RESOLVED",
+        "Pat Example",
+    )
+    assert (done.resolved_by, done.resolved) == ("Sam Author", "2026-11-10T17:00:00+00:00")
+    assert (open_task.text, open_task.state, open_task.author) == ("", "OPEN", "rlee")
+
+    await client.list_pull_request_tasks("uploader", 42, "OPS", "all")
+    assert "state" not in dict(bitbucket.requests[1].url.params)
+    with pytest.raises(AtlassianError, match="open, resolved, all"):
+        await client.list_pull_request_tasks("uploader", 42, "OPS", "closed")
+    bitbucket.tasks = httpx.Response(404, json={"errors": [{"message": "Not found"}]})
+    with pytest.raises(AtlassianError, match=r"older than 7\.2,"):
+        await client.list_pull_request_tasks("uploader", 42, "OPS")
+
+
+async def test_linked_jira_issues_skip_entries_without_a_key(
+    bitbucket: FakeBitbucket, client: BitbucketClient
+) -> None:
+    result = await client.get_pull_request_issues("uploader", 42, "OPS")
+    assert [(i.key, i.url) for i in result.issues] == [
+        ("ABC-1", "https://host.example/jira/browse/ABC-1")
+    ]
+    assert result.returned == 1
+    bitbucket.issues = httpx.Response(404, json={"errors": [{"message": "Not found"}]})
+    with pytest.raises(AtlassianError, match="not linked to Jira"):
+        await client.get_pull_request_issues("uploader", 42, "OPS")
