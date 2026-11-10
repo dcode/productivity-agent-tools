@@ -160,6 +160,7 @@ Bitbucket is off until the config has a `[bitbucket]` table. To turn it on:
    ```toml
    [bitbucket]
    path = "/bitbucket"
+   default_project = "PROJ"  # optional: the project key you usually work in
    ```
 
 2. Create an HTTP access token in Bitbucket (your profile, Manage account, HTTP
@@ -252,12 +253,32 @@ tool approval on so you see each comment or transition before it is sent.
 | `jira_list_transitions` | read | Workflow transitions available on an issue |
 | `jira_add_comment` | write | Add a comment (Jira wiki markup) |
 | `jira_transition_issue` | write | Move an issue through a transition |
-| `bitbucket_status` | read | Bitbucket version and whether the token is accepted |
+| `bitbucket_status` | read | Bitbucket version, whether the token is accepted, the default project |
+| `bitbucket_search_code` | read | Search file contents across repositories, optionally within a project or repository |
+| `bitbucket_list_projects` | read | Projects you can see, with their keys |
+| `bitbucket_set_default_project` | session | Choose the project used when a call names none |
+| `bitbucket_list_repositories` | read | Repositories in a project |
 | `bitbucket_list_pull_requests` | read | Pull requests where you are reviewer, author or participant |
+| `bitbucket_list_repository_pull_requests` | read | Every pull request in one repository, by state and text |
 | `bitbucket_get_pull_request` | read | One pull request with description, reviewers, newest comments and build results |
+| `bitbucket_get_pull_request_commits` | read | Commits in a pull request |
+| `bitbucket_get_pull_request_changes` | read | Files a pull request changes |
+| `bitbucket_get_pull_request_diff` | read | Unified diff, cut at a size limit |
 
-The `bitbucket_` tools appear only when Bitbucket is configured. They do not
-return diffs.
+The `bitbucket_` tools appear only when Bitbucket is configured, and none of
+them changes anything in Bitbucket.
+
+`bitbucket_search_code` uses the endpoint behind Bitbucket's own search page
+(`rest/search/1.0/search`). Atlassian does not document it, so it may behave
+differently between versions; if a server does not have it, the tool says so.
+It accepts Bitbucket's
+[search syntax](https://confluence.atlassian.com/bitbucketserver/search-for-code-in-bitbucket-server-814204781.html),
+searches every project unless you name one, and only covers default branches.
+
+Most other Bitbucket tools need a project key. Set `default_project` under
+`[bitbucket]` to the project you usually work in and the agent can leave it out.
+You can also tell the agent which project to use; it calls
+`bitbucket_set_default_project`, which lasts until the server restarts.
 
 An identical write (same issue and same comment text, or same issue and same
 transition) repeated within 30 seconds is not sent again; the tool returns the

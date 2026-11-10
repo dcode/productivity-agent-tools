@@ -311,6 +311,39 @@ class AtlassianClient:
         """
         return await self._request("GET", path, params=params)
 
+    async def get_text(self, path: str, params: dict[str, str | int] | None = None) -> str:
+        """Send a read request for a plain-text resource and return its body.
+
+        Args:
+            path: Request path relative to the base URL.
+            params: Optional query parameters.
+
+        Returns:
+            The response body as text; empty for an empty response.
+
+        Raises:
+            AtlassianError: For any connectivity, auth, or API failure.
+        """
+        body = await self._request("GET", path, params=params, as_text=True)
+        return body if isinstance(body, str) else ""
+
+    async def query(self, path: str, payload: dict[str, JsonValue]) -> JsonValue:
+        """Send a read that the server only accepts as a POST with a JSON body.
+
+        Not gated by dry-run: only use it for endpoints that change nothing.
+
+        Args:
+            path: Request path relative to the base URL.
+            payload: JSON body describing what to read.
+
+        Returns:
+            The decoded JSON body, or None for an empty response.
+
+        Raises:
+            AtlassianError: For any connectivity, auth, or API failure.
+        """
+        return await self._request("POST", path, payload=payload)
+
     async def write(self, method: str, path: str, payload: dict[str, JsonValue]) -> WriteOutcome:
         """Send a write request, unless dry-run is on.
 
@@ -338,6 +371,7 @@ class AtlassianClient:
         *,
         params: dict[str, str | int] | None = None,
         payload: dict[str, JsonValue] | None = None,
+        as_text: bool = False,
     ) -> JsonValue:
         """Send one request and interpret the response.
 
@@ -346,14 +380,17 @@ class AtlassianClient:
             path: Request path relative to the base URL.
             params: Optional query parameters.
             payload: Optional JSON body.
+            as_text: Ask for plain text and return the body undecoded.
 
         Returns:
-            The decoded JSON body, or None for an empty response.
+            The decoded JSON body (or the text body), or None for an empty response.
 
         Raises:
             AtlassianError: For any connectivity, auth, or API failure.
         """
-        extra = {"X-Atlassian-Token": "no-check"} if method != "GET" else None
+        extra: dict[str, str] = {} if method == "GET" else {"X-Atlassian-Token": "no-check"}
+        if as_text:
+            extra["Accept"] = "text/plain"
         _log.debug(
             "http_request",
             method=method,
@@ -387,21 +424,22 @@ class AtlassianClient:
             self._http.cookies.clear()
         _log.debug("http_response", **_response_event(response, time.perf_counter() - started))
         try:
-            return self._interpret(response)
+            return self._interpret(response, as_text=as_text)
         except AtlassianError as exc:
             hint = _address_hint(response.url)
             if hint:
                 exc.args = (f"{exc} {hint}", *exc.args[1:])
             raise
 
-    def _interpret(self, response: httpx.Response) -> JsonValue:
+    def _interpret(self, response: httpx.Response, *, as_text: bool = False) -> JsonValue:
         """Turn a response into data or a plain-language error.
 
         Args:
             response: The HTTP response.
+            as_text: Return the body as text instead of decoding JSON.
 
         Returns:
-            The decoded JSON body, or None for an empty response.
+            The decoded JSON body (or the text body), or None for an empty response.
 
         Raises:
             AtlassianError: When the response is a web page or an error status.
@@ -443,6 +481,8 @@ class AtlassianClient:
             raise ApiError(status, f"The server returned HTTP {status}.{suffix}")
         if status in (301, 302, 303, 307, 308):
             raise ApiError(status, self._redirect_message(response))
+        if as_text:
+            return response.text
         if "json" not in content_type:
             raise ApiError(
                 status, f"Expected JSON but the server returned '{content_type or 'unknown'}'."
