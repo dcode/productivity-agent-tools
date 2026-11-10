@@ -232,6 +232,15 @@ async def test_shared_prefix_in_base_url_is_kept_and_not_questioned(
     assert "Did you mean" not in str(info.value)
 
 
+async def test_empty_success_labelled_html_is_a_success_not_a_web_page(
+    fake: FakeJira, make_core: Callable[..., AtlassianClient]
+) -> None:
+    path = "/jira/rest/api/2/issue/ABC-1/transitions"
+    fake.overrides[path] = httpx.Response(204, headers={"content-type": "text/html;charset=UTF-8"})
+    outcome = await make_core(dry_run=False).write("POST", path, {"transition": {"id": "21"}})
+    assert (outcome.sent, outcome.response) == (True, None)
+
+
 async def test_connection_failure_mentions_vpn() -> None:
     def refuse(request: httpx.Request) -> httpx.Response:
         raise httpx.ConnectError("no route", request=request)
