@@ -1,4 +1,5 @@
 import asyncio
+import json
 from collections.abc import Callable
 from pathlib import Path
 
@@ -201,3 +202,81 @@ def test_main_dispatches_to_commands(
         cli.main()
     assert info.value.code == 1
     assert ConfigError.__name__ not in capsys.readouterr().err
+
+
+async def test_call_lists_tools_with_their_parameters(
+    fake: FakeJira, make_settings: Callable[..., Settings]
+) -> None:
+    listing = await cli._call(make_settings(), None, (), httpx.MockTransport(fake.handler))
+    assert "jira_search jql=... [max_results=...]\n    Search Jira with an ad-hoc JQL" in listing
+    assert "jira_status\n    Check the Jira connection" in listing
+    assert "bitbucket_" not in listing
+
+
+async def test_call_runs_a_tool_and_types_its_arguments(
+    fake: FakeJira, make_settings: Callable[..., Settings]
+) -> None:
+    transport = httpx.MockTransport(fake.handler)
+    output = await cli._call(
+        make_settings(), "jira_search", ("jql=project = ABC", "max_results=5"), transport
+    )
+    assert json.loads(output)["issues"][0]["key"] == "ABC-1"
+    sent = dict(fake.requests[-1].url.params)
+    assert (sent["jql"], sent["maxResults"]) == ("project = ABC", "5")
+
+    comment = await cli._call(
+        make_settings(), "jira_add_comment", ("key=ABC-1", "body=123"), transport
+    )
+    assert json.loads(comment)["request"]["body"] == {"body": "123"}
+    assert json.loads(comment)["dry_run"] is True
+    assert fake.writes() == []
+
+
+@pytest.mark.parametrize(
+    ("tool", "pairs", "message"),
+    [
+        ("nope", (), "'nope' is not a tool"),
+        ("jira_search", ("jql",), "must be written as name=value"),
+        ("jira_search", ("jqll=x",), "Parameters: jql, max_results"),
+        ("jira_search", ("jql=x", "max_results=lots"), "must be a number, true/false or JSON"),
+        ("jira_search", ("jql=BROKEN",), "Bad JQL"),
+        ("jira_search", (), "Field required"),
+    ],
+)
+async def test_call_explains_what_went_wrong(
+    fake: FakeJira,
+    make_settings: Callable[..., Settings],
+    tool: str,
+    pairs: tuple[str, ...],
+    message: str,
+) -> None:
+    with pytest.raises(AtlassianError, match=message):
+        await cli._call(make_settings(), tool, pairs, httpx.MockTransport(fake.handler))
+
+
+def test_call_command_prints_the_result_or_exits_with_the_error(
+    config_file: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    seen: list[tuple[str | None, tuple[str, ...]]] = []
+
+    async def run(settings: Settings, tool: str | None, pairs: tuple[str, ...]) -> str:
+        seen.append((tool, pairs))
+        if tool == "bad":
+            raise AtlassianError("no such luck")
+        return "RESULT"
+
+    monkeypatch.setattr(cli, "_call", run)
+    cli.call("jira_search", "jql=x", config=config_file)
+    assert capsys.readouterr().out == "RESULT\n"
+    assert seen == [("jira_search", ("jql=x",))]
+    with pytest.raises(SystemExit) as info:
+        cli.call("bad", config=config_file)
+    assert info.value.code == 1
+    assert "error: no such luck" in capsys.readouterr().err
+
+
+def test_text_parameters_are_detected_from_the_schema() -> None:
+    assert cli._accepts_text({"type": "string"})
+    assert cli._accepts_text({"anyOf": [{"type": "string"}, {"type": "null"}]})
+    assert not cli._accepts_text({"anyOf": [{"type": "integer"}, {"type": "null"}]})
+    assert cli._accepts_text("not a schema")

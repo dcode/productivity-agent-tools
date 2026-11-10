@@ -173,6 +173,30 @@ Bitbucket is off until the config has a `[bitbucket]` table. To turn it on:
 3. Run `doctor` again; it now checks Bitbucket too. Restart your agent to load
    the new tools.
 
+## Run a tool without an agent
+
+`call` runs one tool directly and prints its result as JSON. It uses the same
+config, tokens and dry-run setting as the server, and spends no model credits,
+so it is the quickest way to check a tool against your real servers:
+
+```bash
+uv run productivity-agent-tools call
+```
+
+```bash
+uv run productivity-agent-tools call jira_search "jql=assignee = currentUser()" max_results=5
+```
+
+```bash
+uv run productivity-agent-tools call bitbucket_get_pull_request \
+  repository=my-service pull_request_id=42 --log-level debug
+```
+
+With no tool name it lists every tool and its parameters; names in square
+brackets are optional. Arguments are written `name=value`; quote any that
+contain spaces. Write tools still obey `dry_run`, so add `--no-dry-run` to send
+a change for real.
+
 ## Logging
 
 Logs are structured ([structlog](https://www.structlog.org/)) and always go to
