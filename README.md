@@ -4,6 +4,42 @@ An MCP server that gives an AI agent (Goose first, Claude Code later) tools for
 daily work against a **self-hosted Atlassian Data Center** deployment. Version
 one covers Jira.
 
+## Quickstart
+
+You need Python 3.14+, [uv](https://docs.astral.sh/uv/), a Jira personal access
+token, and your VPN connected if Jira needs it.
+
+1. Install:
+
+   ```bash
+   git clone git@github.com:dcode/productivity-agent-tools.git && cd productivity-agent-tools
+   uv sync
+   ```
+
+2. Create the config, then edit `base_url` (scheme and host only) and
+   `[jira] path` in it:
+
+   ```bash
+   mkdir -p ~/.config/productivity-agent-tools
+   cp config.example.toml ~/.config/productivity-agent-tools/config.toml
+   ```
+
+3. Store your token (hidden prompt) and check the connection:
+
+   ```bash
+   uv run productivity-agent-tools set-token
+   uv run productivity-agent-tools doctor
+   ```
+
+4. Add the server to Goose, then restart Goose:
+
+   ```bash
+   uv run productivity-agent-tools configure-agent
+   ```
+
+Writes are blocked until you turn `dry_run` off. The sections below explain each
+step and what to do when one fails.
+
 ## How it authenticates
 
 Every request carries your Jira **personal access token** as
@@ -134,8 +170,30 @@ uv run productivity-agent-tools doctor --log-level debug
 
 ## Add to Goose
 
-Add a stdio extension, either with `goose configure` (Add Extension, Command-line
-Extension) or in `~/.config/goose/config.yaml`:
+Let the tool register itself:
+
+```bash
+uv run productivity-agent-tools configure-agent
+```
+
+This adds a `productivity` extension to `~/.config/goose/config.yaml` that starts
+the server by the absolute path of the command in this checkout's environment,
+so it does not depend on Goose's working directory or `PATH`. The rest of the
+file, comments included, is kept, and the previous version is saved beside it as
+`config.yaml.bak`. Running it again updates the entry in place.
+
+| Option | Effect |
+|---|---|
+| `--show` | Print the entry without changing any file |
+| `--agent` | Agent to configure; `goose` is the default and the only one so far |
+| `--name` | Extension name, `productivity` by default |
+| `--config` | Start the server with a config file other than the default |
+| `--agent-config` | Goose config file to edit, if it is not in the default place |
+
+To do it by hand instead, add a stdio extension with `goose configure` (Add
+Extension, Command-line Extension) or in `~/.config/goose/config.yaml`. Keep the
+arguments in this order; `uv run` treats the first word after its own options as
+the program to start:
 
 ```yaml
 extensions:
@@ -153,7 +211,8 @@ extensions:
     timeout: 300
 ```
 
-To allow writes for a session, add `--no-dry-run` after `serve`. Keep Goose's
+To allow writes for a session, add `--no-dry-run` after `serve` in the entry's
+`args`. Keep Goose's
 tool approval on so you see each comment or transition before it is sent.
 
 ## Tools
