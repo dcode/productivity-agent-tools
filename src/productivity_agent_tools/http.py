@@ -163,7 +163,7 @@ def _response_event(response: httpx.Response, elapsed_seconds: float) -> dict[st
 
 
 def _error_detail(response: httpx.Response) -> str:
-    """Extract Jira-style error messages from a response.
+    """Extract Jira- or Bitbucket-style error messages from a response.
 
     Args:
         response: The failed response.
@@ -181,6 +181,12 @@ def _error_detail(response: httpx.Response) -> str:
     errors = body.get("errors")
     if isinstance(errors, dict):
         parts.extend(f"{name}: {message}" for name, message in errors.items())
+    elif isinstance(errors, list):
+        parts.extend(
+            str(item["message"])
+            for item in errors
+            if isinstance(item, dict) and item.get("message")
+        )
     if not parts and isinstance(body.get("message"), str):
         parts.append(body["message"])
     return "; ".join(parts)
