@@ -36,4 +36,5 @@ def test_library_request_logging_stays_quiet(level: str, httpx_level: str) -> No
     configure_logging(level)
     assert logging.getLevelName(logging.getLogger("httpx").level) == httpx_level
     assert logging.getLevelName(logging.getLogger("keyring").level) == httpx_level
+    assert logging.getLevelName(logging.getLogger("mcp").level) == httpx_level
     assert logging.getLogger().level == logging.getLevelNamesMapping()[level.upper()]

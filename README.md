@@ -192,6 +192,15 @@ uv run productivity-agent-tools call bitbucket_get_pull_request \
   repository=my-service pull_request_id=42 --log-level debug
 ```
 
+`--field NAME` prints one field of the result on its own. Text comes out as
+written instead of as JSON, so a diff reads as a diff, and in a terminal it is
+coloured (piped output stays plain):
+
+```bash
+uv run productivity-agent-tools call bitbucket_get_pull_request_diff \
+  repository=my-service pull_request_id=42 --field diff
+```
+
 With no tool name it lists every tool and its parameters; names in square
 brackets are optional. Arguments are written `name=value`; quote any that
 contain spaces. Write tools still obey `dry_run`, so add `--no-dry-run` to send
