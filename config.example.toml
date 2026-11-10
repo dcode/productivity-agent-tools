@@ -73,6 +73,9 @@ current-sprint = "assignee = currentUser() AND sprint in openSprints() ORDER BY 
 # Sub-path Bitbucket is served under. Use "" when it is at the root of its host.
 # path = "/bitbucket"
 # default_max_results = 25
+# Project key used when the agent names no project. The agent can also choose
+# one for a session with the bitbucket_set_default_project tool.
+# default_project = "PROJ"
 # Like [jira], this table can set its own base_url, ca_bundle, timeout_seconds
 # and a [bitbucket.cookies] table.
 # base_url = "https://bitbucket.example.com"

@@ -74,6 +74,138 @@ class PullRequestList(BaseModel):
     pull_requests: list[PullRequestSummary] = Field(description="Newest first.")
 
 
+class RepositoryPullRequests(BaseModel):
+    """Pull requests in one repository."""
+
+    project: str = Field(description="Project key of the repository.")
+    repository: str = Field(description="Repository slug.")
+    state: str = Field(description="The pull request state that was asked for.")
+    returned: int = Field(description="Number of pull requests included in this result.")
+    more_available: bool = Field(description="True if the server has more than were returned.")
+    pull_requests: list[PullRequestSummary] = Field(description="Newest first.")
+
+
+class Project(BaseModel):
+    """One Bitbucket project the user can see."""
+
+    key: str = Field(description="Project key, used wherever a tool takes a project.")
+    name: str = Field(description="Project name.")
+    description: str | None = Field(default=None, description="Project description.")
+    url: str | None = Field(default=None, description="Browser URL of the project.")
+
+
+class ProjectList(BaseModel):
+    """Projects the user can see."""
+
+    returned: int = Field(description="Number of projects included in this result.")
+    more_available: bool = Field(description="True if the server has more than were returned.")
+    projects: list[Project] = Field(description="Matching projects.")
+
+
+class Repository(BaseModel):
+    """One repository in a project."""
+
+    project: str = Field(description="Project key.")
+    slug: str = Field(description="Repository slug, used wherever a tool takes a repository.")
+    name: str = Field(description="Repository name.")
+    description: str | None = Field(default=None, description="Repository description.")
+    url: str | None = Field(default=None, description="Browser URL of the repository.")
+
+
+class RepositoryList(BaseModel):
+    """Repositories in one project."""
+
+    project: str = Field(description="Project key that was listed.")
+    returned: int = Field(description="Number of repositories included in this result.")
+    more_available: bool = Field(description="True if the server has more than were returned.")
+    repositories: list[Repository] = Field(description="Repositories in the project.")
+
+
+class Commit(BaseModel):
+    """One commit in a pull request."""
+
+    id: str = Field(description="Full commit hash.")
+    short_id: str | None = Field(default=None, description="Abbreviated commit hash.")
+    author: str | None = Field(default=None, description="Author name.")
+    authored: str | None = Field(default=None, description="Author timestamp (ISO 8601).")
+    message: str = Field(description="Commit message.")
+
+
+class PullRequestCommits(BaseModel):
+    """Commits in a pull request."""
+
+    returned: int = Field(description="Number of commits included in this result.")
+    more_available: bool = Field(description="True if the server has more than were returned.")
+    commits: list[Commit] = Field(description="Newest first.")
+
+
+class ChangedFile(BaseModel):
+    """One file changed by a pull request."""
+
+    path: str = Field(description="Path of the file after the change.")
+    change: str = Field(description="ADD, MODIFY, DELETE, MOVE or COPY.")
+    previous_path: str | None = Field(
+        default=None, description="Path before the change, for a moved or copied file."
+    )
+
+
+class PullRequestChanges(BaseModel):
+    """Files changed by a pull request."""
+
+    returned: int = Field(description="Number of files included in this result.")
+    more_available: bool = Field(description="True if the server has more than were returned.")
+    files: list[ChangedFile] = Field(description="Changed files.")
+
+
+class PullRequestDiff(BaseModel):
+    """The unified diff of a pull request, possibly cut short."""
+
+    diff: str = Field(description="Unified diff text.")
+    total_chars: int = Field(description="Length of the whole diff in characters.")
+    truncated: bool = Field(
+        description="True if the diff was longer than max_chars and was cut. Use "
+        "bitbucket_get_pull_request_changes to see every file."
+    )
+
+
+class CodeLine(BaseModel):
+    """One line of a file shown in a search hit."""
+
+    line: int | None = Field(default=None, description="Line number in the file.")
+    text: str = Field(description="The line's text.")
+
+
+class CodeHit(BaseModel):
+    """One file that matched a code search."""
+
+    project: str = Field(description="Project key of the repository.")
+    repository: str = Field(description="Repository slug.")
+    file: str = Field(description="Path of the matching file.")
+    hit_count: int | None = Field(default=None, description="Number of matches in the file.")
+    lines: list[CodeLine] = Field(
+        default_factory=list, description="Matching lines with a little context."
+    )
+    url: str | None = Field(default=None, description="Browser URL of the file.")
+
+
+class CodeSearchResult(BaseModel):
+    """Result of a code search."""
+
+    query: str = Field(description="The query that was sent, including any added filters.")
+    total: int | None = Field(default=None, description="Total matching files on the server.")
+    returned: int = Field(description="Number of files included in this result.")
+    more_available: bool = Field(description="True if the server has more than were returned.")
+    hits: list[CodeHit] = Field(description="Matching files, best match first.")
+
+
+class DefaultProject(BaseModel):
+    """Result of choosing the default Bitbucket project."""
+
+    key: str = Field(description="Project key now used when a tool call names no project.")
+    name: str | None = Field(default=None, description="Project name.")
+    message: str = Field(description="Plain-language summary, including how long it lasts.")
+
+
 class BitbucketStatus(BaseModel):
     """Connection status reported by the bitbucket_status tool."""
 
@@ -81,6 +213,9 @@ class BitbucketStatus(BaseModel):
     bitbucket_version: str | None = Field(default=None, description="Server version.")
     token_source: str = Field(description="Where the access token was read from.")
     authenticated: bool = Field(description="True if the token was accepted.")
+    default_project: str | None = Field(
+        default=None, description="Project key used when a tool call names no project."
+    )
     extra_cookies: list[str] = Field(
         description="Names of the extra cookies sent with each request (values are not shown)."
     )

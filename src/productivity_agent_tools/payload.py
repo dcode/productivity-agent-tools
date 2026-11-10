@@ -25,6 +25,24 @@ def text(source: JsonValue, *keys: str) -> str | None:
     return current if isinstance(current, str) else None
 
 
+def value(source: JsonValue, *keys: str) -> JsonValue:
+    """Read a nested value of any type out of decoded JSON without raising.
+
+    Args:
+        source: Decoded JSON value to walk.
+        *keys: Successive object keys to follow.
+
+    Returns:
+        The value at the end of the path, or None if the path does not exist.
+    """
+    current = source
+    for key in keys:
+        if not isinstance(current, dict):
+            return None
+        current = current.get(key)
+    return current
+
+
 def number(source: JsonValue, *keys: str) -> int | None:
     """Read a nested integer out of decoded JSON without raising.
 
