@@ -1,5 +1,6 @@
 import asyncio
 import json
+import sys
 from collections.abc import Callable
 from pathlib import Path
 
@@ -259,7 +260,9 @@ def test_call_command_prints_the_result_or_exits_with_the_error(
 ) -> None:
     seen: list[tuple[str | None, tuple[str, ...]]] = []
 
-    async def run(settings: Settings, tool: str | None, pairs: tuple[str, ...]) -> str:
+    async def run(
+        settings: Settings, tool: str | None, pairs: tuple[str, ...], field: str | None = None
+    ) -> str:
         seen.append((tool, pairs))
         if tool == "bad":
             raise AtlassianError("no such luck")
@@ -280,3 +283,35 @@ def test_text_parameters_are_detected_from_the_schema() -> None:
     assert cli._accepts_text({"anyOf": [{"type": "string"}, {"type": "null"}]})
     assert not cli._accepts_text({"anyOf": [{"type": "integer"}, {"type": "null"}]})
     assert cli._accepts_text("not a schema")
+
+
+async def test_call_can_return_one_field_with_text_as_written(
+    fake: FakeJira, make_settings: Callable[..., Settings]
+) -> None:
+    transport = httpx.MockTransport(fake.handler)
+    settings = make_settings()
+    assert await cli._call(settings, "jira_status", (), transport, field="display_name") == (
+        "Pat Example"
+    )
+    assert json.loads(await cli._call(settings, "jira_status", (), transport, field="dry_run"))
+    with pytest.raises(AtlassianError, match=r"no field 'nope'\. Fields: base_url, jira_version"):
+        await cli._call(settings, "jira_status", (), transport, field="nope")
+
+
+def test_diff_field_is_coloured_only_in_a_terminal(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    diff = "--- a\n+++ b\n-old\n+new"
+    cli._show(diff, "diff")
+    cli._show("plain", "title")
+    cli._show("{}", None)
+    assert capsys.readouterr().out == f"{diff}\nplain\n{{}}\n"
+
+    monkeypatch.setattr(sys.stdout, "isatty", lambda: True)
+    monkeypatch.setenv("FORCE_COLOR", "1")
+    cli._show(diff, "diff")
+    coloured = capsys.readouterr().out
+    assert "\x1b[" in coloured
+    assert "+new" in coloured
+    cli._show("plain", "title")
+    assert capsys.readouterr().out == "plain\n"
