@@ -56,6 +56,11 @@ class JiraClient:
         self._api = f"{settings.path}/rest/api/2"
 
     @property
+    def settings(self) -> JiraSettings:
+        """The Jira module settings this client was built with."""
+        return self._settings
+
+    @property
     def base_url(self) -> str:
         """Browser base URL of this Jira instance."""
         return f"{self._core.base_url}{self._settings.path}"

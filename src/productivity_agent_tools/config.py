@@ -70,7 +70,7 @@ class ProductSettings:
 
 @dataclass(frozen=True, slots=True, kw_only=True)
 class JiraSettings(ProductSettings):
-    """Settings for the Jira module.
+    """Settings for the Jira module, which is on only when ``[jira]`` is configured.
 
     Attributes:
         path: Sub-path Jira is served under, or an empty string when it is at the site root.
@@ -115,7 +115,7 @@ class Settings:
         token_env_file: Optional env file holding ``<PRODUCT>_TOKEN=...``.
         timeout_seconds: Per-request timeout.
         log_level: Least severe log level written to stderr.
-        jira: Jira module settings.
+        jira: Jira module settings, or None when Jira is not configured.
         bitbucket: Bitbucket module settings, or None when Bitbucket is not configured.
     """
 
@@ -126,8 +126,14 @@ class Settings:
     token_env_file: Path | None = None
     timeout_seconds: float = 30.0
     log_level: str = DEFAULT_LOG_LEVEL
-    jira: JiraSettings = field(default_factory=JiraSettings)
+    jira: JiraSettings | None = None
     bitbucket: BitbucketSettings | None = None
+
+    @property
+    def products(self) -> tuple[str, ...]:
+        """Names of the products that are configured, and so switched on."""
+        configured = {"jira": self.jira, "bitbucket": self.bitbucket}
+        return tuple(name for name, product in configured.items() if product is not None)
 
     def connection_for(self, product: ProductSettings) -> Connection:
         """Resolve one product's connection: its own values over the defaults.
@@ -455,8 +461,8 @@ def parse_settings(raw: dict[str, Any]) -> Settings:
         ConfigError: If a required key is missing or a value is invalid.
     """
     timeout = _timeout(raw, "timeout_seconds")
-    jira_raw = raw.get("jira", {})
-    if not isinstance(jira_raw, dict):
+    jira_raw = raw.get("jira")
+    if jira_raw is not None and not isinstance(jira_raw, dict):
         raise ConfigError("Config key 'jira' must be a table.")
     bitbucket_raw = raw.get("bitbucket")
     if bitbucket_raw is not None and not isinstance(bitbucket_raw, dict):
@@ -469,12 +475,12 @@ def parse_settings(raw: dict[str, Any]) -> Settings:
         token_env_file=_as_path(raw, "token_env_file"),
         timeout_seconds=30.0 if timeout is None else timeout,
         log_level=log_level_name(_as_str(raw, "log_level", None) or DEFAULT_LOG_LEVEL),
-        jira=_parse_jira(jira_raw),
+        jira=None if jira_raw is None else _parse_jira(jira_raw),
         bitbucket=None if bitbucket_raw is None else _parse_bitbucket(bitbucket_raw),
     )
-    settings.connection_for(settings.jira)
-    if settings.bitbucket is not None:
-        settings.connection_for(settings.bitbucket)
+    for product in (settings.jira, settings.bitbucket):
+        if product is not None:
+            settings.connection_for(product)
     return settings
 
 
@@ -546,7 +552,7 @@ def apply_overrides(
         settings,
         dry_run=settings.dry_run if dry_run is None else dry_run,
         cookies={**settings.cookies, **extra},
-        jira=with_extra(settings.jira),
+        jira=None if settings.jira is None else with_extra(settings.jira),
         bitbucket=None if settings.bitbucket is None else with_extra(settings.bitbucket),
         log_level=settings.log_level if log_level is None else log_level_name(log_level),
         token_env_file=(

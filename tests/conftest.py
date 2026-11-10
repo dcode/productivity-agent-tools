@@ -120,6 +120,7 @@ async def make_core(
 
     def build(token: str = "good-token", **overrides: Any) -> AtlassianClient:
         settings = make_settings(**overrides)
+        assert settings.jira is not None
         core = AtlassianClient.from_connection(
             settings.connection_for(settings.jira),
             token,
