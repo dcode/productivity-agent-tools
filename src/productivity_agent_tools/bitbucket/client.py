@@ -580,6 +580,16 @@ class BitbucketClient:
                 "endpoint Atlassian does not document (rest/search/1.0/search); it may be "
                 "missing from this version or switched off."
             ) from exc
+        except ApiError as exc:
+            if exc.status < 500:
+                raise
+            raise AtlassianError(
+                f"Bitbucket's code search is unavailable right now (HTTP {exc.status}). Its "
+                "search index is probably down or being rebuilt, which also breaks the search "
+                "page in the browser; a Bitbucket administrator has to fix it. Tell the user. "
+                "Do not try to reproduce the search by listing or reading repositories one "
+                "by one."
+            ) from exc
         code = body.get("code")
         hits = [self._code_hit(item) for item in objects(value(code, "values"))]
         return CodeSearchResult(

@@ -3,13 +3,17 @@
 import asyncio
 import contextlib
 import getpass
+import json
 import sys
+from collections.abc import AsyncGenerator, Sequence
 from pathlib import Path
-from typing import Annotated
+from typing import Annotated, Any
 
 import httpx
 import structlog
 from cyclopts import App, Parameter
+from mcp.server.mcpserver import MCPServer
+from mcp.server.mcpserver.exceptions import ToolError
 
 from productivity_agent_tools import __version__
 from productivity_agent_tools.agents import (
@@ -119,12 +123,18 @@ async def _resolve_settings(
     return settings
 
 
-async def _serve(settings: Settings, transport: httpx.AsyncBaseTransport | None = None) -> None:
-    """Run the MCP server over stdio until the client disconnects.
+@contextlib.asynccontextmanager
+async def _open_server(
+    settings: Settings, transport: httpx.AsyncBaseTransport | None = None
+) -> AsyncGenerator[MCPServer]:
+    """Connect to every configured product and build the MCP server.
 
     Args:
         settings: The resolved settings.
         transport: Replacement HTTP transport, used by tests.
+
+    Yields:
+        The MCP server, with its connections open until the block exits.
 
     Raises:
         AtlassianError: If a token or CA bundle cannot be loaded.
@@ -159,14 +169,139 @@ async def _serve(settings: Settings, transport: httpx.AsyncBaseTransport | None 
                     transport=transport,
                 )
             )
-        server = build_server(
+        yield build_server(
             settings,
             jira_api,
             token.source,
             bitbucket_api=bitbucket_api,
             bitbucket_token_source=bitbucket_source,
         )
+
+
+async def _serve(settings: Settings, transport: httpx.AsyncBaseTransport | None = None) -> None:
+    """Run the MCP server over stdio until the client disconnects.
+
+    Args:
+        settings: The resolved settings.
+        transport: Replacement HTTP transport, used by tests.
+
+    Raises:
+        AtlassianError: If a token or CA bundle cannot be loaded.
+    """
+    async with _open_server(settings, transport) as server:
         await server.run_stdio_async()
+
+
+def _accepts_text(schema: object) -> bool:
+    """Tell whether a tool parameter's schema allows a string.
+
+    Args:
+        schema: JSON schema of one parameter.
+
+    Returns:
+        True if a plain string is a valid value.
+    """
+    if not isinstance(schema, dict):
+        return True
+    if schema.get("type") == "string":
+        return True
+    return any(_accepts_text(option) for option in schema.get("anyOf", []))
+
+
+def _tool_arguments(schema: dict[str, Any], pairs: tuple[str, ...]) -> dict[str, Any]:
+    """Turn ``name=value`` words into arguments typed the way a tool expects.
+
+    A value for a text parameter is used as written. Anything else is read as
+    JSON, so ``max_results=5`` is a number and ``flag=true`` a boolean.
+
+    Args:
+        schema: The tool's input schema.
+        pairs: The ``name=value`` words from the command line.
+
+    Returns:
+        The arguments by name.
+
+    Raises:
+        AtlassianError: If a word is malformed, names an unknown parameter, or has a bad value.
+    """
+    properties: dict[str, Any] = schema.get("properties") or {}
+    known = ", ".join(properties) or "none"
+    arguments: dict[str, Any] = {}
+    for pair in pairs:
+        name, separator, raw = pair.partition("=")
+        if not separator:
+            raise AtlassianError(f"Argument '{pair}' must be written as name=value.")
+        if name not in properties:
+            raise AtlassianError(f"'{name}' is not a parameter of this tool. Parameters: {known}.")
+        if _accepts_text(properties[name]):
+            arguments[name] = raw
+            continue
+        try:
+            arguments[name] = json.loads(raw)
+        except ValueError as exc:
+            raise AtlassianError(
+                f"The value of '{name}' must be a number, true/false or JSON, got '{raw}'."
+            ) from exc
+    return arguments
+
+
+def _describe_tools(tools: Sequence[Any]) -> str:
+    """Render the tool list: name, parameters and the first line of each description.
+
+    Args:
+        tools: The tools the server offers.
+
+    Returns:
+        One block of text, a tool per paragraph.
+    """
+    blocks: list[str] = []
+    for tool in sorted(tools, key=lambda item: item.name):
+        schema: dict[str, Any] = tool.input_schema or {}
+        required = set(schema.get("required") or [])
+        parameters = " ".join(
+            f"{name}=..." if name in required else f"[{name}=...]"
+            for name in schema.get("properties") or {}
+        )
+        summary = (tool.description or "").strip().splitlines()[0:1]
+        blocks.append(f"{tool.name} {parameters}".rstrip() + "".join(f"\n    {s}" for s in summary))
+    return "\n".join(blocks)
+
+
+async def _call(
+    settings: Settings,
+    tool: str | None,
+    pairs: tuple[str, ...],
+    transport: httpx.AsyncBaseTransport | None = None,
+) -> str:
+    """Run one tool directly, with no agent, and render its result.
+
+    Args:
+        settings: The resolved settings.
+        tool: Name of the tool, or None to list the tools instead.
+        pairs: ``name=value`` arguments for the tool.
+        transport: Replacement HTTP transport, used by tests.
+
+    Returns:
+        The tool's result as indented JSON, or the tool list.
+
+    Raises:
+        AtlassianError: If the tool or an argument is unknown, or the tool fails.
+    """
+    async with _open_server(settings, transport) as server:
+        tools = {item.name: item for item in await server.list_tools()}
+        if tool is None:
+            return _describe_tools(list(tools.values()))
+        if tool not in tools:
+            raise AtlassianError(
+                f"'{tool}' is not a tool. Run 'call' with no tool name to list them."
+            )
+        arguments = _tool_arguments(tools[tool].input_schema or {}, pairs)
+        try:
+            result = await server.call_tool(tool, arguments)
+        except ToolError as exc:
+            raise AtlassianError(str(exc)) from exc
+        content = getattr(result, "structured_content", None)
+        return json.dumps(content, indent=2, ensure_ascii=False)
 
 
 async def _doctor_jira(settings: Settings, transport: httpx.AsyncBaseTransport | None) -> bool:
@@ -342,6 +477,35 @@ def doctor(
         _fail(exc)
     else:
         sys.exit(0 if passed else 1)
+
+
+@app.command(name="call")
+def call(
+    tool: Annotated[
+        str | None, Parameter(help="Name of the tool to run, such as jira_search.")
+    ] = None,
+    /,
+    *arguments: Annotated[str, Parameter(help="The tool's arguments, each written as name=value.")],
+    config: ConfigOption = DEFAULT_CONFIG_PATH,
+    dry_run: DryRunOption = None,
+    cookie: CookieOption = None,
+    token_env_file: TokenEnvFileOption = None,
+    log_level: LogLevelOption = None,
+) -> None:
+    """Run one tool directly, without an agent, and print its result as JSON.
+
+    With no tool name, lists the tools and their parameters. Writes obey
+    dry-run exactly as they do under an agent.
+    """
+
+    async def run() -> str:
+        settings = await _resolve_settings(config, dry_run, cookie, token_env_file, log_level)
+        return await _call(settings, tool, arguments)
+
+    try:
+        print(asyncio.run(run()))
+    except AtlassianError as exc:
+        _fail(exc)
 
 
 @app.command(name="set-token")
