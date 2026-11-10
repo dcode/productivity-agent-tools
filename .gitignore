@@ -1,0 +1,18 @@
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.rumdl_cache/
+dist/
+
+# Never commit local environment details or secrets.
+.env
+*.env
+.secrets/
+*.pem
+config.toml
+jira-probe*-output.txt
+.coverage
+htmlcov/
