@@ -644,6 +644,14 @@ async def test_code_search_problems_are_explained(
     with pytest.raises(AtlassianError, match="does not document"):
         await client.search_code("retry")
 
+    bitbucket.search = httpx.Response(503)
+    with pytest.raises(AtlassianError, match=r"unavailable right now \(HTTP 503\).*one by one"):
+        await client.search_code("retry")
+
+    bitbucket.search = httpx.Response(400, json={"errors": [{"message": "Bad query syntax"}]})
+    with pytest.raises(AtlassianError, match="Bad query syntax"):
+        await client.search_code("retry")
+
     bitbucket.search = httpx.Response(200, json={"scope": {"type": "GLOBAL"}})
     empty = await client.search_code("retry")
     assert (empty.total, empty.returned, empty.more_available, empty.hits) == (None, 0, False, [])
