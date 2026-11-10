@@ -48,30 +48,52 @@ class Connection:
     timeout_seconds: float = 30.0
 
 
-@dataclass(frozen=True, slots=True)
-class JiraSettings:
-    """Settings for the Jira module.
+@dataclass(frozen=True, slots=True, kw_only=True)
+class ProductSettings:
+    """Connection values a product's own table may set for itself.
 
-    The connection attributes are None when the ``[jira]`` table does not set
-    them, in which case the top-level value applies.
+    Each is None when the product's table does not set it, in which case the
+    top-level value applies.
+
+    Attributes:
+        base_url: The product's own scheme and host, or None to use the top-level one.
+        ca_bundle: The product's own PEM file of trusted roots, or None for the top-level setting.
+        cookies: The product's own extra cookies, replacing the top-level ones, or None.
+        timeout_seconds: The product's own per-request timeout, or None for the top-level one.
+    """
+
+    base_url: str | None = None
+    ca_bundle: Path | None = None
+    cookies: dict[str, str] | None = None
+    timeout_seconds: float | None = None
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class JiraSettings(ProductSettings):
+    """Settings for the Jira module.
 
     Attributes:
         path: Sub-path Jira is served under, or an empty string when it is at the site root.
         default_max_results: Row cap for searches when the caller gives none.
         presets: Named JQL queries the agent can run by name.
-        base_url: Jira's own scheme and host, or None to use the top-level one.
-        ca_bundle: Jira's own PEM file of trusted roots, or None to use the top-level setting.
-        cookies: Jira's own extra cookies, replacing the top-level ones, or None to use those.
-        timeout_seconds: Jira's own per-request timeout, or None to use the top-level one.
     """
 
     path: str = "/jira"
     default_max_results: int = 25
     presets: dict[str, str] = field(default_factory=lambda: dict(DEFAULT_PRESETS))
-    base_url: str | None = None
-    ca_bundle: Path | None = None
-    cookies: dict[str, str] | None = None
-    timeout_seconds: float | None = None
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class BitbucketSettings(ProductSettings):
+    """Settings for the Bitbucket module, which is on only when ``[bitbucket]`` is configured.
+
+    Attributes:
+        path: Sub-path Bitbucket is served under, or an empty string when it is at the site root.
+        default_max_results: Row cap for pull-request lists when the caller gives none.
+    """
+
+    path: str = "/bitbucket"
+    default_max_results: int = 25
 
 
 @dataclass(frozen=True, slots=True)
@@ -92,6 +114,7 @@ class Settings:
         timeout_seconds: Per-request timeout.
         log_level: Least severe log level written to stderr.
         jira: Jira module settings.
+        bitbucket: Bitbucket module settings, or None when Bitbucket is not configured.
     """
 
     base_url: str | None = None
@@ -102,8 +125,9 @@ class Settings:
     timeout_seconds: float = 30.0
     log_level: str = DEFAULT_LOG_LEVEL
     jira: JiraSettings = field(default_factory=JiraSettings)
+    bitbucket: BitbucketSettings | None = None
 
-    def connection_for(self, product: JiraSettings) -> Connection:
+    def connection_for(self, product: ProductSettings) -> Connection:
         """Resolve one product's connection: its own values over the defaults.
 
         A product's ``cookies`` table replaces the default one rather than
@@ -309,6 +333,64 @@ def _timeout(raw: dict[str, Any], label: str) -> float | None:
     return float(value)
 
 
+def _sub_path(raw: dict[str, Any], default: str) -> str:
+    """Read the sub-path a product is served under.
+
+    Args:
+        raw: The product's parsed table.
+        default: Path used when the key is absent.
+
+    Returns:
+        The path with one leading slash and no trailing one, or an empty string for the root.
+    """
+    path = _as_str(raw, "path", default)
+    segment = default.strip("/") if path is None else path.strip("/")
+    return f"/{segment}" if segment else ""
+
+
+def _max_results(raw: dict[str, Any], table: str, default: int) -> int:
+    """Read a product's default row cap.
+
+    Args:
+        raw: The product's parsed table.
+        table: Name of the table, for error messages.
+        default: Value used when the key is absent.
+
+    Returns:
+        The row cap.
+
+    Raises:
+        ConfigError: If the value is not a positive integer.
+    """
+    value = raw.get("default_max_results", default)
+    if isinstance(value, bool) or not isinstance(value, int) or value < 1:
+        raise ConfigError(f"Config key '{table}.default_max_results' must be a positive integer.")
+    return value
+
+
+def _product_overrides(raw: dict[str, Any], table: str) -> dict[str, Any]:
+    """Read the connection values a product's table sets for itself.
+
+    Args:
+        raw: The product's parsed table.
+        table: Name of the table, for error messages.
+
+    Returns:
+        Keyword arguments for the ``ProductSettings`` fields.
+
+    Raises:
+        ConfigError: If a value is invalid.
+    """
+    return {
+        "base_url": _base_url(raw, f"{table}.base_url"),
+        "ca_bundle": _as_path(raw, "ca_bundle"),
+        "cookies": (
+            _parse_cookies(raw["cookies"], f"{table}.cookies") if "cookies" in raw else None
+        ),
+        "timeout_seconds": _timeout(raw, f"{table}.timeout_seconds"),
+    }
+
+
 def _parse_jira(raw: dict[str, Any]) -> JiraSettings:
     """Build Jira settings from the ``[jira]`` table.
 
@@ -322,11 +404,6 @@ def _parse_jira(raw: dict[str, Any]) -> JiraSettings:
         ConfigError: If a value has the wrong type.
     """
     defaults = JiraSettings()
-    path = _as_str(raw, "path", defaults.path)
-    segment = defaults.path.strip("/") if path is None else path.strip("/")
-    max_results = raw.get("default_max_results", defaults.default_max_results)
-    if isinstance(max_results, bool) or not isinstance(max_results, int) or max_results < 1:
-        raise ConfigError("Config key 'jira.default_max_results' must be a positive integer.")
     presets_raw = raw.get("presets")
     if presets_raw is None:
         presets = dict(DEFAULT_PRESETS)
@@ -335,13 +412,30 @@ def _parse_jira(raw: dict[str, Any]) -> JiraSettings:
     else:
         raise ConfigError("Config table 'jira.presets' must map preset names to JQL strings.")
     return JiraSettings(
-        path=f"/{segment}" if segment else "",
-        default_max_results=max_results,
+        path=_sub_path(raw, defaults.path),
+        default_max_results=_max_results(raw, "jira", defaults.default_max_results),
         presets=presets,
-        base_url=_base_url(raw, "jira.base_url"),
-        ca_bundle=_as_path(raw, "ca_bundle"),
-        cookies=_parse_cookies(raw["cookies"], "jira.cookies") if "cookies" in raw else None,
-        timeout_seconds=_timeout(raw, "jira.timeout_seconds"),
+        **_product_overrides(raw, "jira"),
+    )
+
+
+def _parse_bitbucket(raw: dict[str, Any]) -> BitbucketSettings:
+    """Build Bitbucket settings from the ``[bitbucket]`` table.
+
+    Args:
+        raw: Parsed ``[bitbucket]`` table (possibly empty).
+
+    Returns:
+        The Bitbucket settings.
+
+    Raises:
+        ConfigError: If a value has the wrong type.
+    """
+    defaults = BitbucketSettings()
+    return BitbucketSettings(
+        path=_sub_path(raw, defaults.path),
+        default_max_results=_max_results(raw, "bitbucket", defaults.default_max_results),
+        **_product_overrides(raw, "bitbucket"),
     )
 
 
@@ -361,6 +455,9 @@ def parse_settings(raw: dict[str, Any]) -> Settings:
     jira_raw = raw.get("jira", {})
     if not isinstance(jira_raw, dict):
         raise ConfigError("Config key 'jira' must be a table.")
+    bitbucket_raw = raw.get("bitbucket")
+    if bitbucket_raw is not None and not isinstance(bitbucket_raw, dict):
+        raise ConfigError("Config key 'bitbucket' must be a table.")
     settings = Settings(
         base_url=_base_url(raw, "base_url"),
         ca_bundle=_as_path(raw, "ca_bundle"),
@@ -370,8 +467,11 @@ def parse_settings(raw: dict[str, Any]) -> Settings:
         timeout_seconds=30.0 if timeout is None else timeout,
         log_level=log_level_name(_as_str(raw, "log_level", None) or DEFAULT_LOG_LEVEL),
         jira=_parse_jira(jira_raw),
+        bitbucket=None if bitbucket_raw is None else _parse_bitbucket(bitbucket_raw),
     )
     settings.connection_for(settings.jira)
+    if settings.bitbucket is not None:
+        settings.connection_for(settings.bitbucket)
     return settings
 
 
@@ -433,14 +533,18 @@ def apply_overrides(
         if not separator:
             raise ConfigError(f"Cookie '{pair}' must be written as name=value.")
         extra[_cookie_name(name)] = _cookie_value(name, value)
-    jira = settings.jira
-    if jira.cookies is not None:
-        jira = replace(jira, cookies={**jira.cookies, **extra})
+
+    def with_extra[P: ProductSettings](product: P) -> P:
+        if product.cookies is None:
+            return product
+        return replace(product, cookies={**product.cookies, **extra})
+
     return replace(
         settings,
         dry_run=settings.dry_run if dry_run is None else dry_run,
         cookies={**settings.cookies, **extra},
-        jira=jira,
+        jira=with_extra(settings.jira),
+        bitbucket=None if settings.bitbucket is None else with_extra(settings.bitbucket),
         log_level=settings.log_level if log_level is None else log_level_name(log_level),
         token_env_file=(
             settings.token_env_file if token_env_file is None else token_env_file.expanduser()

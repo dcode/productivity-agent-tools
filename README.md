@@ -1,8 +1,8 @@
 # productivity-agent-tools
 
 An MCP server that gives an AI agent (Goose first, Claude Code later) tools for
-daily work against a **self-hosted Atlassian Data Center** deployment. Version
-one covers Jira.
+daily work against a **self-hosted Atlassian Data Center** deployment. It covers
+Jira (read and write) and, when configured, Bitbucket pull requests (read-only).
 
 ## Quickstart
 
@@ -147,6 +147,31 @@ Checked in this order; the first one found wins:
    (for example `.env` or `~/.secrets/jira_token.env`)
 3. macOS Keychain (written by `set-token`)
 
+Bitbucket uses its own token, found the same way under the name
+`BITBUCKET_TOKEN`.
+
+### Bitbucket
+
+Bitbucket is off until the config has a `[bitbucket]` table. To turn it on:
+
+1. Add the table, with the sub-path Bitbucket is served under (or its own
+   `base_url` if it is on a different host):
+
+   ```toml
+   [bitbucket]
+   path = "/bitbucket"
+   ```
+
+2. Create an HTTP access token in Bitbucket (your profile, Manage account, HTTP
+   access tokens) with read permission, and store it:
+
+   ```bash
+   uv run productivity-agent-tools set-token bitbucket
+   ```
+
+3. Run `doctor` again; it now checks Bitbucket too. Restart your agent to load
+   the new tools.
+
 ## Logging
 
 Logs are structured ([structlog](https://www.structlog.org/)) and always go to
@@ -227,6 +252,12 @@ tool approval on so you see each comment or transition before it is sent.
 | `jira_list_transitions` | read | Workflow transitions available on an issue |
 | `jira_add_comment` | write | Add a comment (Jira wiki markup) |
 | `jira_transition_issue` | write | Move an issue through a transition |
+| `bitbucket_status` | read | Bitbucket version and whether the token is accepted |
+| `bitbucket_list_pull_requests` | read | Pull requests where you are reviewer, author or participant |
+| `bitbucket_get_pull_request` | read | One pull request with description, reviewers, newest comments and build results |
+
+The `bitbucket_` tools appear only when Bitbucket is configured. They do not
+return diffs.
 
 An identical write (same issue and same comment text, or same issue and same
 transition) repeated within 30 seconds is not sent again; the tool returns the

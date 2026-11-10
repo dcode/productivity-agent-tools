@@ -2,11 +2,9 @@
 
 import re
 
-from pydantic import JsonValue
-
 from productivity_agent_tools.api import ApiClient, WriteOutcome
 from productivity_agent_tools.config import JiraSettings
-from productivity_agent_tools.errors import ApiError, AtlassianError
+from productivity_agent_tools.errors import AtlassianError
 from productivity_agent_tools.jira.models import (
     Comment,
     IssueDetail,
@@ -14,63 +12,15 @@ from productivity_agent_tools.jira.models import (
     SearchResult,
     Transition,
 )
-
-type JsonObject = dict[str, JsonValue]
+from productivity_agent_tools.payload import JsonObject
+from productivity_agent_tools.payload import as_object as _object
+from productivity_agent_tools.payload import objects as _objects
+from productivity_agent_tools.payload import text as _text
 
 _ISSUE_KEY = re.compile(r"^[A-Z][A-Z0-9_]*-[1-9][0-9]*$")
 _SUMMARY_FIELDS: str = "summary,status,issuetype,priority,assignee,updated"
 _DETAIL_FIELDS: str = _SUMMARY_FIELDS + ",description,reporter,created,labels,comment"
 MAX_RESULTS_LIMIT: int = 100
-
-
-def _text(source: JsonValue, *keys: str) -> str | None:
-    """Read a nested string out of decoded JSON without raising.
-
-    Args:
-        source: Decoded JSON value to walk.
-        *keys: Successive object keys to follow.
-
-    Returns:
-        The string found at the end of the path, or None.
-    """
-    current = source
-    for key in keys:
-        if not isinstance(current, dict):
-            return None
-        current = current.get(key)
-    return current if isinstance(current, str) else None
-
-
-def _objects(source: JsonValue) -> list[JsonObject]:
-    """Return the JSON objects inside a decoded JSON array.
-
-    Args:
-        source: Decoded JSON value expected to be an array.
-
-    Returns:
-        The array's object members; empty if the value is not an array.
-    """
-    if not isinstance(source, list):
-        return []
-    return [item for item in source if isinstance(item, dict)]
-
-
-def _object(source: JsonValue, what: str) -> JsonObject:
-    """Require a decoded JSON value to be an object.
-
-    Args:
-        source: Decoded JSON value.
-        what: Name of the response, used in the error message.
-
-    Returns:
-        The value as an object.
-
-    Raises:
-        ApiError: If the value is not an object.
-    """
-    if not isinstance(source, dict):
-        raise ApiError(200, f"Jira returned an unexpected {what} response.")
-    return source
 
 
 def normalize_issue_key(key: str) -> str:
