@@ -51,7 +51,7 @@ class Settings:
     """Resolved settings for one run of the server or a setup command.
 
     Attributes:
-        base_url: Scheme and host of the server, without a sub-path.
+        base_url: Scheme and host of the server, plus any path prefix shared by its products.
         ca_bundle: PEM file of trusted roots, or None for the operating system's trust store.
         dry_run: When True, write tools describe the request but send nothing.
         cookies: Extra cookies sent with every request, by name. Empty by default.

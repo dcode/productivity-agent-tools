@@ -193,6 +193,45 @@ async def test_dry_run_write_and_transport_failures_are_logged(
     assert events[0]["log_level"] == "info"
 
 
+@pytest.mark.parametrize(
+    ("base_url", "question"),
+    [
+        (
+            "https://host.example/jira",
+            "Did you mean to repeat '/jira' in the address "
+            "https://host.example/jira/jira/rest/api/2/myself? If not, correct base_url",
+        ),
+        (
+            "https://host.example//proxy",
+            "Did you mean to have '//' in the address "
+            "https://host.example//proxy/jira/rest/api/2/myself? If not, correct base_url",
+        ),
+    ],
+)
+async def test_errors_question_a_suspicious_address(
+    fake: FakeJira, make_core: Callable[..., AtlassianClient], base_url: str, question: str
+) -> None:
+    with pytest.raises(NotFoundError) as info:
+        await make_core(base_url=base_url).get(MYSELF)
+    assert question in str(info.value)
+
+
+async def test_repeated_segment_is_not_questioned_when_the_call_works(
+    fake: FakeJira, make_core: Callable[..., AtlassianClient]
+) -> None:
+    fake.overrides["/jira/jira/rest/api/2/myself"] = httpx.Response(200, json={"name": "pat"})
+    assert await make_core(base_url="https://host.example/jira").get(MYSELF) == {"name": "pat"}
+
+
+async def test_shared_prefix_in_base_url_is_kept_and_not_questioned(
+    fake: FakeJira, make_core: Callable[..., AtlassianClient]
+) -> None:
+    with pytest.raises(NotFoundError) as info:
+        await make_core(base_url="https://host.example/atlassian").get(MYSELF)
+    assert fake.requests[0].url.path == "/atlassian/jira/rest/api/2/myself"
+    assert "Did you mean" not in str(info.value)
+
+
 async def test_connection_failure_mentions_vpn() -> None:
     def refuse(request: httpx.Request) -> httpx.Response:
         raise httpx.ConnectError("no route", request=request)

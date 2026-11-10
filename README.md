@@ -58,7 +58,8 @@ mkdir -p ~/.config/productivity-agent-tools
 cp config.example.toml ~/.config/productivity-agent-tools/config.toml
 ```
 
-Edit `base_url` to your host (scheme and host only), and set `[jira] path` to
+Edit `base_url` to your host (scheme and host, plus a path only if every product
+shares a prefix such as `/atlassian`), and set `[jira] path` to
 the sub-path Jira is served under, or `""` if it is at the root of the host.
 
 Store your token:
