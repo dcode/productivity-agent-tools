@@ -1,7 +1,9 @@
 # Copy to ~/.config/productivity-agent-tools/config.toml and edit.
 # This file names your internal host, so the real one must never be committed.
 
-# Scheme and host of the server, with no sub-path.
+# Scheme and host of the server. Each product's own sub-path goes in its section
+# below (path under [jira]), not here. Only add a path here if every product
+# sits behind a shared prefix, as in https://corp.example.com/atlassian.
 base_url = "https://atlassian.example.com"
 
 # TLS is verified against the operating system's trust store by default, so

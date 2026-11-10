@@ -6,6 +6,7 @@ in front of the applications requires, dry-run for writes, and translating
 failures into plain-language errors.
 """
 
+import itertools
 import ssl
 import time
 from collections.abc import Mapping
@@ -22,6 +23,7 @@ from pydantic import JsonValue
 from productivity_agent_tools.config import Settings
 from productivity_agent_tools.errors import (
     ApiError,
+    AtlassianError,
     AuthenticationError,
     ConfigError,
     ConnectivityError,
@@ -121,6 +123,30 @@ def _without_query(url: httpx.URL) -> str:
     return str(url.copy_with(query=None, fragment=None))
 
 
+def _address_hint(url: httpx.URL) -> str:
+    """Point out a request address that looks assembled wrongly from the config.
+
+    A sub-path given in both ``base_url`` and a product path repeats a segment,
+    and stray slashes in either leave an empty one. Both can be legitimate, so
+    this is only offered alongside an error, as a question.
+
+    Args:
+        url: The address that was requested.
+
+    Returns:
+        A question to append to the error, or an empty string.
+    """
+    segments = url.path.split("/")[1:]
+    shown = _without_query(url)
+    fix = "If not, correct base_url or the product path (for example path under [jira])."
+    for first, second in itertools.pairwise(segments):
+        if first and first == second:
+            return f"Did you mean to repeat '/{first}' in the address {shown}? {fix}"
+    if "" in segments[:-1]:
+        return f"Did you mean to have '//' in the address {shown}? {fix}"
+    return ""
+
+
 def _response_event(response: httpx.Response, elapsed_seconds: float) -> dict[str, object]:
     """Collect the loggable facts about a response.
 
@@ -199,7 +225,7 @@ class AtlassianClient:
         """Create the client.
 
         Args:
-            base_url: Scheme and host of the server.
+            base_url: Scheme and host of the server, plus any prefix shared by its products.
             token: Personal access token sent as a bearer credential.
             ca_bundle: PEM file of trusted roots, or None for the system default.
             cookies: Extra cookies to send with every request, by name.
@@ -369,7 +395,13 @@ class AtlassianClient:
         finally:
             self._http.cookies.clear()
         _log.debug("http_response", **_response_event(response, time.perf_counter() - started))
-        return self._interpret(response)
+        try:
+            return self._interpret(response)
+        except AtlassianError as exc:
+            hint = _address_hint(response.url)
+            if hint:
+                exc.args = (f"{exc} {hint}", *exc.args[1:])
+            raise
 
     def _interpret(self, response: httpx.Response) -> JsonValue:
         """Turn a response into data or a plain-language error.

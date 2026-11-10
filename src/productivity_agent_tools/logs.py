@@ -14,9 +14,10 @@ import structlog
 LOG_LEVELS: tuple[str, ...] = ("debug", "info", "warning", "error")
 DEFAULT_LOG_LEVEL: str = "info"
 
-# These libraries log every request at INFO, including full URLs with query
-# strings. The HTTP core logs its own, redacted, events instead.
-_NOISY_LIBRARIES: tuple[str, ...] = ("httpx", "httpcore")
+# httpx and httpcore log every request at INFO, including full URLs with query
+# strings; the HTTP core logs its own, redacted, events instead. keyring lists
+# every backend it tries at DEBUG, which says nothing about this tool.
+_NOISY_LIBRARIES: tuple[str, ...] = ("httpx", "httpcore", "keyring")
 
 
 def configure_logging(level: str = DEFAULT_LOG_LEVEL) -> None:
