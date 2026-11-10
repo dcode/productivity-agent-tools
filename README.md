@@ -326,6 +326,12 @@ for example when a generated script runs its body two times.
 Presets ship as `mine-open`, `updated-since-yesterday` and `current-sprint`;
 edit them under `[jira.presets]` in your config.
 
+## Design and roadmap
+
+[docs/DESIGN.md](docs/DESIGN.md) records the design: the problem, the decisions made and
+the reasons for them. [docs/ROADMAP.md](docs/ROADMAP.md) tracks what is done, what still
+needs checking against real servers, and what comes next.
+
 ## Data handling
 
 Whatever these tools return is sent to the model your agent is configured with.
