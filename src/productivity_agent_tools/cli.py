@@ -1,6 +1,7 @@
 """Command-line entry point: run the MCP server and the setup commands."""
 
 import asyncio
+import contextlib
 import getpass
 import sys
 from pathlib import Path
@@ -17,8 +18,10 @@ from productivity_agent_tools.agents import (
     configure_agent,
     find_launch,
 )
+from productivity_agent_tools.bitbucket.client import BitbucketClient
 from productivity_agent_tools.config import (
     DEFAULT_CONFIG_PATH,
+    BitbucketSettings,
     Settings,
     apply_overrides,
     load_settings,
@@ -36,6 +39,8 @@ _KEYCHAINS: tuple[str, ...] = (
 )
 
 _log = structlog.get_logger(__name__)
+
+PRODUCTS: tuple[str, ...] = ("jira", "bitbucket")
 
 app = App(
     name="productivity-agent-tools",
@@ -122,7 +127,7 @@ async def _serve(settings: Settings, transport: httpx.AsyncBaseTransport | None 
         transport: Replacement HTTP transport, used by tests.
 
     Raises:
-        AtlassianError: If the token or CA bundle cannot be loaded.
+        AtlassianError: If a token or CA bundle cannot be loaded.
     """
     token = await resolve_token("jira", settings.token_env_file)
     connection = settings.connection_for(settings.jira)
@@ -133,27 +138,47 @@ async def _serve(settings: Settings, transport: httpx.AsyncBaseTransport | None 
         extra_cookies=sorted(connection.cookies),
         token_source=token.source,
         log_level=settings.log_level,
+        bitbucket=settings.bitbucket is not None,
     )
-    async with AtlassianClient.from_connection(
-        connection, token.value, dry_run=settings.dry_run, transport=transport
-    ) as core:
-        await build_server(settings, core, token.source).run_stdio_async()
+    async with contextlib.AsyncExitStack() as stack:
+        jira_api = await stack.enter_async_context(
+            AtlassianClient.from_connection(
+                connection, token.value, dry_run=settings.dry_run, transport=transport
+            )
+        )
+        bitbucket_api: AtlassianClient | None = None
+        bitbucket_source = ""
+        if settings.bitbucket is not None:
+            bitbucket_token = await resolve_token("bitbucket", settings.token_env_file)
+            bitbucket_source = bitbucket_token.source
+            bitbucket_api = await stack.enter_async_context(
+                AtlassianClient.from_connection(
+                    settings.connection_for(settings.bitbucket),
+                    bitbucket_token.value,
+                    dry_run=settings.dry_run,
+                    transport=transport,
+                )
+            )
+        server = build_server(
+            settings,
+            jira_api,
+            token.source,
+            bitbucket_api=bitbucket_api,
+            bitbucket_token_source=bitbucket_source,
+        )
+        await server.run_stdio_async()
 
 
-async def _doctor(
-    config: Path, settings: Settings, transport: httpx.AsyncBaseTransport | None = None
-) -> bool:
-    """Run the connectivity checks and print one line per check.
+async def _doctor_jira(settings: Settings, transport: httpx.AsyncBaseTransport | None) -> bool:
+    """Check the Jira token, connection and search, printing one line per check.
 
     Args:
-        config: Path of the config file that was loaded.
         settings: The resolved settings.
         transport: Replacement HTTP transport, used by tests.
 
     Returns:
         True if every check passed.
     """
-    print(f"[ok]   config loaded from {config}")
     connection = settings.connection_for(settings.jira)
     print(
         f"[info] dry_run={settings.dry_run} extra_cookies={','.join(connection.cookies) or 'none'}"
@@ -175,6 +200,63 @@ async def _doctor(
         print(f"[fail] {exc}")
         return False
     return True
+
+
+async def _doctor_bitbucket(
+    settings: Settings, bitbucket: BitbucketSettings, transport: httpx.AsyncBaseTransport | None
+) -> bool:
+    """Check the Bitbucket token, connection and pull-request listing.
+
+    Args:
+        settings: The resolved settings.
+        bitbucket: The Bitbucket module settings.
+        transport: Replacement HTTP transport, used by tests.
+
+    Returns:
+        True if every check passed.
+    """
+    connection = settings.connection_for(bitbucket)
+    print(f"[info] bitbucket extra_cookies={','.join(connection.cookies) or 'none'}")
+    try:
+        token = await resolve_token("bitbucket", settings.token_env_file)
+        print(f"[ok]   bitbucket token found in {token.source}")
+        async with AtlassianClient.from_connection(
+            connection, token.value, dry_run=settings.dry_run, transport=transport
+        ) as core:
+            client = BitbucketClient(core, bitbucket)
+            print(f"[ok]   Bitbucket version {await client.server_version()} at {client.base_url}")
+            waiting = await client.list_pull_requests(max_results=25)
+            more = "+" if waiting.more_available else ""
+            print(
+                f"[ok]   pull requests readable ({waiting.returned}{more} open with you as "
+                "reviewer)"
+            )
+    except AtlassianError as exc:
+        print(f"[fail] {exc}")
+        return False
+    return True
+
+
+async def _doctor(
+    config: Path, settings: Settings, transport: httpx.AsyncBaseTransport | None = None
+) -> bool:
+    """Run the connectivity checks for every configured product.
+
+    Args:
+        config: Path of the config file that was loaded.
+        settings: The resolved settings.
+        transport: Replacement HTTP transport, used by tests.
+
+    Returns:
+        True if every check passed.
+    """
+    print(f"[ok]   config loaded from {config}")
+    passed = await _doctor_jira(settings, transport)
+    if settings.bitbucket is None:
+        print("[info] bitbucket is not configured (add a [bitbucket] table to turn it on)")
+    elif not await _doctor_bitbucket(settings, settings.bitbucket, transport):
+        passed = False
+    return passed
 
 
 async def _export_ca(output: Path) -> int:
@@ -267,8 +349,11 @@ def set_token(product: str = "jira") -> None:
     """Store a personal access token in the macOS Keychain (hidden prompt).
 
     Args:
-        product: Which product the token is for.
+        product: Which product the token is for: jira or bitbucket.
     """
+    product = product.strip().lower()
+    if product not in PRODUCTS:
+        _fail(AtlassianError(f"'{product}' is not a product. Use one of: {', '.join(PRODUCTS)}."))
     token = getpass.getpass(f"{product} personal access token (hidden): ").strip()
     if not token:
         _fail(AtlassianError("No token entered; nothing was stored."))

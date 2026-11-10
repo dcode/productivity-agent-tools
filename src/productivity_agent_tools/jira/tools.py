@@ -1,11 +1,8 @@
 """MCP tool definitions for Jira."""
 
-import functools
 from collections.abc import Awaitable, Callable
 
 from mcp.server.mcpserver import MCPServer
-from mcp.server.mcpserver.exceptions import ToolError
-from mcp.types import ToolAnnotations
 
 from productivity_agent_tools.api import WriteOutcome
 from productivity_agent_tools.config import Settings
@@ -21,36 +18,10 @@ from productivity_agent_tools.jira.models import (
     WriteResult,
 )
 from productivity_agent_tools.repeats import RepeatGuard
-
-_READ = ToolAnnotations(read_only_hint=True, open_world_hint=True)
-_WRITE = ToolAnnotations(
-    read_only_hint=False, destructive_hint=False, idempotent_hint=False, open_world_hint=True
-)
-
-
-def _anticipated[**P, R](tool: Callable[P, Awaitable[R]]) -> Callable[P, Awaitable[R]]:
-    """Report this package's own errors to the model with their message intact.
-
-    The MCP SDK hides the text of unexpected exceptions from the model. Errors
-    raised on purpose here carry plain-language guidance (for example "check
-    your network or VPN connection"), so they are re-raised as the SDK's anticipated
-    ``ToolError``, which is passed through.
-
-    Args:
-        tool: The async tool function to wrap.
-
-    Returns:
-        The wrapped tool, with the same signature.
-    """
-
-    @functools.wraps(tool)
-    async def wrapper(*args: P.args, **kwargs: P.kwargs) -> R:
-        try:
-            return await tool(*args, **kwargs)
-        except AtlassianError as exc:
-            raise ToolError(str(exc)) from exc
-
-    return wrapper
+from productivity_agent_tools.tooling import LOCAL_READ as _LOCAL_READ
+from productivity_agent_tools.tooling import READ as _READ
+from productivity_agent_tools.tooling import WRITE as _WRITE
+from productivity_agent_tools.tooling import anticipated as _anticipated
 
 
 def _write_result(action: str, issue_key: str, outcome: WriteOutcome, done: str) -> WriteResult:
@@ -150,7 +121,7 @@ def register_jira_tools(
             extra_cookies=list(settings.connection_for(settings.jira).cookies),
         )
 
-    @server.tool(annotations=ToolAnnotations(read_only_hint=True, open_world_hint=False))
+    @server.tool(annotations=_LOCAL_READ)
     @_anticipated
     async def jira_list_presets() -> list[Preset]:
         """List the user's named JQL presets (saved queries) from local configuration."""
