@@ -17,7 +17,8 @@ reach development only as script output that the user pastes back.
 ## Solution
 
 `productivity-agent-tools` is one Python MCP server over stdio. It gives an agent typed tools
-for Jira (read and a narrow set of writes) and Bitbucket (read-only), and has a CLI for setup,
+for Jira (read and a narrow set of writes) and Bitbucket (read-only: code, pull requests, builds
+and deployments), and has a CLI for setup,
 diagnosis and running a tool directly.
 
 Probing the real deployment showed that smart-card authentication is not required. The
@@ -123,51 +124,59 @@ keeps writes behind a dry-run switch that is on by default.
 31. As a user, I want a search-index outage (a 5xx) reported as such, with an instruction not
     to rebuild the search by walking every repository, so that a failed search does not burn
     my model's daily credit quota.
+32. As a user, I want to know whether a pull request can merge now and which checks block it
+    (approvals, builds, tasks, conflicts), its open and resolved tasks, and its history of
+    pushes, comments and reviews, so that the agent can tell me what is left to do on it.
+33. As a user, I want the Jira issues a pull request is linked to, as keys the `jira_` tools
+    accept, so that the agent can move from a pull request to its ticket.
+34. As a user, I want the CI build results of any commit (with totals, test counts and
+    descriptions), the builds a repository requires before merging, and the state of a
+    deployment I name, so that the agent can explain a red build or a stuck release.
 
 ### Diagnostics and operation
 
-32. As a user, I want `doctor` to check config, token and connection for each configured
+35. As a user, I want `doctor` to check config, token and connection for each configured
     product and report each separately, so that I can find what is wrong without an agent.
-33. As a user, I want structured logs (structlog) on stderr, readable in a terminal and JSON
+36. As a user, I want structured logs (structlog) on stderr, readable in a terminal and JSON
     otherwise, with `log_level` in the config or `--log-level`, so that the MCP protocol keeps
     stdout and an agent host's log file is parseable.
-34. As a user, I want `debug` to log each HTTP exchange (method, path, status, content type,
+37. As a user, I want `debug` to log each HTTP exchange (method, path, status, content type,
     size, duration, redirect target, cookie names, identifying headers) and never the token,
     cookie values, query values or bodies, so that I can paste debug logs safely.
-35. As a user, I want a redirect error to name its destination and say what to check, so
+38. As a user, I want a redirect error to name its destination and say what to check, so
     that I can tell a login page from a wrong path.
-36. As a user, I want a failed request whose path repeats a segment (such as `/jira/jira`) or
+39. As a user, I want a failed request whose path repeats a segment (such as `/jira/jira`) or
     contains `//` to ask whether that was intended and show the full address, without
     rejecting such paths outright, so that a legitimate shared prefix still works.
-37. As a user, I want an empty 2xx answered with an HTML content type treated as success, so
+40. As a user, I want an empty 2xx answered with an HTML content type treated as success, so
     that a Jira transition that went through is not reported as a banner page.
-38. As a user, I want `call <tool> name=value ...` to run any tool without an agent and print
+41. As a user, I want `call <tool> name=value ...` to run any tool without an agent and print
     JSON, typed from the tool's schema and obeying `dry_run`, so that I can test against real
     servers without spending model credits. With no tool name, it lists the tools.
-39. As a user, I want `call --field NAME` to print one field as written, with a diff coloured
+42. As a user, I want `call --field NAME` to print one field as written, with a diff coloured
     only when stdout is a terminal, so that a diff reads as a diff and agents and pipes stay
     plain.
-40. As a user, I want `scripts/smoke-test.sh` to run every tool once through `call`, skipping
+43. As a user, I want `scripts/smoke-test.sh` to run every tool once through `call`, skipping
     unconfigured products and unfilled `<placeholder>` values and forcing its one write into
     dry-run, so that I can confirm a release against my servers in one step.
 
 ### Agent registration
 
-41. As a user, I want `configure-agent` to add a `productivity` stdio extension to Goose's
+44. As a user, I want `configure-agent` to add a `productivity` stdio extension to Goose's
     config that starts the server by the absolute path of the command in this checkout's
     environment, so that it does not depend on Goose's working directory or `PATH`.
-42. As a user, I want `configure-agent` to keep the rest of the file and its comments, save
+45. As a user, I want `configure-agent` to keep the rest of the file and its comments, save
     `config.yaml.bak`, update in place on re-run, and preview with `--show`, so that it is
     safe to run.
 
 ### Development
 
-43. As a developer, I want product modules to depend only on an `ApiClient` protocol, so that
+46. As a developer, I want product modules to depend only on an `ApiClient` protocol, so that
     a service with different sign-in (such as Microsoft Graph) is a new adapter and the Jira
     code does not change.
-44. As a developer, I want tests to run against an in-process fake Jira, fake Bitbucket and
+47. As a developer, I want tests to run against an in-process fake Jira, fake Bitbucket and
     intercepting proxy, so that nothing in the suite contacts a real server.
-45. As a developer, I want one set of checks (ruff, rumdl, taplo, ty, pytest with coverage)
+48. As a developer, I want one set of checks (ruff, rumdl, taplo, ty, pytest with coverage)
     run by pre-commit, hatch and CI alike, so that a passing local run means a passing CI run.
 
 ## Implementation Decisions
@@ -248,6 +257,23 @@ keeps writes behind a dry-run switch that is on by default.
   covers default branches only.
 - The diff defaults to 20,000 characters, with a ceiling of 100,000, and reports
   `total_chars` and `truncated`. Search hits show at most 12 lines each.
+- Build results come from `rest/build-status/1.0/commits/{hash}` and its `stats` sibling.
+  Atlassian deprecated that resource in 7.14 in favor of a per-repository one, but the
+  replacement can only fetch a build whose key is already known, so it cannot list. The
+  older resource is still served in 10.x and needs no project or repository. Fields that
+  only newer servers send (test counts, duration, build number, ref) are optional.
+- Bitbucket has no endpoint that lists deployments, only one that fetches a deployment by
+  key, environment key and sequence number. `bitbucket_get_deployment` takes all three and
+  its description tells the agent not to guess them.
+- Tasks are read from `blocker-comments` (Bitbucket 7.2 and later), merge readiness from
+  `pull-requests/{id}/merge`, required builds from `rest/required-builds/latest`, and
+  linked Jira issues from `rest/jira/latest`, which needs Bitbucket's application link to
+  Jira. A 404 from an optional plugin endpoint names the version or link it needs.
+- Endpoint shapes were taken from Atlassian's published OpenAPI specification for 10.0,
+  because the reference pages are rendered in the browser.
+- One deployment timestamp (`lastUpdated`) is documented with a value in seconds, while
+  every other Bitbucket timestamp is in milliseconds. Values below 10^11 are read as
+  seconds.
 
 ### Logging
 
@@ -305,7 +331,7 @@ Designed for but deferred. [ROADMAP.md](ROADMAP.md) has the ordered backlog and 
 - Automated tests run against in-process fakes of Jira and Bitbucket and an intercepting
   proxy that serves a banner page until a cookie is present. Nothing in the suite contacts a
   real server.
-- The coverage floor is 90% (branch coverage). The suite is currently at about 99.9% (184
+- The coverage floor is 90% (branch coverage). The suite is currently at about 99.9% (197
   tests).
 - The live servers cannot be reached from development or CI, so verification against them is
   manual. The user runs `doctor`, `call`, or `scripts/smoke-test.sh` on the work laptop and
@@ -316,8 +342,9 @@ Designed for but deferred. [ROADMAP.md](ROADMAP.md) has the ordered backlog and 
   and diff.
 - Not yet confirmed against a real server (tracked in [ROADMAP.md](ROADMAP.md)): comment
   parsing on an issue or pull request that has comments, Bitbucket build results, a moved or
-  renamed file in the changed-files list, and code search (the server's index was returning
-  503).
+  renamed file in the changed-files list, code search (the server's index was returning
+  503), and every tool added for merge status, activity, tasks, linked issues, commit
+  builds, required builds and deployments.
 - Prior art: none before this project. These tests establish the repo's convention.
 
 ## Out of Scope
