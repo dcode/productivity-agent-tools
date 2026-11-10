@@ -1,9 +1,14 @@
 # Copy to ~/.config/productivity-agent-tools/config.toml and edit.
 # This file names your internal host, so the real one must never be committed.
 
-# Scheme and host of the server. Each product's own sub-path goes in its section
-# below (path under [jira]), not here. Only add a path here if every product
-# sits behind a shared prefix, as in https://corp.example.com/atlassian.
+# base_url, ca_bundle, timeout_seconds and [cookies] at the top of this file are
+# the defaults for every product. A product's own table (such as [jira]) can
+# set any of them again to override it for that product alone.
+
+# Default scheme and host. Each product's own sub-path goes in its table below
+# (path under [jira]), not here. Only add a path here if every product sits
+# behind a shared prefix, as in https://corp.example.com/atlassian.
+# Leave this out if every product names its own base_url.
 base_url = "https://atlassian.example.com"
 
 # TLS is verified against the operating system's trust store by default, so
@@ -41,6 +46,19 @@ timeout_seconds = 30
 # as in https://jira.example.com/.
 path = "/jira"
 default_max_results = 25
+
+# Optional: Jira on a host of its own. These override the top-level values for
+# Jira only.
+# base_url = "https://jira.example.com"
+# path = ""
+# ca_bundle = "~/jira-ca.pem"
+# timeout_seconds = 60
+
+# Optional: cookies for Jira only. This table replaces the top-level [cookies]
+# for Jira instead of adding to it, so a cookie meant for one host is not sent
+# to another. An empty table sends none. Place it after [jira.presets].
+# [jira.cookies]
+# consent_accepted = "1"
 
 # Named JQL queries the agent can run by name. Edit to match your boards.
 [jira.presets]

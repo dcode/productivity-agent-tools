@@ -4,8 +4,10 @@ from typing import Any
 
 import pytest
 from mcp.server.mcpserver.exceptions import ToolError, UnexpectedToolError
+from pydantic import JsonValue
 
-from productivity_agent_tools.config import Settings
+from productivity_agent_tools.api import ApiClient, WriteOutcome
+from productivity_agent_tools.config import JiraSettings, Settings
 from productivity_agent_tools.errors import AtlassianError
 from productivity_agent_tools.http import AtlassianClient
 from productivity_agent_tools.jira.client import JiraClient, normalize_issue_key
@@ -138,3 +140,36 @@ async def test_tool_errors_reach_the_model_with_their_guidance(
     assert not isinstance(info.value, UnexpectedToolError)
     with pytest.raises(ToolError, match=r"Available presets: .*mine-open"):
         await server.call_tool("jira_run_preset", {"name": "nope"})
+
+
+class RecordingApi:
+    """A second ApiClient adapter: no HTTP, just canned answers."""
+
+    base_url = "https://other.example"
+    dry_run = True
+
+    def __init__(self) -> None:
+        self.reads: list[str] = []
+
+    async def get(self, path: str, params: dict[str, str | int] | None = None) -> JsonValue:
+        self.reads.append(path)
+        return {"version": "10.0.0"}
+
+    async def write(self, method: str, path: str, payload: dict[str, JsonValue]) -> WriteOutcome:
+        return WriteOutcome(sent=False, method=method, path=path, payload=payload)
+
+    async def aclose(self) -> None:
+        return None
+
+
+async def test_jira_client_works_with_any_api_adapter(
+    make_core: Callable[..., AtlassianClient],
+) -> None:
+    adapters: list[ApiClient] = [RecordingApi(), make_core()]
+    api = adapters[0]
+    jira = JiraClient(api, JiraSettings(path=""))
+    assert await jira.server_version() == "10.0.0"
+    assert jira.base_url == "https://other.example"
+    outcome = await jira.add_comment("ABC-1", "hello")
+    assert (outcome.sent, outcome.path) == (False, "/rest/api/2/issue/ABC-1/comment")
+    await api.aclose()
