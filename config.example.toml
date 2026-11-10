@@ -1,0 +1,41 @@
+# Copy to ~/.config/productivity-agent-tools/config.toml and edit.
+# This file names your internal host, so the real one must never be committed.
+
+# Scheme and host of the server, with no sub-path.
+base_url = "https://atlassian.example.com"
+
+# TLS is verified against the operating system's trust store by default, so
+# internal CAs your browser already trusts just work. Only set this to pin trust
+# to a specific PEM bundle (on macOS, `productivity-agent-tools export-ca` writes one).
+# ca_bundle = "~/ca-bundle.pem"
+
+# Writes are blocked while this is true. Accepts true/false or 1/0.
+# Override per run with --dry-run / --no-dry-run.
+dry_run = true
+
+# Optional: an env file defining JIRA_TOKEN=... (checked after the JIRA_TOKEN
+# environment variable and before the macOS Keychain).
+# token_env_file = "~/.secrets/jira_token.env"
+
+timeout_seconds = 30
+
+# Optional: extra cookies sent with every request. Nothing is sent by default.
+# One use is a proxy that shows a consent or terms-of-use banner and only lets
+# requests through once a cookie records that you accepted it. Adding that
+# cookie here is you accepting the banner. Find its name and value in your
+# browser's developer tools after clicking through the banner.
+# Add or override per run with --cookie name=value.
+# [cookies]
+# consent_accepted = "1"
+
+[jira]
+# Sub-path Jira is served under. Use "" when Jira is at the root of the host,
+# as in https://jira.example.com/.
+path = "/jira"
+default_max_results = 25
+
+# Named JQL queries the agent can run by name. Edit to match your boards.
+[jira.presets]
+mine-open = "assignee = currentUser() AND resolution = Unresolved ORDER BY updated DESC"
+updated-since-yesterday = "assignee = currentUser() AND updated >= startOfDay(-1d) ORDER BY updated DESC"
+current-sprint = "assignee = currentUser() AND sprint in openSprints() ORDER BY status ASC, updated DESC"
