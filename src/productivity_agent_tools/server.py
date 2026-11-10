@@ -2,8 +2,8 @@
 
 from mcp.server.mcpserver import MCPServer
 
+from productivity_agent_tools.api import ApiClient
 from productivity_agent_tools.config import Settings
-from productivity_agent_tools.http import AtlassianClient
 from productivity_agent_tools.jira.client import JiraClient
 from productivity_agent_tools.jira.tools import register_jira_tools
 
@@ -16,17 +16,17 @@ _INSTRUCTIONS: str = (
 )
 
 
-def build_server(settings: Settings, core: AtlassianClient, token_source: str) -> MCPServer:
+def build_server(settings: Settings, jira_api: ApiClient, token_source: str) -> MCPServer:
     """Create the MCP server with every enabled module's tools registered.
 
     Args:
         settings: Resolved settings.
-        core: Shared HTTP core, already holding the access token.
+        jira_api: API adapter connected to Jira, already holding the access token.
         token_source: Description of where the access token came from.
 
     Returns:
         The MCP server, ready to run.
     """
     server = MCPServer("productivity-agent-tools", instructions=_INSTRUCTIONS)
-    register_jira_tools(server, JiraClient(core, settings.jira), settings, token_source)
+    register_jira_tools(server, JiraClient(jira_api, settings.jira), settings, token_source)
     return server

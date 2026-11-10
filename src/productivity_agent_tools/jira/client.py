@@ -1,12 +1,12 @@
-"""Jira Data Center REST client (API v2) built on the shared HTTP core."""
+"""Jira Data Center REST client (API v2) built on an ``ApiClient`` adapter."""
 
 import re
 
 from pydantic import JsonValue
 
+from productivity_agent_tools.api import ApiClient, WriteOutcome
 from productivity_agent_tools.config import JiraSettings
 from productivity_agent_tools.errors import ApiError, AtlassianError
-from productivity_agent_tools.http import AtlassianClient, WriteOutcome
 from productivity_agent_tools.jira.models import (
     Comment,
     IssueDetail,
@@ -94,11 +94,11 @@ def normalize_issue_key(key: str) -> str:
 class JiraClient:
     """Typed operations against one Jira Data Center instance."""
 
-    def __init__(self, core: AtlassianClient, settings: JiraSettings) -> None:
+    def __init__(self, core: ApiClient, settings: JiraSettings) -> None:
         """Create the client.
 
         Args:
-            core: Shared HTTP core for the host.
+            core: API adapter connected to Jira's host.
             settings: Jira module settings.
         """
         self._core = core

@@ -4,6 +4,7 @@ import pytest
 
 from productivity_agent_tools.config import (
     DEFAULT_PRESETS,
+    Connection,
     apply_overrides,
     load_settings,
     parse_settings,
@@ -49,6 +50,11 @@ def test_integer_booleans_are_accepted() -> None:
         {"base_url": "https://host.example", "cookies": {"a;b": "x"}},
         {"base_url": "https://host.example", "log_level": "chatty"},
         {"base_url": "https://host.example", "log_level": 10},
+        {"jira": {"path": ""}},
+        {"jira": {"base_url": "http://jira.example"}},
+        {"jira": {"base_url": 5}},
+        {"base_url": "https://host.example", "jira": {"timeout_seconds": 0}},
+        {"base_url": "https://host.example", "jira": {"cookies": {"consent": 1}}},
     ],
 )
 def test_invalid_config_is_rejected(raw: dict[str, object]) -> None:
@@ -104,3 +110,61 @@ def test_log_level_defaults_to_info_and_flag_overrides_file() -> None:
     assert apply_overrides(settings, log_level="Debug").log_level == "debug"
     with pytest.raises(ConfigError, match="debug, info, warning, error"):
         apply_overrides(settings, log_level="loud")
+
+
+def test_product_inherits_the_top_level_connection() -> None:
+    settings = parse_settings(
+        {
+            "base_url": "https://host.example/atlassian/",
+            "ca_bundle": "/etc/roots.pem",
+            "timeout_seconds": 12,
+            "cookies": {"consent": "yes"},
+        }
+    )
+    assert settings.connection_for(settings.jira) == Connection(
+        base_url="https://host.example/atlassian",
+        ca_bundle=Path("/etc/roots.pem"),
+        cookies={"consent": "yes"},
+        timeout_seconds=12.0,
+    )
+
+
+def test_product_on_its_own_host_overrides_each_connection_value() -> None:
+    settings = parse_settings(
+        {
+            "base_url": "https://host.example",
+            "ca_bundle": "/etc/roots.pem",
+            "cookies": {"consent": "yes"},
+            "jira": {
+                "base_url": "https://jira.example/",
+                "path": "",
+                "ca_bundle": "/etc/jira.pem",
+                "timeout_seconds": 5,
+                "cookies": {"route": "a1"},
+            },
+        }
+    )
+    assert settings.connection_for(settings.jira) == Connection(
+        base_url="https://jira.example",
+        ca_bundle=Path("/etc/jira.pem"),
+        cookies={"route": "a1"},
+        timeout_seconds=5.0,
+    )
+
+
+def test_top_level_base_url_is_optional_when_the_product_names_its_own() -> None:
+    settings = parse_settings({"jira": {"base_url": "https://jira.example", "path": ""}})
+    assert settings.base_url is None
+    assert settings.connection_for(settings.jira).base_url == "https://jira.example"
+    with pytest.raises(ConfigError, match="No base_url is set"):
+        parse_settings({"cookies": {"consent": "yes"}})
+
+
+def test_empty_product_cookie_table_sends_none_and_flag_cookies_still_apply() -> None:
+    settings = parse_settings(
+        {"base_url": "https://host.example", "cookies": {"consent": "yes"}, "jira": {"cookies": {}}}
+    )
+    assert settings.connection_for(settings.jira).cookies == {}
+    changed = apply_overrides(settings, cookies=["route=a1"])
+    assert changed.connection_for(changed.jira).cookies == {"route": "a1"}
+    assert changed.cookies == {"consent": "yes", "route": "a1"}

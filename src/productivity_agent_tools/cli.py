@@ -119,15 +119,18 @@ async def _serve(settings: Settings, transport: httpx.AsyncBaseTransport | None 
         AtlassianError: If the token or CA bundle cannot be loaded.
     """
     token = await resolve_token("jira", settings.token_env_file)
+    connection = settings.connection_for(settings.jira)
     _log.info(
         "server_starting",
-        base_url=settings.base_url,
+        jira_base_url=connection.base_url,
         dry_run=settings.dry_run,
-        extra_cookies=sorted(settings.cookies),
+        extra_cookies=sorted(connection.cookies),
         token_source=token.source,
         log_level=settings.log_level,
     )
-    async with AtlassianClient.from_settings(settings, token.value, transport) as core:
+    async with AtlassianClient.from_connection(
+        connection, token.value, dry_run=settings.dry_run, transport=transport
+    ) as core:
         await build_server(settings, core, token.source).run_stdio_async()
 
 
@@ -145,12 +148,17 @@ async def _doctor(
         True if every check passed.
     """
     print(f"[ok]   config loaded from {config}")
-    print(f"[info] dry_run={settings.dry_run} extra_cookies={','.join(settings.cookies) or 'none'}")
-    print(f"[info] ca_bundle={settings.ca_bundle or 'system trust store'}")
+    connection = settings.connection_for(settings.jira)
+    print(
+        f"[info] dry_run={settings.dry_run} extra_cookies={','.join(connection.cookies) or 'none'}"
+    )
+    print(f"[info] ca_bundle={connection.ca_bundle or 'system trust store'}")
     try:
         token = await resolve_token("jira", settings.token_env_file)
         print(f"[ok]   token found in {token.source}")
-        async with AtlassianClient.from_settings(settings, token.value, transport) as core:
+        async with AtlassianClient.from_connection(
+            connection, token.value, dry_run=settings.dry_run, transport=transport
+        ) as core:
             jira = JiraClient(core, settings.jira)
             profile = await jira.myself()
             print(f"[ok]   authenticated to {jira.base_url} as {profile.get('displayName')}")
