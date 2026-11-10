@@ -11,6 +11,12 @@ import structlog
 from cyclopts import App, Parameter
 
 from productivity_agent_tools import __version__
+from productivity_agent_tools.agents import (
+    DEFAULT_EXTENSION_NAME,
+    SUPPORTED_AGENTS,
+    configure_agent,
+    find_launch,
+)
 from productivity_agent_tools.config import (
     DEFAULT_CONFIG_PATH,
     Settings,
@@ -284,6 +290,56 @@ def export_ca(output: Path = Path("~/ca-bundle.pem")) -> None:
         _fail(exc)
     else:
         print(f"Wrote {count} certificates to {target}. Set ca_bundle to this path.")
+
+
+@app.command(name="configure-agent")
+def configure_agent_command(
+    *,
+    agent: Annotated[
+        str,
+        Parameter(name="--agent", help=f"Agent to configure: {', '.join(SUPPORTED_AGENTS)}."),
+    ] = "goose",
+    name: Annotated[
+        str, Parameter(name="--name", help="Name to register the server under in the agent.")
+    ] = DEFAULT_EXTENSION_NAME,
+    config: Annotated[
+        Path | None,
+        Parameter(
+            name="--config",
+            help="Tool configuration file the agent should start the server with. "
+            "Leave out to use the default location.",
+        ),
+    ] = None,
+    agent_config: Annotated[
+        Path | None,
+        Parameter(
+            name="--agent-config",
+            help="The agent's own configuration file. Leave out to use its default location.",
+        ),
+    ] = None,
+    show: Annotated[
+        bool,
+        Parameter(name="--show", negative="", help="Print the entry without changing any file."),
+    ] = False,
+) -> None:
+    """Add this server to an agent's configuration, pointing at this installation."""
+    try:
+        change = configure_agent(
+            agent, find_launch(config), path=agent_config, name=name, write=not show
+        )
+    except AtlassianError as exc:
+        _fail(exc)
+    else:
+        if not change.written:
+            print(f"Would write this to {change.path}:\n")
+            print(change.entry, end="")
+            return
+        verb = "Updated" if change.replaced else "Added"
+        print(f"{verb} the '{name}' extension in {change.path}:\n")
+        print(change.entry)
+        if change.backup:
+            print(f"The previous file was saved as {change.backup}.")
+        print(f"Restart {agent} to load it. Writes stay blocked until dry_run is turned off.")
 
 
 def main() -> None:
