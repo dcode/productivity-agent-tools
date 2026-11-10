@@ -1,0 +1,120 @@
+[project]
+name = "productivity-agent-tools"
+dynamic = ["version"]
+description = "MCP server giving an agent daily-productivity tools for self-hosted Atlassian Data Center (Jira first)."
+readme = "README.md"
+license = "AGPL-3.0-or-later"
+license-files = ["LICENSE"]
+requires-python = ">=3.14"
+dependencies = [
+    "cyclopts>=3.0",
+    "httpx>=0.27",
+    "keyring>=25.0",
+    "mcp>=2.3,<3",
+    "pydantic>=2.7",
+    "truststore>=0.10",
+]
+
+[project.scripts]
+productivity-agent-tools = "productivity_agent_tools.cli:main"
+
+[dependency-groups]
+dev = [
+    "pre-commit>=4.7.0",
+    "pytest>=8.0",
+    "pytest-asyncio>=0.24",
+    "pytest-cov>=7.1.0",
+    "ruff>=0.8",
+    "ty>=0.0.100",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.version]
+path = "src/productivity_agent_tools/__init__.py"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/productivity_agent_tools"]
+
+# Default environment: `hatch run <script>` and `hatch shell`.
+[tool.hatch.envs.default]
+installer = "uv"
+dependency-groups = ["dev"]
+
+[tool.hatch.envs.default.scripts]
+types = "ty check {args}"
+hooks = "pre-commit run --all-files {args}"
+doctor = "productivity-agent-tools doctor {args}"
+check = [
+    "hooks",
+    "pytest",
+]
+
+# `hatch test`: coverage comes from pytest-cov (see [tool.pytest.ini_options]),
+# so plain runs and `--cover` runs behave the same and both enforce the threshold.
+[tool.hatch.envs.hatch-test]
+installer = "uv"
+default-args = ["tests"]
+extra-dependencies = [
+    "pytest-asyncio>=0.24",
+    "pytest-cov>=7.1.0",
+]
+
+[[tool.hatch.envs.hatch-test.matrix]]
+python = ["3.14"]
+
+[tool.hatch.envs.hatch-test.scripts]
+run = "pytest{env:HATCH_TEST_ARGS:} {args}"
+run-cov = "pytest{env:HATCH_TEST_ARGS:} {args}"
+cov-combine = "python -c \"\""
+cov-report = "coverage report"
+
+# `hatch fmt`: use this project's [tool.ruff] settings instead of hatch's defaults.
+[tool.hatch.envs.hatch-static-analysis]
+installer = "uv"
+config-path = "none"
+dependencies = ["ruff>=0.17"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "function"
+testpaths = ["tests"]
+addopts = ["--cov", "--cov-report=term-missing:skip-covered"]
+
+[tool.coverage.run]
+source = ["productivity_agent_tools"]
+branch = true
+
+[tool.coverage.report]
+fail_under = 90
+show_missing = true
+exclude_also = ["if TYPE_CHECKING:"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py314"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "D", "ANN", "ASYNC", "RUF"]
+ignore = ["D203", "D213"]
+
+[tool.ruff.lint.pydocstyle]
+convention = "google"
+
+[tool.ruff.lint.per-file-ignores]
+"tests/*" = ["D", "ANN", "ASYNC240"]
+
+[tool.ty.environment]
+python-version = "3.14"
+
+[tool.ty.src]
+include = ["src", "tests"]
+
+[tool.ty.terminal]
+error-on-warning = true
+
+[tool.rumdl]
+line-length = 100
+exclude = [".venv", "LICENSE"]
