@@ -228,6 +228,11 @@ tool approval on so you see each comment or transition before it is sent.
 | `jira_add_comment` | write | Add a comment (Jira wiki markup) |
 | `jira_transition_issue` | write | Move an issue through a transition |
 
+An identical write (same issue and same comment text, or same issue and same
+transition) repeated within 30 seconds is not sent again; the tool returns the
+first result with `repeat_suppressed` set. Agents sometimes issue one call twice,
+for example when a generated script runs its body two times.
+
 Presets ship as `mine-open`, `updated-since-yesterday` and `current-sprint`;
 edit them under `[jira.presets]` in your config.
 

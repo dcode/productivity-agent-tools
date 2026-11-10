@@ -20,6 +20,7 @@ from productivity_agent_tools.jira.models import (
     WriteRequest,
     WriteResult,
 )
+from productivity_agent_tools.repeats import RepeatGuard
 
 _READ = ToolAnnotations(read_only_hint=True, open_world_hint=True)
 _WRITE = ToolAnnotations(
@@ -83,8 +84,40 @@ def _write_result(action: str, issue_key: str, outcome: WriteOutcome, done: str)
     )
 
 
+async def _once(
+    guard: RepeatGuard[WriteResult],
+    key: tuple[str, ...],
+    send: Callable[[], Awaitable[WriteResult]],
+) -> WriteResult:
+    """Make a change unless the identical change was just made.
+
+    Args:
+        guard: Remembers recent changes.
+        key: Identifies the change.
+        send: Makes the change and builds its result.
+
+    Returns:
+        The result; for a repeat, the first result marked as not sent again.
+    """
+    result, age = await guard.run(key, send, lambda r: r.sent)
+    if age is None or not result.sent:
+        return result
+    when = "is already in progress" if age < 1 else f"was made {round(age)} seconds ago"
+    return result.model_copy(
+        update={
+            "repeat_suppressed": True,
+            "message": f"{result.message} This identical request {when}, so it was not sent "
+            "a second time; the change exists once.",
+        }
+    )
+
+
 def register_jira_tools(
-    server: MCPServer, jira: JiraClient, settings: Settings, token_source: str
+    server: MCPServer,
+    jira: JiraClient,
+    settings: Settings,
+    token_source: str,
+    repeats: RepeatGuard[WriteResult] | None = None,
 ) -> None:
     """Register every Jira tool on an MCP server.
 
@@ -93,7 +126,9 @@ def register_jira_tools(
         jira: Jira client the tools call.
         settings: Resolved settings (presets and safety switches).
         token_source: Description of where the access token came from.
+        repeats: Guard against identical repeated writes; a default one is made when None.
     """
+    guard = repeats if repeats is not None else RepeatGuard[WriteResult]()
 
     @server.tool(annotations=_READ)
     @_anticipated
@@ -184,15 +219,22 @@ def register_jira_tools(
         headings, "* " for bullets, "# " for numbered items.
 
         In dry-run mode nothing is sent and the result shows the request that
-        would have been made.
+        would have been made. Call this once per comment: an identical comment
+        on the same issue within 30 seconds is not sent again.
 
         Args:
             key: Issue key, such as ABC-123.
             body: Comment text in Jira wiki markup.
         """
         issue_key = normalize_issue_key(key)
-        outcome = await jira.add_comment(issue_key, body)
-        return _write_result("add_comment", issue_key, outcome, f"Comment added to {issue_key}.")
+
+        async def send() -> WriteResult:
+            outcome = await jira.add_comment(issue_key, body)
+            return _write_result(
+                "add_comment", issue_key, outcome, f"Comment added to {issue_key}."
+            )
+
+        return await _once(guard, ("add_comment", issue_key, body), send)
 
     @server.tool(annotations=_WRITE)
     @_anticipated
@@ -200,18 +242,26 @@ def register_jira_tools(
         """Move an issue to a new workflow status. Visible to the whole team.
 
         In dry-run mode nothing is sent and the result shows the request that
-        would have been made; the transition name is still validated.
+        would have been made; the transition name is still validated. Call this
+        once per move: an identical transition of the same issue within 30
+        seconds is not sent again.
 
         Args:
             key: Issue key, such as ABC-123.
             transition: Transition name or id from jira_list_transitions.
         """
         issue_key = normalize_issue_key(key)
-        match, outcome = await jira.transition_issue(issue_key, transition)
-        target = f" (now '{match.to_status}')" if match.to_status else ""
-        return _write_result(
-            "transition_issue",
-            issue_key,
-            outcome,
-            f"{issue_key} moved via '{match.name}'{target}.",
+
+        async def send() -> WriteResult:
+            match, outcome = await jira.transition_issue(issue_key, transition)
+            target = f" (now '{match.to_status}')" if match.to_status else ""
+            return _write_result(
+                "transition_issue",
+                issue_key,
+                outcome,
+                f"{issue_key} moved via '{match.name}'{target}.",
+            )
+
+        return await _once(
+            guard, ("transition_issue", issue_key, transition.strip().casefold()), send
         )
