@@ -28,11 +28,13 @@ from productivity_agent_tools.bitbucket.client import BitbucketClient
 from productivity_agent_tools.config import (
     DEFAULT_CONFIG_PATH,
     BitbucketSettings,
+    JiraSettings,
+    ProductSettings,
     Settings,
     apply_overrides,
     load_settings,
 )
-from productivity_agent_tools.errors import AtlassianError
+from productivity_agent_tools.errors import AtlassianError, ConfigError
 from productivity_agent_tools.http import AtlassianClient
 from productivity_agent_tools.jira.client import JiraClient
 from productivity_agent_tools.logs import LOG_LEVELS, configure_logging
@@ -47,6 +49,10 @@ _KEYCHAINS: tuple[str, ...] = (
 _log = structlog.get_logger(__name__)
 
 PRODUCTS: tuple[str, ...] = ("jira", "bitbucket")
+_NO_PRODUCTS: str = (
+    "No product is configured. Add a [jira] or [bitbucket] table to the config; an empty "
+    "table is enough to turn a product on with its defaults."
+)
 
 app = App(
     name="productivity-agent-tools",
@@ -141,40 +147,40 @@ async def _open_server(
     Raises:
         AtlassianError: If a token or CA bundle cannot be loaded.
     """
-    token = await resolve_token("jira", settings.token_env_file)
-    connection = settings.connection_for(settings.jira)
+    if not settings.products:
+        raise ConfigError(_NO_PRODUCTS)
     _log.info(
         "server_starting",
-        jira_base_url=connection.base_url,
+        products=list(settings.products),
         dry_run=settings.dry_run,
-        extra_cookies=sorted(connection.cookies),
-        token_source=token.source,
         log_level=settings.log_level,
-        bitbucket=settings.bitbucket is not None,
     )
     async with contextlib.AsyncExitStack() as stack:
-        jira_api = await stack.enter_async_context(
-            AtlassianClient.from_connection(
-                connection, token.value, dry_run=settings.dry_run, transport=transport
-            )
-        )
-        bitbucket_api: AtlassianClient | None = None
-        bitbucket_source = ""
-        if settings.bitbucket is not None:
-            bitbucket_token = await resolve_token("bitbucket", settings.token_env_file)
-            bitbucket_source = bitbucket_token.source
-            bitbucket_api = await stack.enter_async_context(
+
+        async def connect(name: str, product: ProductSettings) -> tuple[AtlassianClient, str]:
+            token = await resolve_token(name, settings.token_env_file)
+            client = await stack.enter_async_context(
                 AtlassianClient.from_connection(
-                    settings.connection_for(settings.bitbucket),
-                    bitbucket_token.value,
+                    settings.connection_for(product),
+                    token.value,
                     dry_run=settings.dry_run,
                     transport=transport,
                 )
             )
+            return client, token.source
+
+        jira_api, jira_source = (
+            await connect("jira", settings.jira) if settings.jira is not None else (None, "")
+        )
+        bitbucket_api, bitbucket_source = (
+            await connect("bitbucket", settings.bitbucket)
+            if settings.bitbucket is not None
+            else (None, "")
+        )
         yield build_server(
             settings,
             jira_api,
-            token.source,
+            jira_source,
             bitbucket_api=bitbucket_api,
             bitbucket_token_source=bitbucket_source,
         )
@@ -336,32 +342,32 @@ def _show(text: str, field: str | None) -> None:
         print(text)
 
 
-async def _doctor_jira(settings: Settings, transport: httpx.AsyncBaseTransport | None) -> bool:
+async def _doctor_jira(
+    settings: Settings, jira_settings: JiraSettings, transport: httpx.AsyncBaseTransport | None
+) -> bool:
     """Check the Jira token, connection and search, printing one line per check.
 
     Args:
         settings: The resolved settings.
+        jira_settings: The Jira module settings.
         transport: Replacement HTTP transport, used by tests.
 
     Returns:
         True if every check passed.
     """
-    connection = settings.connection_for(settings.jira)
-    print(
-        f"[info] dry_run={settings.dry_run} extra_cookies={','.join(connection.cookies) or 'none'}"
-    )
-    print(f"[info] ca_bundle={connection.ca_bundle or 'system trust store'}")
+    connection = settings.connection_for(jira_settings)
+    print(f"[info] jira extra_cookies={','.join(connection.cookies) or 'none'}")
     try:
         token = await resolve_token("jira", settings.token_env_file)
-        print(f"[ok]   token found in {token.source}")
+        print(f"[ok]   jira token found in {token.source}")
         async with AtlassianClient.from_connection(
             connection, token.value, dry_run=settings.dry_run, transport=transport
         ) as core:
-            jira = JiraClient(core, settings.jira)
+            jira = JiraClient(core, jira_settings)
             profile = await jira.myself()
             print(f"[ok]   authenticated to {jira.base_url} as {profile.get('displayName')}")
             print(f"[ok]   Jira version {await jira.server_version()}")
-            result = await jira.search(settings.jira.presets.get("mine-open", ""), 1)
+            result = await jira.search(jira_settings.presets.get("mine-open", ""), 1)
             print(f"[ok]   search works ({result.total} open issue(s) assigned to you)")
     except AtlassianError as exc:
         print(f"[fail] {exc}")
@@ -418,7 +424,16 @@ async def _doctor(
         True if every check passed.
     """
     print(f"[ok]   config loaded from {config}")
-    passed = await _doctor_jira(settings, transport)
+    print(f"[info] dry_run={settings.dry_run}")
+    print(f"[info] ca_bundle={settings.ca_bundle or 'system trust store'}")
+    if not settings.products:
+        print(f"[fail] {_NO_PRODUCTS}")
+        return False
+    passed = True
+    if settings.jira is None:
+        print("[info] jira is not configured (add a [jira] table to turn it on)")
+    elif not await _doctor_jira(settings, settings.jira, transport):
+        passed = False
     if settings.bitbucket is None:
         print("[info] bitbucket is not configured (add a [bitbucket] table to turn it on)")
     elif not await _doctor_bitbucket(settings, settings.bitbucket, transport):

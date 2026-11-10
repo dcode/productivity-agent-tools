@@ -41,6 +41,10 @@ timeout_seconds = 30
 # [cookies]
 # consent_accepted = "1"
 
+# Each product is switched on by having its table here: remove or comment out a
+# table (and everything under it) and that product's tools are not offered.
+# An empty table turns a product on with its defaults.
+
 [jira]
 # Sub-path Jira is served under. Use "" when Jira is at the root of the host,
 # as in https://jira.example.com/.

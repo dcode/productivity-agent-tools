@@ -118,14 +118,14 @@ def register_jira_tools(
             display_name=display if isinstance(display, str) else None,
             token_source=token_source,
             dry_run=settings.dry_run,
-            extra_cookies=list(settings.connection_for(settings.jira).cookies),
+            extra_cookies=list(settings.connection_for(jira.settings).cookies),
         )
 
     @server.tool(annotations=_LOCAL_READ)
     @_anticipated
     async def jira_list_presets() -> list[Preset]:
         """List the user's named JQL presets (saved queries) from local configuration."""
-        return [Preset(name=name, jql=jql) for name, jql in settings.jira.presets.items()]
+        return [Preset(name=name, jql=jql) for name, jql in jira.settings.presets.items()]
 
     @server.tool(annotations=_READ)
     @_anticipated
@@ -138,9 +138,9 @@ def register_jira_tools(
             name: Preset name, as listed by jira_list_presets.
             max_results: Maximum rows to return (default from config, at most 100).
         """
-        jql = settings.jira.presets.get(name)
+        jql = jira.settings.presets.get(name)
         if jql is None:
-            known = ", ".join(sorted(settings.jira.presets)) or "none configured"
+            known = ", ".join(sorted(jira.settings.presets)) or "none configured"
             raise AtlassianError(f"Unknown preset '{name}'. Available presets: {known}.")
         return await jira.search(jql, max_results)
 

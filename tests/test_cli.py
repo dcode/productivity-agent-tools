@@ -19,7 +19,7 @@ PEM = b"-----BEGIN CERTIFICATE-----\nAAAA\n-----END CERTIFICATE-----\n"
 @pytest.fixture
 def config_file(tmp_path: Path) -> Path:
     path = tmp_path / "config.toml"
-    path.write_text('base_url = "https://host.example"\n[cookies]\nconsent = "yes"\n')
+    path.write_text('base_url = "https://host.example"\n[cookies]\nconsent = "yes"\n[jira]\n')
     return path
 
 
@@ -315,3 +315,15 @@ def test_diff_field_is_coloured_only_in_a_terminal(
     assert "+new" in coloured
     cli._show("plain", "title")
     assert capsys.readouterr().out == "plain\n"
+
+
+async def test_no_configured_product_is_reported_not_served(
+    make_settings: Callable[..., Settings], capsys: pytest.CaptureFixture[str]
+) -> None:
+    empty = make_settings(jira=None)
+    with pytest.raises(ConfigError, match=r"Add a \[jira\] or \[bitbucket\] table"):
+        await cli._serve(empty)
+    with pytest.raises(ConfigError, match="No product is configured"):
+        await cli._call(empty, None, ())
+    assert await cli._doctor(Path("/cfg.toml"), empty) is False
+    assert "[fail] No product is configured" in capsys.readouterr().out
