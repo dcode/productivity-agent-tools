@@ -156,6 +156,12 @@ class RecordingApi:
         self.reads.append(path)
         return {"version": "10.0.0"}
 
+    async def get_text(self, path: str, params: dict[str, str | int] | None = None) -> str:
+        return "text"
+
+    async def query(self, path: str, payload: dict[str, JsonValue]) -> JsonValue:
+        return {"asked": payload}
+
     async def write(self, method: str, path: str, payload: dict[str, JsonValue]) -> WriteOutcome:
         return WriteOutcome(sent=False, method=method, path=path, payload=payload)
 
@@ -170,6 +176,8 @@ async def test_jira_client_works_with_any_api_adapter(
     api = adapters[0]
     jira = JiraClient(api, JiraSettings(path=""))
     assert await jira.server_version() == "10.0.0"
+    assert await api.get_text("/anything") == "text"
+    assert await api.query("/search", {"q": "x"}) == {"asked": {"q": "x"}}
     assert jira.base_url == "https://other.example"
     outcome = await jira.add_comment("ABC-1", "hello")
     assert (outcome.sent, outcome.path) == (False, "/rest/api/2/issue/ABC-1/comment")

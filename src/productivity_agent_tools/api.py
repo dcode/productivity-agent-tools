@@ -59,6 +59,33 @@ class ApiClient(Protocol):
         """
         ...
 
+    async def get_text(self, path: str, params: dict[str, str | int] | None = None) -> str:
+        """Send a read request for a plain-text resource, such as a raw diff.
+
+        Args:
+            path: Request path relative to the base URL.
+            params: Optional query parameters.
+
+        Returns:
+            The response body as text; empty for an empty response.
+        """
+        ...
+
+    async def query(self, path: str, payload: dict[str, JsonValue]) -> JsonValue:
+        """Send a read that the service only accepts as a POST with a JSON body.
+
+        This is not gated by dry-run, so it must only ever be pointed at an
+        endpoint that changes nothing, such as a search.
+
+        Args:
+            path: Request path relative to the base URL.
+            payload: JSON body describing what to read.
+
+        Returns:
+            The decoded JSON body, or None for an empty response.
+        """
+        ...
+
     async def write(self, method: str, path: str, payload: dict[str, JsonValue]) -> WriteOutcome:
         """Send a write request, unless dry-run is on.
 

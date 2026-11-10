@@ -19,8 +19,11 @@ _JIRA_INSTRUCTIONS: str = (
     "Jira text uses wiki markup, not Markdown."
 )
 _BITBUCKET_INSTRUCTIONS: str = (
-    " The bitbucket_ tools read pull requests from the user's self-hosted Bitbucket and "
-    "change nothing. Bitbucket text uses Markdown."
+    " The bitbucket_ tools read projects, repositories and pull requests from the user's "
+    "self-hosted Bitbucket and change nothing there. Most take a project key and a "
+    "repository slug; when the user names the project they work in, call "
+    "bitbucket_set_default_project once and leave project out afterwards. Bitbucket text "
+    "uses Markdown."
 )
 
 
