@@ -119,8 +119,9 @@ def test_serve_command_passes_resolved_settings(
         seen.append(settings)
 
     monkeypatch.setattr(cli, "_serve", record)
-    cli.serve(config=config_file, dry_run=False)
+    cli.serve(config=config_file, dry_run=False, log_level="debug")
     assert (seen[0].dry_run, seen[0].cookies) == (False, {"consent": "yes"})
+    assert seen[0].log_level == "debug"
 
 
 def test_serve_command_exits_cleanly_on_bad_config(

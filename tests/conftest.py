@@ -1,11 +1,12 @@
 """Shared fixtures: a fake Jira served through httpx.MockTransport."""
 
 import json
-from collections.abc import AsyncIterator, Callable
+from collections.abc import AsyncIterator, Callable, Iterator
 from typing import Any
 
 import httpx
 import pytest
+import structlog
 
 from productivity_agent_tools.config import JiraSettings, Settings
 from productivity_agent_tools.http import AtlassianClient
@@ -84,6 +85,12 @@ class FakeJira:
 
     def writes(self) -> list[httpx.Request]:
         return [r for r in self.requests if r.method != "GET"]
+
+
+@pytest.fixture(autouse=True)
+def default_logging() -> Iterator[None]:
+    yield
+    structlog.reset_defaults()
 
 
 @pytest.fixture

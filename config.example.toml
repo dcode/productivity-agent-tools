@@ -19,6 +19,12 @@ dry_run = true
 
 timeout_seconds = 30
 
+# Least severe level logged to stderr: debug, info, warning or error.
+# debug adds one line per HTTP request and response (status, redirect target,
+# names of cookies set) and never the token, cookie values or bodies.
+# Override per run with --log-level.
+# log_level = "info"
+
 # Optional: extra cookies sent with every request. Nothing is sent by default.
 # One use is a proxy that shows a consent or terms-of-use banner and only lets
 # requests through once a cookie records that you accepted it. Adding that

@@ -13,6 +13,7 @@ from pathlib import Path
 from typing import Any
 
 from productivity_agent_tools.errors import ConfigError
+from productivity_agent_tools.logs import DEFAULT_LOG_LEVEL, LOG_LEVELS
 
 DEFAULT_CONFIG_PATH: Path = Path("~/.config/productivity-agent-tools/config.toml")
 
@@ -56,6 +57,7 @@ class Settings:
         cookies: Extra cookies sent with every request, by name. Empty by default.
         token_env_file: Optional env file holding ``<PRODUCT>_TOKEN=...``.
         timeout_seconds: Per-request timeout.
+        log_level: Least severe log level written to stderr.
         jira: Jira module settings.
     """
 
@@ -65,6 +67,7 @@ class Settings:
     cookies: dict[str, str] = field(default_factory=dict)
     token_env_file: Path | None = None
     timeout_seconds: float = 30.0
+    log_level: str = DEFAULT_LOG_LEVEL
     jira: JiraSettings = field(default_factory=JiraSettings)
 
 
@@ -122,6 +125,24 @@ def _as_path(raw: dict[str, Any], key: str) -> Path | None:
     """
     value = _as_str(raw, key, None)
     return Path(value).expanduser() if value else None
+
+
+def log_level_name(value: str) -> str:
+    """Validate a log level name.
+
+    Args:
+        value: The level as configured, in any letter case.
+
+    Returns:
+        The lower-cased level name.
+
+    Raises:
+        ConfigError: If the value is not a known level.
+    """
+    cleaned = value.strip().lower()
+    if cleaned not in LOG_LEVELS:
+        raise ConfigError(f"Log level must be one of {', '.join(LOG_LEVELS)}, got '{value}'.")
+    return cleaned
 
 
 def _cookie_name(name: str) -> str:
@@ -242,6 +263,7 @@ def parse_settings(raw: dict[str, Any]) -> Settings:
         cookies=_parse_cookies(raw.get("cookies", {})),
         token_env_file=_as_path(raw, "token_env_file"),
         timeout_seconds=float(timeout),
+        log_level=log_level_name(_as_str(raw, "log_level", None) or DEFAULT_LOG_LEVEL),
         jira=_parse_jira(jira_raw),
     )
 
@@ -280,6 +302,7 @@ def apply_overrides(
     dry_run: bool | None = None,
     cookies: list[str] | None = None,
     token_env_file: Path | None = None,
+    log_level: str | None = None,
 ) -> Settings:
     """Layer command-line overrides on top of file settings.
 
@@ -289,12 +312,13 @@ def apply_overrides(
         cookies: Extra ``name=value`` cookies; these are added to the file's cookies
             and replace any with the same name.
         token_env_file: Override for ``token_env_file``; None keeps the file value.
+        log_level: Override for ``log_level``; None keeps the file value.
 
     Returns:
         A new settings object with the overrides applied.
 
     Raises:
-        ConfigError: If a cookie is not a valid ``name=value`` pair.
+        ConfigError: If a cookie is not a valid ``name=value`` pair or the log level is unknown.
     """
     merged = dict(settings.cookies)
     for pair in cookies or []:
@@ -306,6 +330,7 @@ def apply_overrides(
         settings,
         dry_run=settings.dry_run if dry_run is None else dry_run,
         cookies=merged,
+        log_level=settings.log_level if log_level is None else log_level_name(log_level),
         token_env_file=(
             settings.token_env_file if token_env_file is None else token_env_file.expanduser()
         ),
