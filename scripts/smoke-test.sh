@@ -22,6 +22,11 @@ BITBUCKET_PROJECT="<project-key>" # e.g. PROJ
 BITBUCKET_REPO="<repo-slug>"      # e.g. my-service
 BITBUCKET_PR="<pr-number>"        # a pull request in that repo, e.g. 42
 BITBUCKET_SEARCH="<search-text>"  # a string you know is in some repo
+BITBUCKET_COMMIT="<commit-hash>"  # a commit with CI builds, e.g. the PR's latest_commit
+# Deployments cannot be listed; fill these from your CI/CD server to check one.
+BITBUCKET_DEPLOY_KEY="<deployment-key>"
+BITBUCKET_DEPLOY_ENV="<environment-key>"
+BITBUCKET_DEPLOY_RUN="<sequence-number>"
 
 # ---- No need to edit below --------------------------------------------------
 
@@ -137,6 +142,22 @@ if offers bitbucket_status; then
   check "bitbucket pr changes" "${B_PR[@]}" -- bitbucket_get_pull_request_changes "${pr_args[@]}"
   check "bitbucket pr diff" "${B_PR[@]}" -- \
     bitbucket_get_pull_request_diff "${pr_args[@]}" max_chars=2000 --field diff
+  check "bitbucket pr merge status" "${B_PR[@]}" -- \
+    bitbucket_get_pull_request_merge_status "${pr_args[@]}"
+  check "bitbucket pr activity" "${B_PR[@]}" -- \
+    bitbucket_get_pull_request_activity "${pr_args[@]}" max_results=5
+  check "bitbucket pr tasks" "${B_PR[@]}" -- \
+    bitbucket_list_pull_request_tasks "${pr_args[@]}" state=all max_results=5
+  check "bitbucket pr jira issues" "${B_PR[@]}" -- bitbucket_get_pull_request_issues "${pr_args[@]}"
+  check "bitbucket required builds" "${B_REPO[@]}" -- \
+    bitbucket_list_required_builds "repository=$BITBUCKET_REPO" "project=$BITBUCKET_PROJECT"
+  check "bitbucket commit builds" "$BITBUCKET_COMMIT" -- \
+    bitbucket_get_commit_builds "commit_id=$BITBUCKET_COMMIT" max_results=5
+  check "bitbucket deployment" "${B_REPO[@]}" "$BITBUCKET_COMMIT" "$BITBUCKET_DEPLOY_KEY" \
+    "$BITBUCKET_DEPLOY_ENV" "$BITBUCKET_DEPLOY_RUN" -- \
+    bitbucket_get_deployment "repository=$BITBUCKET_REPO" "project=$BITBUCKET_PROJECT" \
+    "commit_id=$BITBUCKET_COMMIT" "deployment_key=$BITBUCKET_DEPLOY_KEY" \
+    "environment_key=$BITBUCKET_DEPLOY_ENV" "sequence_number=$BITBUCKET_DEPLOY_RUN"
   check "bitbucket code search" "$BITBUCKET_SEARCH" -- \
     bitbucket_search_code "query=$BITBUCKET_SEARCH" max_results=3
 else

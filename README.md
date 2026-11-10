@@ -302,6 +302,13 @@ tool approval on so you see each comment or transition before it is sent.
 | `bitbucket_get_pull_request_commits` | read | Commits in a pull request |
 | `bitbucket_get_pull_request_changes` | read | Files a pull request changes |
 | `bitbucket_get_pull_request_diff` | read | Unified diff, cut at a size limit |
+| `bitbucket_get_pull_request_merge_status` | read | Whether a pull request can merge, and each check blocking it |
+| `bitbucket_get_pull_request_activity` | read | History: pushes, comments, approvals, needs-work reviews, merges |
+| `bitbucket_list_pull_request_tasks` | read | Open or resolved tasks on a pull request |
+| `bitbucket_get_pull_request_issues` | read | Jira issue keys linked to a pull request |
+| `bitbucket_get_commit_builds` | read | CI build results for any commit, with totals and test counts |
+| `bitbucket_list_required_builds` | read | Builds that must pass before a repository's pull requests can merge |
+| `bitbucket_get_deployment` | read | One deployment's state, by key, environment and run number |
 
 The `bitbucket_` tools appear only when Bitbucket is configured, and none of
 them changes anything in Bitbucket.
@@ -312,6 +319,10 @@ differently between versions; if a server does not have it, the tool says so.
 It accepts Bitbucket's
 [search syntax](https://confluence.atlassian.com/bitbucketserver/search-for-code-in-bitbucket-server-814204781.html),
 searches every project unless you name one, and only covers default branches.
+
+Bitbucket has no way to list deployments. `bitbucket_get_deployment` needs
+the deployment key, environment key and sequence number that your CI or CD
+server reported, so the agent asks you for them rather than guessing.
 
 Most other Bitbucket tools need a project key. Set `default_project` under
 `[bitbucket]` to the project you usually work in and the agent can leave it out.

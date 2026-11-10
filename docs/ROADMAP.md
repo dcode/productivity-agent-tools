@@ -7,13 +7,17 @@ Last updated: 2026-11-10.
 
 ## Where things stand
 
-- **Version:** 0.1.0, not yet tagged.
+- **Version:** 0.1.0. The `v0.1.0` tag marks `main` at 92a7d95 (the design-record commit).
+  It was made in a cloud session that could not push tags; if `git ls-remote --tags origin`
+  does not show it, push it from a local clone (see Open questions).
 - **Merged to `main`:**
   - [#1](https://github.com/dcode/productivity-agent-tools/pull/1): Jira server, CLI,
     CI, `configure-agent`
   - [#2](https://github.com/dcode/productivity-agent-tools/pull/2): read-only
     Bitbucket, `call`, opt-in products, smoke test
-- **Tests:** 184 passing, about 99.9% branch coverage. All hooks clean.
+- **In review:** Bitbucket builds, deployments and more pull-request reads (branch
+  `claude/beautiful-hamilton-k4u2un`)
+- **Tests:** 197 passing, about 99.9% branch coverage. All hooks clean.
 - **In use:** Goose on the work laptop, against Jira 11.3 and Bitbucket 10.2.8.
 
 ## Done
@@ -21,6 +25,11 @@ Last updated: 2026-11-10.
 - [x] Jira: status, presets, search, issue detail, transitions; add comment, transition (writes)
 - [x] Bitbucket (read-only): status, projects, repositories, pull-request lists, pull-request
       detail, commits, changes, diff, code search, default project
+- [x] Bitbucket pull requests: merge status (blocking checks), activity history, tasks, linked
+      Jira issues
+- [x] Bitbucket builds and deployments: richer build results (key, description, tests, ref,
+      duration), builds for any commit with totals, required builds, one deployment by its
+      identifiers
 - [x] Safety: `dry_run` on by default, MCP read/write annotations, 30-second repeat suppression
 - [x] Connection: bearer tokens (environment variable, env file, Keychain), system trust store,
       generic extra cookies, per-product hosts and paths behind the `ApiClient` protocol
@@ -44,18 +53,38 @@ chance comes up and tick it here.
 - [ ] A moved or renamed file in `bitbucket_get_pull_request_changes`
 - [ ] `bitbucket_search_code`, once the server's search index stops returning 503
 - [ ] `call --field` colouring, viewed in a real terminal
+- [ ] The new Bitbucket reads, through `scripts/smoke-test.sh` (fill in the new placeholders):
+  - [ ] `bitbucket_get_pull_request_merge_status` on a pull request blocked by a check
+  - [ ] `bitbucket_get_pull_request_activity`: check that REVIEWED is shown for needs-work
+  - [ ] `bitbucket_list_pull_request_tasks` with `state=all` on a pull request with tasks
+  - [ ] `bitbucket_get_pull_request_issues` (needs the Bitbucket-to-Jira application link)
+  - [ ] `bitbucket_get_commit_builds`: that the deprecated `build-status` resource still
+        answers on 10.2.8, and which of the newer fields (tests, duration) it sends
+  - [ ] `bitbucket_list_required_builds`
+  - [ ] `bitbucket_get_deployment`, if the CI/CD server reports deployments; also check that
+        `updated` is a sensible date (seconds vs milliseconds, see DESIGN.md)
 
 ## Next up
 
 Rough order. Each item is one pull request.
 
-1. **Bitbucket writes:** comment on a pull request, approve, mark needs-work. Use the
-   existing dry-run and repeat suppression, and add MCP write annotations. Write tools
-   become available only when Bitbucket is configured.
+1. **Bitbucket writes:** comment on a pull request (and reply to one), approve, mark
+   needs-work. Use the existing dry-run and repeat suppression, and add MCP write
+   annotations. Write tools become available only when Bitbucket is configured. Found while
+   reading the 10.0 API: approve is `POST .../pull-requests/{id}/approve`, but needs-work
+   is only `PUT .../participants/{userSlug}`, which needs the signed-in user's slug.
+   Bitbucket 1.0 has no "myself" endpoint; options are the `X-AUSERNAME` response header
+   (the adapter would need to expose it) or `plugins/servlet/applinks/whoami`. Decide in
+   that pull request.
 2. **More Jira writes**, from the scope deferred in the design interview: log work, assign,
    edit fields, create issue. Field rules vary by project, so start with log work and assign.
-3. **Link Jira and Bitbucket:** pull requests linked to an issue, and issues mentioned in a
-   pull request. Needs both products configured.
+3. **Link Jira and Bitbucket:** pull requests linked to an issue. The other direction
+   (issues linked to a pull request) is done as `bitbucket_get_pull_request_issues`. Needs
+   both products configured.
+4. **Deployment listing:** Bitbucket's public API cannot list deployments, but its commit
+   page shows them, so the page uses some internal endpoint. Find it with the browser's
+   network tab on the work laptop and decide whether to use it (as code search does) for a
+   `bitbucket_list_deployments`.
 
 ## Later
 
@@ -64,8 +93,11 @@ Rough order. Each item is one pull request.
 - **Microsoft Graph adapter** (Microsoft 365 calendar and mail): a new `ApiClient` with its
   own sign-in, plus a product module. Needs its own design interview first, covering
   authentication and data handling.
-- Tag and release `v0.1.0` once the checks above are confirmed.
+- Release `v0.2.0` (Bitbucket writes plus this pull request's reads) once the checks above
+  are confirmed.
 
 ## Open questions
 
-- None outstanding. Add any that come up here, rather than leaving them in chat.
+- **`v0.1.0` tag push:** the tag was created in a cloud session whose git proxy refused tag
+  pushes. If it is missing on GitHub, run `git tag -a v0.1.0 92a7d95 -m "v0.1.0"` and
+  `git push origin v0.1.0` from a local clone; the release workflow then publishes it.
