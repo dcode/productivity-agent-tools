@@ -1,3 +1,4 @@
+import asyncio
 import json
 from collections.abc import Callable
 from typing import Any
@@ -173,3 +174,49 @@ async def test_jira_client_works_with_any_api_adapter(
     outcome = await jira.add_comment("ABC-1", "hello")
     assert (outcome.sent, outcome.path) == (False, "/rest/api/2/issue/ABC-1/comment")
     await api.aclose()
+
+
+async def test_identical_writes_from_an_agent_are_sent_once(
+    fake: FakeJira,
+    make_core: Callable[..., AtlassianClient],
+    make_settings: Callable[..., Settings],
+) -> None:
+    settings = make_settings(dry_run=False)
+    server = build_server(settings, make_core(dry_run=False), "test")
+    comment = {"key": "ABC-1", "body": "HONK"}
+
+    both = await asyncio.gather(
+        server.call_tool("jira_add_comment", comment),
+        server.call_tool("jira_add_comment", comment),
+    )
+    again = _structured(await server.call_tool("jira_add_comment", comment))
+    results = [_structured(result) for result in both]
+    assert sorted(r["repeat_suppressed"] for r in results) == [False, True]
+    assert all(r["sent"] for r in results)
+    assert again["repeat_suppressed"] is True
+    assert "not sent a second time" in again["message"]
+
+    other = _structured(
+        await server.call_tool("jira_add_comment", {"key": "ABC-1", "body": "different"})
+    )
+    assert other["repeat_suppressed"] is False
+
+    move = {"key": "ABC-1", "transition": "Done"}
+    first = _structured(await server.call_tool("jira_transition_issue", move))
+    second = _structured(
+        await server.call_tool("jira_transition_issue", {"key": "abc-1", "transition": " done "})
+    )
+    assert (first["repeat_suppressed"], second["repeat_suppressed"]) == (False, True)
+
+    posts = [request.url.path.rsplit("/", 1)[-1] for request in fake.writes()]
+    assert posts == ["comment", "comment", "transitions"]
+
+
+async def test_dry_run_writes_are_never_treated_as_repeats(
+    make_core: Callable[..., AtlassianClient], make_settings: Callable[..., Settings]
+) -> None:
+    server = build_server(make_settings(), make_core(), "test")
+    comment = {"key": "ABC-1", "body": "hi"}
+    for _ in range(2):
+        result = _structured(await server.call_tool("jira_add_comment", comment))
+        assert (result["sent"], result["repeat_suppressed"]) == (False, False)

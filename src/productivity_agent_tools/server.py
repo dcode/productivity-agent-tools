@@ -12,6 +12,8 @@ _INSTRUCTIONS: str = (
     "jira_add_comment and jira_transition_issue change team-visible data: confirm the exact "
     "comment text or transition with the user before calling them. When a write result says "
     "DRY RUN, nothing was changed; tell the user so and do not claim the update was made. "
+    "Make each write call exactly once; if a script calls a tool, do not run the script's "
+    "body twice. "
     "Jira text uses wiki markup, not Markdown."
 )
 
