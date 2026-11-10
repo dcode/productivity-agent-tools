@@ -402,6 +402,10 @@ class AtlassianClient:
         """
         content_type = response.headers.get("content-type", "").lower()
         status = response.status_code
+        if 200 <= status < 300 and not response.content:
+            # A successful write often has no body, and some servers still label
+            # it text/html. Nothing came back, so it is not an intercepting page.
+            return None
         if 200 <= status < 300 and content_type.startswith("text/html"):
             if self.cookie_names:
                 sent = ", ".join(self.cookie_names)
@@ -433,8 +437,6 @@ class AtlassianClient:
             raise ApiError(status, f"The server returned HTTP {status}.{suffix}")
         if status in (301, 302, 303, 307, 308):
             raise ApiError(status, self._redirect_message(response))
-        if status == 204 or not response.content:
-            return None
         if "json" not in content_type:
             raise ApiError(
                 status, f"Expected JSON but the server returned '{content_type or 'unknown'}'."
