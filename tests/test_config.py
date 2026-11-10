@@ -5,6 +5,8 @@ import pytest
 from productivity_agent_tools.config import (
     DEFAULT_PRESETS,
     Connection,
+    JiraSettings,
+    Settings,
     apply_overrides,
     load_settings,
     parse_settings,
@@ -12,13 +14,18 @@ from productivity_agent_tools.config import (
 from productivity_agent_tools.errors import ConfigError
 
 
+def _jira(settings: Settings) -> JiraSettings:
+    assert settings.jira is not None
+    return settings.jira
+
+
 def test_safe_defaults() -> None:
-    settings = parse_settings({"base_url": "https://host.example/"})
+    settings = parse_settings({"base_url": "https://host.example/", "jira": {}})
     assert settings.base_url == "https://host.example"
     assert settings.dry_run is True
     assert settings.cookies == {}
-    assert settings.jira.path == "/jira"
-    assert settings.jira.presets == DEFAULT_PRESETS
+    assert _jira(settings).path == "/jira"
+    assert _jira(settings).presets == DEFAULT_PRESETS
 
 
 @pytest.mark.parametrize(
@@ -27,7 +34,7 @@ def test_safe_defaults() -> None:
 )
 def test_jira_path_is_normalized_including_site_root(configured: str, expected: str) -> None:
     settings = parse_settings({"base_url": "https://host.example", "jira": {"path": configured}})
-    assert settings.jira.path == expected
+    assert _jira(settings).path == expected
 
 
 def test_integer_booleans_are_accepted() -> None:
@@ -39,7 +46,8 @@ def test_integer_booleans_are_accepted() -> None:
 @pytest.mark.parametrize(
     "raw",
     [
-        {},
+        {"jira": {}},
+        {"bitbucket": {}},
         {"base_url": "http://host.example"},
         {"base_url": "https://host.example", "dry_run": "yes"},
         {"base_url": "https://host.example", "dry_run": 2},
@@ -93,8 +101,8 @@ async def test_load_settings_reads_file_and_custom_presets(tmp_path: Path) -> No
     )
     settings = await load_settings(path)
     assert settings.ca_bundle == Path("~/roots.pem").expanduser()
-    assert settings.jira.path == "/tracker"
-    assert settings.jira.presets == {"mine": "assignee = currentUser()"}
+    assert _jira(settings).path == "/tracker"
+    assert _jira(settings).presets == {"mine": "assignee = currentUser()"}
 
 
 async def test_missing_config_file_explains_what_to_do(tmp_path: Path) -> None:
@@ -119,9 +127,10 @@ def test_product_inherits_the_top_level_connection() -> None:
             "ca_bundle": "/etc/roots.pem",
             "timeout_seconds": 12,
             "cookies": {"consent": "yes"},
+            "jira": {},
         }
     )
-    assert settings.connection_for(settings.jira) == Connection(
+    assert settings.connection_for(_jira(settings)) == Connection(
         base_url="https://host.example/atlassian",
         ca_bundle=Path("/etc/roots.pem"),
         cookies={"consent": "yes"},
@@ -144,7 +153,7 @@ def test_product_on_its_own_host_overrides_each_connection_value() -> None:
             },
         }
     )
-    assert settings.connection_for(settings.jira) == Connection(
+    assert settings.connection_for(_jira(settings)) == Connection(
         base_url="https://jira.example",
         ca_bundle=Path("/etc/jira.pem"),
         cookies={"route": "a1"},
@@ -155,16 +164,27 @@ def test_product_on_its_own_host_overrides_each_connection_value() -> None:
 def test_top_level_base_url_is_optional_when_the_product_names_its_own() -> None:
     settings = parse_settings({"jira": {"base_url": "https://jira.example", "path": ""}})
     assert settings.base_url is None
-    assert settings.connection_for(settings.jira).base_url == "https://jira.example"
+    assert settings.connection_for(_jira(settings)).base_url == "https://jira.example"
     with pytest.raises(ConfigError, match="No base_url is set"):
-        parse_settings({"cookies": {"consent": "yes"}})
+        parse_settings({"cookies": {"consent": "yes"}, "jira": {}})
 
 
 def test_empty_product_cookie_table_sends_none_and_flag_cookies_still_apply() -> None:
     settings = parse_settings(
         {"base_url": "https://host.example", "cookies": {"consent": "yes"}, "jira": {"cookies": {}}}
     )
-    assert settings.connection_for(settings.jira).cookies == {}
+    assert settings.connection_for(_jira(settings)).cookies == {}
     changed = apply_overrides(settings, cookies=["route=a1"])
-    assert changed.connection_for(changed.jira).cookies == {"route": "a1"}
+    assert changed.connection_for(_jira(changed)).cookies == {"route": "a1"}
     assert changed.cookies == {"consent": "yes", "route": "a1"}
+
+
+def test_a_product_is_on_only_when_its_table_is_in_the_config() -> None:
+    neither = parse_settings({"base_url": "https://host.example"})
+    assert (neither.jira, neither.bitbucket, neither.products) == (None, None, ())
+    jira_only = parse_settings({"base_url": "https://host.example", "jira": {}})
+    assert jira_only.products == ("jira",)
+    both = parse_settings({"base_url": "https://host.example", "bitbucket": {}, "jira": {}})
+    assert both.products == ("jira", "bitbucket")
+    untouched = apply_overrides(neither, cookies=["route=a1"])
+    assert (untouched.jira, untouched.cookies) == (None, {"route": "a1"})

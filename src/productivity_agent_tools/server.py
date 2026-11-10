@@ -1,4 +1,4 @@
-"""Assembles the MCP server from the enabled product modules."""
+"""Assembles the MCP server from the configured product modules."""
 
 from mcp.server.mcpserver import MCPServer
 
@@ -10,7 +10,7 @@ from productivity_agent_tools.jira.client import JiraClient
 from productivity_agent_tools.jira.tools import register_jira_tools
 
 _JIRA_INSTRUCTIONS: str = (
-    "Tools for the user's self-hosted Jira. Reads are safe to call freely. "
+    "The jira_ tools work with the user's self-hosted Jira. Reads are safe to call freely. "
     "jira_add_comment and jira_transition_issue change team-visible data: confirm the exact "
     "comment text or transition with the user before calling them. When a write result says "
     "DRY RUN, nothing was changed; tell the user so and do not claim the update was made. "
@@ -19,7 +19,7 @@ _JIRA_INSTRUCTIONS: str = (
     "Jira text uses wiki markup, not Markdown."
 )
 _BITBUCKET_INSTRUCTIONS: str = (
-    " The bitbucket_ tools read projects, repositories and pull requests from the user's "
+    "The bitbucket_ tools read projects, repositories and pull requests from the user's "
     "self-hosted Bitbucket and change nothing there. Most take a project key and a "
     "repository slug; when the user names the project they work in, call "
     "bitbucket_set_default_project once and leave project out afterwards. Bitbucket text "
@@ -29,17 +29,21 @@ _BITBUCKET_INSTRUCTIONS: str = (
 
 def build_server(
     settings: Settings,
-    jira_api: ApiClient,
-    token_source: str,
+    jira_api: ApiClient | None = None,
+    token_source: str = "",
     *,
     bitbucket_api: ApiClient | None = None,
     bitbucket_token_source: str = "",
 ) -> MCPServer:
-    """Create the MCP server with every enabled module's tools registered.
+    """Create the MCP server with the tools of every configured, connected product.
+
+    A product's tools are registered only when its table is in the config and
+    an adapter for it is given, so an agent is never offered a tool that
+    cannot work.
 
     Args:
         settings: Resolved settings.
-        jira_api: API adapter connected to Jira, already holding the access token.
+        jira_api: API adapter connected to Jira, or None to leave its tools out.
         token_source: Description of where the Jira access token came from.
         bitbucket_api: API adapter connected to Bitbucket, or None to leave its tools out.
         bitbucket_token_source: Description of where the Bitbucket access token came from.
@@ -47,10 +51,16 @@ def build_server(
     Returns:
         The MCP server, ready to run.
     """
+    jira = settings.jira if jira_api is not None else None
     bitbucket = settings.bitbucket if bitbucket_api is not None else None
-    instructions = _JIRA_INSTRUCTIONS + (_BITBUCKET_INSTRUCTIONS if bitbucket else "")
+    instructions = " ".join(
+        text
+        for product, text in ((jira, _JIRA_INSTRUCTIONS), (bitbucket, _BITBUCKET_INSTRUCTIONS))
+        if product is not None
+    )
     server = MCPServer("productivity-agent-tools", instructions=instructions)
-    register_jira_tools(server, JiraClient(jira_api, settings.jira), settings, token_source)
+    if jira is not None and jira_api is not None:
+        register_jira_tools(server, JiraClient(jira_api, jira), settings, token_source)
     if bitbucket is not None and bitbucket_api is not None:
         register_bitbucket_tools(
             server,

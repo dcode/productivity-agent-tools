@@ -98,6 +98,11 @@ Edit `base_url` to your host (scheme and host, plus a path only if every product
 shares a prefix such as `/atlassian`), and set `[jira] path` to
 the sub-path Jira is served under, or `""` if it is at the root of the host.
 
+A product is switched on by having its table in the config. With no `[jira]`
+table the Jira tools are not offered and no Jira token is needed; the same goes
+for `[bitbucket]`. An empty table is enough to turn a product on with its
+defaults, and at least one product must be configured.
+
 ### One host or several
 
 The top-level `base_url`, `ca_bundle`, `timeout_seconds` and `[cookies]` are

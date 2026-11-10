@@ -298,7 +298,12 @@ async def test_bitbucket_error_messages_reach_the_user(
 
 def _settings(**bitbucket: Any) -> Settings:
     return parse_settings(
-        {"base_url": "https://host.example", "cookies": {"consent": "yes"}, "bitbucket": bitbucket}
+        {
+            "base_url": "https://host.example",
+            "cookies": {"consent": "yes"},
+            "jira": {},
+            "bitbucket": bitbucket,
+        }
     )
 
 
@@ -529,8 +534,8 @@ async def test_default_project_comes_from_config_or_is_chosen_for_the_session(
 
 
 def test_default_project_is_read_from_config() -> None:
-    settings = _settings(default_project=" CO ")
-    assert settings.bitbucket is not None and settings.bitbucket.default_project == "CO"
+    settings = _settings(default_project=" PROJ ")
+    assert settings.bitbucket is not None and settings.bitbucket.default_project == "PROJ"
     assert _settings().bitbucket == BitbucketSettings()
 
 
@@ -626,9 +631,9 @@ async def test_code_search_scopes_only_when_asked_and_runs_in_dry_run(
     assert api.dry_run is True
     client = BitbucketClient(api, BitbucketSettings(default_project="OPS"))
     await client.search_code("retry")
-    await client.search_code("retry", project="CO", repository="uploader")
+    await client.search_code("retry", project="PROJ", repository="uploader")
     queries = [json.loads(request.content)["query"] for request in bitbucket.requests]
-    assert queries == ["retry", "retry project:CO repo:uploader"]
+    assert queries == ["retry", "retry project:PROJ repo:uploader"]
 
 
 async def test_code_search_problems_are_explained(
@@ -655,3 +660,42 @@ async def test_code_search_problems_are_explained(
     bitbucket.search = httpx.Response(200, json={"scope": {"type": "GLOBAL"}})
     empty = await client.search_code("retry")
     assert (empty.total, empty.returned, empty.more_available, empty.hits) == (None, 0, False, [])
+
+
+def _bitbucket_only() -> Settings:
+    return parse_settings({"base_url": "https://host.example", "bitbucket": {}})
+
+
+async def test_bitbucket_alone_offers_no_jira_tools_and_needs_no_jira_token(
+    bitbucket: FakeBitbucket,
+    make_api: Callable[..., AtlassianClient],
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    async def no_keychain(product: str) -> None:
+        return None
+
+    monkeypatch.setattr("productivity_agent_tools.tokens._from_keychain", no_keychain)
+    monkeypatch.delenv("JIRA_TOKEN", raising=False)
+    monkeypatch.setenv("BITBUCKET_TOKEN", "bb-token")
+    transport = httpx.MockTransport(bitbucket.handler)
+
+    listing = await cli._call(_bitbucket_only(), None, (), transport)
+    assert "bitbucket_status" in listing
+    assert "jira_" not in listing
+
+    server = build_server(_bitbucket_only(), bitbucket_api=make_api())
+    assert "jira_" not in (server.instructions or "")
+    assert (server.instructions or "").startswith("The bitbucket_ tools")
+
+    assert await cli._doctor(Path("/cfg.toml"), _bitbucket_only(), transport) is True
+    output = capsys.readouterr().out
+    assert "[info] jira is not configured" in output
+    assert "[ok]   Bitbucket version 9.4.2" in output
+
+
+async def test_jira_adapter_without_a_jira_table_registers_nothing(
+    make_core: Callable[..., AtlassianClient],
+) -> None:
+    server = build_server(_bitbucket_only(), make_core(), "jira source")
+    assert await server.list_tools() == []
