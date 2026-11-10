@@ -1,0 +1,202 @@
+import asyncio
+from collections.abc import Callable
+from pathlib import Path
+
+import httpx
+import pytest
+from mcp.server.mcpserver import MCPServer
+
+from productivity_agent_tools import cli
+from productivity_agent_tools.config import Settings
+from productivity_agent_tools.errors import AtlassianError, ConfigError
+from tests.conftest import FakeJira
+
+PEM = b"-----BEGIN CERTIFICATE-----\nAAAA\n-----END CERTIFICATE-----\n"
+
+
+@pytest.fixture
+def config_file(tmp_path: Path) -> Path:
+    path = tmp_path / "config.toml"
+    path.write_text('base_url = "https://host.example"\n[cookies]\nconsent = "yes"\n')
+    return path
+
+
+@pytest.fixture(autouse=True)
+def token_in_env(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("JIRA_TOKEN", "good-token")
+
+
+class FakeProcess:
+    def __init__(self, stdout: bytes, stderr: bytes, returncode: int) -> None:
+        self._output = (stdout, stderr)
+        self.returncode = returncode
+
+    async def communicate(self) -> tuple[bytes, bytes]:
+        return self._output
+
+
+def fake_security(monkeypatch: pytest.MonkeyPatch, process: FakeProcess) -> None:
+    async def spawn(*args: str, **kwargs: int) -> FakeProcess:
+        assert args[:2] == ("/usr/bin/security", "find-certificate")
+        return process
+
+    monkeypatch.setattr(asyncio, "create_subprocess_exec", spawn)
+
+
+async def test_resolve_settings_layers_flags_over_file(config_file: Path, tmp_path: Path) -> None:
+    env_file = tmp_path / "t.env"
+    settings = await cli._resolve_settings(config_file, False, ["route=a1"], env_file)
+    assert settings.dry_run is False
+    assert settings.cookies == {"consent": "yes", "route": "a1"}
+    assert settings.token_env_file == env_file
+
+
+async def test_doctor_reports_each_check(
+    fake: FakeJira,
+    make_settings: Callable[..., Settings],
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    passed = await cli._doctor(
+        Path("/cfg.toml"), make_settings(), httpx.MockTransport(fake.handler)
+    )
+    output = capsys.readouterr().out
+    assert passed is True
+    assert "config loaded from /cfg.toml" in output
+    assert "token found in environment variable JIRA_TOKEN" in output
+    assert "authenticated to https://host.example/jira as Pat Example" in output
+    assert "Jira version 9.12.0" in output
+    assert "7 open issue(s)" in output
+    assert "good-token" not in output
+
+
+async def test_doctor_reports_failure_without_raising(
+    fake: FakeJira,
+    make_settings: Callable[..., Settings],
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    settings = make_settings(cookies={})
+    passed = await cli._doctor(Path("/cfg.toml"), settings, httpx.MockTransport(fake.handler))
+    assert passed is False
+    assert "[fail] The server returned a web page instead of API data" in capsys.readouterr().out
+
+
+async def test_serve_runs_the_stdio_server(
+    fake: FakeJira, make_settings: Callable[..., Settings], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    served: list[str] = []
+
+    async def run_stdio(self: MCPServer) -> None:
+        served.append(self.name)
+
+    monkeypatch.setattr(MCPServer, "run_stdio_async", run_stdio)
+    await cli._serve(make_settings(), httpx.MockTransport(fake.handler))
+    assert served == ["productivity-agent-tools"]
+
+
+async def test_export_ca_writes_bundle(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    fake_security(monkeypatch, FakeProcess(PEM * 3, b"", 0))
+    target = tmp_path / "roots.pem"
+    assert await cli._export_ca(target) == 3
+    assert target.read_bytes() == PEM * 3
+
+
+@pytest.mark.parametrize("process", [FakeProcess(b"", b"denied", 1), FakeProcess(b"", b"", 0)])
+async def test_export_ca_fails_when_nothing_exported(
+    process: FakeProcess, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    fake_security(monkeypatch, process)
+    with pytest.raises(AtlassianError, match="Could not export"):
+        await cli._export_ca(tmp_path / "roots.pem")
+    assert not (tmp_path / "roots.pem").exists()
+
+
+def test_serve_command_passes_resolved_settings(
+    config_file: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    seen: list[Settings] = []
+
+    async def record(settings: Settings) -> None:
+        seen.append(settings)
+
+    monkeypatch.setattr(cli, "_serve", record)
+    cli.serve(config=config_file, dry_run=False)
+    assert (seen[0].dry_run, seen[0].cookies) == (False, {"consent": "yes"})
+
+
+def test_serve_command_exits_cleanly_on_bad_config(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    with pytest.raises(SystemExit) as info:
+        cli.serve(config=tmp_path / "missing.toml")
+    assert info.value.code == 1
+    assert "error: Config file not found" in capsys.readouterr().err
+
+
+@pytest.mark.parametrize(("passed", "code"), [(True, 0), (False, 1)])
+def test_doctor_command_exit_code_follows_result(
+    passed: bool, code: int, config_file: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    async def result(config: Path, settings: Settings) -> bool:
+        return passed
+
+    monkeypatch.setattr(cli, "_doctor", result)
+    with pytest.raises(SystemExit) as info:
+        cli.doctor(config=config_file)
+    assert info.value.code == code
+
+
+def test_doctor_command_exits_cleanly_on_bad_config(tmp_path: Path) -> None:
+    with pytest.raises(SystemExit) as info:
+        cli.doctor(config=tmp_path / "missing.toml")
+    assert info.value.code == 1
+
+
+def test_set_token_stores_what_was_typed(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    stored: list[tuple[str, str]] = []
+
+    async def store(product: str, token: str) -> None:
+        stored.append((product, token))
+
+    monkeypatch.setattr(cli.getpass, "getpass", lambda prompt: "  s3cret \n")
+    monkeypatch.setattr(cli, "store_token", store)
+    cli.set_token()
+    assert stored == [("jira", "s3cret")]
+    assert "s3cret" not in capsys.readouterr().out
+
+
+def test_set_token_refuses_empty_input(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(cli.getpass, "getpass", lambda prompt: "   ")
+    with pytest.raises(SystemExit) as info:
+        cli.set_token()
+    assert info.value.code == 1
+
+
+def test_export_ca_command_reports_count(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    fake_security(monkeypatch, FakeProcess(PEM * 2, b"", 0))
+    cli.export_ca(tmp_path / "roots.pem")
+    assert "Wrote 2 certificates" in capsys.readouterr().out
+
+
+def test_export_ca_command_exits_cleanly_on_failure(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    fake_security(monkeypatch, FakeProcess(b"", b"denied", 1))
+    with pytest.raises(SystemExit) as info:
+        cli.export_ca(tmp_path / "roots.pem")
+    assert info.value.code == 1
+
+
+def test_main_dispatches_to_commands(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    monkeypatch.setattr(
+        "sys.argv", ["productivity-agent-tools", "doctor", "--config", str(tmp_path / "no.toml")]
+    )
+    with pytest.raises(SystemExit) as info:
+        cli.main()
+    assert info.value.code == 1
+    assert ConfigError.__name__ not in capsys.readouterr().err
