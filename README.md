@@ -149,6 +149,31 @@ uv run pytest
 
 Tests run against a fake Jira and proxy; nothing here contacts a real server.
 
+### Continuous integration
+
+GitHub Actions runs on every pull request and on every push to `main`:
+
+| Job | What it does |
+|---|---|
+| Lint, format and type-check | All pre-commit hooks: ruff, rumdl, taplo and ty |
+| Test | The test suite with the coverage threshold, on Linux and macOS |
+| Build | Builds the sdist and wheel, installs the wheel into a clean environment, and uploads both as an artifact |
+
+Dependabot opens weekly pull requests for GitHub Actions and Python dependency updates.
+
+### Releasing
+
+1. Bump the version: `hatch version minor` (or `patch`, `major`), then commit.
+2. Tag the commit with the same version, prefixed with `v`, and push the tag:
+
+   ```bash
+   git tag v0.2.0 && git push origin v0.2.0
+   ```
+
+The release workflow checks that the tag matches `__version__`, runs the full
+CI suite, and publishes a GitHub release with the sdist and wheel attached and
+generated release notes. It does not publish to PyPI.
+
 ### With hatch
 
 The same checks are available as [hatch](https://hatch.pypa.io/) commands, which
