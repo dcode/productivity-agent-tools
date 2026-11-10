@@ -7,9 +7,9 @@ from mcp.server.mcpserver import MCPServer
 from mcp.server.mcpserver.exceptions import ToolError
 from mcp.types import ToolAnnotations
 
+from productivity_agent_tools.api import WriteOutcome
 from productivity_agent_tools.config import Settings
 from productivity_agent_tools.errors import AtlassianError
-from productivity_agent_tools.http import WriteOutcome
 from productivity_agent_tools.jira.client import JiraClient, normalize_issue_key
 from productivity_agent_tools.jira.models import (
     IssueDetail,
@@ -58,7 +58,7 @@ def _write_result(action: str, issue_key: str, outcome: WriteOutcome, done: str)
     Args:
         action: Short name of the action.
         issue_key: Issue the action applies to.
-        outcome: Outcome from the HTTP core.
+        outcome: Outcome from the API adapter.
         done: Sentence describing the change when it was sent.
 
     Returns:
@@ -112,7 +112,7 @@ def register_jira_tools(
             display_name=display if isinstance(display, str) else None,
             token_source=token_source,
             dry_run=settings.dry_run,
-            extra_cookies=list(settings.cookies),
+            extra_cookies=list(settings.connection_for(settings.jira).cookies),
         )
 
     @server.tool(annotations=ToolAnnotations(read_only_hint=True, open_world_hint=False))

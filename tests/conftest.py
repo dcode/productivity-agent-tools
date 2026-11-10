@@ -119,8 +119,12 @@ async def make_core(
     created: list[AtlassianClient] = []
 
     def build(token: str = "good-token", **overrides: Any) -> AtlassianClient:
-        core = AtlassianClient.from_settings(
-            make_settings(**overrides), token, transport=httpx.MockTransport(fake.handler)
+        settings = make_settings(**overrides)
+        core = AtlassianClient.from_connection(
+            settings.connection_for(settings.jira),
+            token,
+            dry_run=settings.dry_run,
+            transport=httpx.MockTransport(fake.handler),
         )
         created.append(core)
         return core

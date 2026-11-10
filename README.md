@@ -62,6 +62,31 @@ Edit `base_url` to your host (scheme and host, plus a path only if every product
 shares a prefix such as `/atlassian`), and set `[jira] path` to
 the sub-path Jira is served under, or `""` if it is at the root of the host.
 
+### One host or several
+
+The top-level `base_url`, `ca_bundle`, `timeout_seconds` and `[cookies]` are
+defaults for every product. Each product's table can set any of them again for
+itself, so both layouts work:
+
+```toml
+# Everything behind one host, each product under its own path.
+base_url = "https://atlassian.example.com"
+
+[jira]
+path = "/jira"
+```
+
+```toml
+# Each product on a host of its own; no top-level base_url needed.
+[jira]
+base_url = "https://jira.example.com"
+path = ""
+```
+
+A product's own `[jira.cookies]` table replaces the top-level `[cookies]` for
+that product instead of adding to it, so a cookie meant for one host is not
+sent to another. `--cookie` on the command line adds to both.
+
 Store your token:
 
 ```bash
@@ -173,6 +198,17 @@ uv run pytest
 ```
 
 Tests run against a fake Jira and proxy; nothing here contacts a real server.
+
+### How the code is laid out
+
+Product modules never make HTTP calls themselves. They talk to an `ApiClient`
+(a protocol in `api.py`: `get`, `write`, `aclose`, plus `base_url` and
+`dry_run`), and each kind of service has one adapter that implements it.
+`AtlassianClient` in `http.py` is the adapter for Atlassian Data Center: bearer
+token, TLS trust, extra cookies, logging and error messages. A new service with
+different sign-in, such as Microsoft Graph, is a new adapter and a new product
+module; the Jira code does not change. Every adapter must honor `dry_run` in
+`write`.
 
 ### Continuous integration
 

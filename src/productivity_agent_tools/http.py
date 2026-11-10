@@ -1,16 +1,16 @@
-"""Shared async HTTP core used by every product module.
+"""The ``ApiClient`` adapter for Atlassian Data Center products.
 
-Handles the things that are the same for Jira, Bitbucket and Confluence on
-one host: TLS trust, bearer-token authentication, any extra cookies a proxy
-in front of the applications requires, dry-run for writes, and translating
-failures into plain-language errors.
+Handles the things that are the same for Jira, Bitbucket and Confluence:
+TLS trust, bearer-token authentication, any extra cookies a proxy in front
+of the application requires, dry-run for writes, and translating failures
+into plain-language errors. One client serves one product's connection, so
+products on different hosts each get their own.
 """
 
 import itertools
 import ssl
 import time
 from collections.abc import Mapping
-from dataclasses import dataclass
 from pathlib import Path
 from types import TracebackType
 from typing import Self
@@ -20,7 +20,8 @@ import structlog
 import truststore
 from pydantic import JsonValue
 
-from productivity_agent_tools.config import Settings
+from productivity_agent_tools.api import WriteOutcome
+from productivity_agent_tools.config import Connection
 from productivity_agent_tools.errors import (
     ApiError,
     AtlassianError,
@@ -42,25 +43,6 @@ _DIAGNOSTIC_HEADERS: tuple[str, ...] = (
     "x-seraph-loginreason",
     "x-arequestid",
 )
-
-
-@dataclass(frozen=True, slots=True)
-class WriteOutcome:
-    """Result of a write request, whether or not it was sent.
-
-    Attributes:
-        sent: False when dry-run blocked the request.
-        method: HTTP method of the request.
-        path: Request path relative to the base URL.
-        payload: JSON body of the request.
-        response: Parsed response body when sent; None otherwise.
-    """
-
-    sent: bool
-    method: str
-    path: str
-    payload: dict[str, JsonValue]
-    response: JsonValue = None
 
 
 def _build_ssl_context(ca_bundle: Path | None) -> ssl.SSLContext:
@@ -205,7 +187,7 @@ def _error_detail(response: httpx.Response) -> str:
 
 
 class AtlassianClient:
-    """Async HTTP client for one Atlassian host.
+    """``ApiClient`` adapter for one Atlassian Data Center connection.
 
     The client is stateless between requests: cookies the server sets are
     discarded, so every request authenticates with the bearer token alone.
@@ -252,29 +234,32 @@ class AtlassianClient:
         )
 
     @classmethod
-    def from_settings(
+    def from_connection(
         cls,
-        settings: Settings,
+        connection: Connection,
         token: str,
+        *,
+        dry_run: bool = True,
         transport: httpx.AsyncBaseTransport | None = None,
     ) -> Self:
-        """Create a client from resolved settings.
+        """Create a client for one product's resolved connection.
 
         Args:
-            settings: The resolved settings.
+            connection: Where and how to reach the product.
             token: Personal access token.
+            dry_run: When True, writes are described but never sent.
             transport: Replacement transport, used by tests.
 
         Returns:
             A configured client.
         """
         return cls(
-            base_url=settings.base_url,
+            base_url=connection.base_url,
             token=token,
-            ca_bundle=settings.ca_bundle,
-            cookies=settings.cookies,
-            dry_run=settings.dry_run,
-            timeout_seconds=settings.timeout_seconds,
+            ca_bundle=connection.ca_bundle,
+            cookies=connection.cookies,
+            dry_run=dry_run,
+            timeout_seconds=connection.timeout_seconds,
             transport=transport,
         )
 

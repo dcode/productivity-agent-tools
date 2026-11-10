@@ -32,26 +32,59 @@ DEFAULT_PRESETS: dict[str, str] = {
 
 
 @dataclass(frozen=True, slots=True)
+class Connection:
+    """Where and how to reach one product, after defaults are applied.
+
+    Attributes:
+        base_url: Scheme and host, plus any path prefix in front of the product's own path.
+        ca_bundle: PEM file of trusted roots, or None for the operating system's trust store.
+        cookies: Extra cookies sent with every request, by name.
+        timeout_seconds: Per-request timeout.
+    """
+
+    base_url: str
+    ca_bundle: Path | None = None
+    cookies: dict[str, str] = field(default_factory=dict)
+    timeout_seconds: float = 30.0
+
+
+@dataclass(frozen=True, slots=True)
 class JiraSettings:
     """Settings for the Jira module.
+
+    The connection attributes are None when the ``[jira]`` table does not set
+    them, in which case the top-level value applies.
 
     Attributes:
         path: Sub-path Jira is served under, or an empty string when it is at the site root.
         default_max_results: Row cap for searches when the caller gives none.
         presets: Named JQL queries the agent can run by name.
+        base_url: Jira's own scheme and host, or None to use the top-level one.
+        ca_bundle: Jira's own PEM file of trusted roots, or None to use the top-level setting.
+        cookies: Jira's own extra cookies, replacing the top-level ones, or None to use those.
+        timeout_seconds: Jira's own per-request timeout, or None to use the top-level one.
     """
 
     path: str = "/jira"
     default_max_results: int = 25
     presets: dict[str, str] = field(default_factory=lambda: dict(DEFAULT_PRESETS))
+    base_url: str | None = None
+    ca_bundle: Path | None = None
+    cookies: dict[str, str] | None = None
+    timeout_seconds: float | None = None
 
 
 @dataclass(frozen=True, slots=True)
 class Settings:
     """Resolved settings for one run of the server or a setup command.
 
+    ``base_url``, ``ca_bundle``, ``cookies`` and ``timeout_seconds`` are the
+    defaults for every product; a product's own table can override each one.
+    Use ``connection_for`` to get the values that apply to a product.
+
     Attributes:
-        base_url: Scheme and host of the server, plus any path prefix shared by its products.
+        base_url: Default scheme and host, plus any path prefix shared by the products.
+            None when every product names its own.
         ca_bundle: PEM file of trusted roots, or None for the operating system's trust store.
         dry_run: When True, write tools describe the request but send nothing.
         cookies: Extra cookies sent with every request, by name. Empty by default.
@@ -61,7 +94,7 @@ class Settings:
         jira: Jira module settings.
     """
 
-    base_url: str
+    base_url: str | None = None
     ca_bundle: Path | None = None
     dry_run: bool = True
     cookies: dict[str, str] = field(default_factory=dict)
@@ -69,6 +102,35 @@ class Settings:
     timeout_seconds: float = 30.0
     log_level: str = DEFAULT_LOG_LEVEL
     jira: JiraSettings = field(default_factory=JiraSettings)
+
+    def connection_for(self, product: JiraSettings) -> Connection:
+        """Resolve one product's connection: its own values over the defaults.
+
+        A product's ``cookies`` table replaces the default one rather than
+        adding to it, so cookies meant for one host are not sent to another.
+
+        Args:
+            product: The product's settings.
+
+        Returns:
+            The connection to use for that product.
+
+        Raises:
+            ConfigError: If neither the product nor the top level names a base URL.
+        """
+        base_url = product.base_url or self.base_url
+        if not base_url:
+            raise ConfigError(
+                "No base_url is set. Add base_url at the top of the config, or under the "
+                'product\'s own table, e.g. base_url = "https://host".'
+            )
+        timeout = product.timeout_seconds
+        return Connection(
+            base_url=base_url,
+            ca_bundle=product.ca_bundle or self.ca_bundle,
+            cookies=dict(self.cookies if product.cookies is None else product.cookies),
+            timeout_seconds=self.timeout_seconds if timeout is None else timeout,
+        )
 
 
 def _as_bool(raw: dict[str, Any], key: str, default: bool) -> bool:
@@ -184,11 +246,12 @@ def _cookie_value(name: str, value: str) -> str:
     return cleaned
 
 
-def _parse_cookies(raw: object) -> dict[str, str]:
-    """Build the extra-cookie mapping from the ``[cookies]`` table.
+def _parse_cookies(raw: object, label: str = "cookies") -> dict[str, str]:
+    """Build the extra-cookie mapping from a ``[cookies]`` table.
 
     Args:
-        raw: The parsed ``[cookies]`` table, or an empty mapping when absent.
+        raw: The parsed table, or an empty mapping when absent.
+        label: Name of the table as the user would write it, for error messages.
 
     Returns:
         Cookie values by name.
@@ -197,8 +260,53 @@ def _parse_cookies(raw: object) -> dict[str, str]:
         ConfigError: If the table is malformed or a cookie is invalid.
     """
     if not isinstance(raw, dict) or not all(isinstance(v, str) for v in raw.values()):
-        raise ConfigError("Config table 'cookies' must map cookie names to string values.")
+        raise ConfigError(f"Config table '{label}' must map cookie names to string values.")
     return {_cookie_name(str(name)): _cookie_value(str(name), value) for name, value in raw.items()}
+
+
+def _base_url(raw: dict[str, Any], label: str) -> str | None:
+    """Read an optional base URL, requiring https.
+
+    Args:
+        raw: Parsed TOML table.
+        label: Name of the key as the user would write it, for error messages.
+
+    Returns:
+        The URL without a trailing slash, or None when absent or empty.
+
+    Raises:
+        ConfigError: If the value is not a string or is not an https URL.
+    """
+    try:
+        value = _as_str(raw, "base_url", None)
+    except ConfigError as exc:
+        raise ConfigError(f"Config key '{label}' must be a string.") from exc
+    if not value:
+        return None
+    if not value.startswith("https://"):
+        raise ConfigError(f"Config key '{label}' must start with https://.")
+    return value.rstrip("/")
+
+
+def _timeout(raw: dict[str, Any], label: str) -> float | None:
+    """Read an optional per-request timeout.
+
+    Args:
+        raw: Parsed TOML table.
+        label: Name of the key as the user would write it, for error messages.
+
+    Returns:
+        The timeout in seconds, or None when absent.
+
+    Raises:
+        ConfigError: If the value is not a positive number.
+    """
+    value = raw.get("timeout_seconds")
+    if value is None:
+        return None
+    if isinstance(value, bool) or not isinstance(value, int | float) or value <= 0:
+        raise ConfigError(f"Config key '{label}' must be a positive number.")
+    return float(value)
 
 
 def _parse_jira(raw: dict[str, Any]) -> JiraSettings:
@@ -230,6 +338,10 @@ def _parse_jira(raw: dict[str, Any]) -> JiraSettings:
         path=f"/{segment}" if segment else "",
         default_max_results=max_results,
         presets=presets,
+        base_url=_base_url(raw, "jira.base_url"),
+        ca_bundle=_as_path(raw, "ca_bundle"),
+        cookies=_parse_cookies(raw["cookies"], "jira.cookies") if "cookies" in raw else None,
+        timeout_seconds=_timeout(raw, "jira.timeout_seconds"),
     )
 
 
@@ -245,27 +357,22 @@ def parse_settings(raw: dict[str, Any]) -> Settings:
     Raises:
         ConfigError: If a required key is missing or a value is invalid.
     """
-    base_url = _as_str(raw, "base_url", None)
-    if not base_url:
-        raise ConfigError("Config key 'base_url' is required, e.g. base_url = \"https://host\".")
-    if not base_url.startswith("https://"):
-        raise ConfigError("Config key 'base_url' must start with https://.")
-    timeout = raw.get("timeout_seconds", 30.0)
-    if isinstance(timeout, bool) or not isinstance(timeout, int | float) or timeout <= 0:
-        raise ConfigError("Config key 'timeout_seconds' must be a positive number.")
+    timeout = _timeout(raw, "timeout_seconds")
     jira_raw = raw.get("jira", {})
     if not isinstance(jira_raw, dict):
         raise ConfigError("Config key 'jira' must be a table.")
-    return Settings(
-        base_url=base_url.rstrip("/"),
+    settings = Settings(
+        base_url=_base_url(raw, "base_url"),
         ca_bundle=_as_path(raw, "ca_bundle"),
         dry_run=_as_bool(raw, "dry_run", True),
         cookies=_parse_cookies(raw.get("cookies", {})),
         token_env_file=_as_path(raw, "token_env_file"),
-        timeout_seconds=float(timeout),
+        timeout_seconds=30.0 if timeout is None else timeout,
         log_level=log_level_name(_as_str(raw, "log_level", None) or DEFAULT_LOG_LEVEL),
         jira=_parse_jira(jira_raw),
     )
+    settings.connection_for(settings.jira)
+    return settings
 
 
 async def load_settings(path: Path) -> Settings:
@@ -309,8 +416,8 @@ def apply_overrides(
     Args:
         settings: Settings loaded from the file.
         dry_run: Override for ``dry_run``; None keeps the file value.
-        cookies: Extra ``name=value`` cookies; these are added to the file's cookies
-            and replace any with the same name.
+        cookies: Extra ``name=value`` cookies; these are added to the file's cookies,
+            including a product's own table, and replace any with the same name.
         token_env_file: Override for ``token_env_file``; None keeps the file value.
         log_level: Override for ``log_level``; None keeps the file value.
 
@@ -320,16 +427,20 @@ def apply_overrides(
     Raises:
         ConfigError: If a cookie is not a valid ``name=value`` pair or the log level is unknown.
     """
-    merged = dict(settings.cookies)
+    extra: dict[str, str] = {}
     for pair in cookies or []:
         name, separator, value = pair.partition("=")
         if not separator:
             raise ConfigError(f"Cookie '{pair}' must be written as name=value.")
-        merged[_cookie_name(name)] = _cookie_value(name, value)
+        extra[_cookie_name(name)] = _cookie_value(name, value)
+    jira = settings.jira
+    if jira.cookies is not None:
+        jira = replace(jira, cookies={**jira.cookies, **extra})
     return replace(
         settings,
         dry_run=settings.dry_run if dry_run is None else dry_run,
-        cookies=merged,
+        cookies={**settings.cookies, **extra},
+        jira=jira,
         log_level=settings.log_level if log_level is None else log_level_name(log_level),
         token_env_file=(
             settings.token_env_file if token_env_file is None else token_env_file.expanduser()
