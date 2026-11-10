@@ -79,6 +79,11 @@ class WriteResult(BaseModel):
     dry_run: bool = Field(description="True if dry-run blocked the change.")
     request: WriteRequest = Field(description="The request that was, or would be, sent.")
     message: str = Field(description="Plain-language summary of the outcome.")
+    repeat_suppressed: bool = Field(
+        default=False,
+        description="True if this call repeated an identical change made moments ago, so it "
+        "was not sent a second time. The change exists once.",
+    )
 
 
 class ServerStatus(BaseModel):
