@@ -19,8 +19,11 @@ _JIRA_INSTRUCTIONS: str = (
     "Jira text uses wiki markup, not Markdown."
 )
 _BITBUCKET_INSTRUCTIONS: str = (
-    "The bitbucket_ tools read projects, repositories and pull requests from the user's "
-    "self-hosted Bitbucket and change nothing there. Most take a project key and a "
+    "The bitbucket_ tools work with the user's self-hosted Bitbucket. Reads are safe to "
+    "call freely. bitbucket_add_pull_request_comment and bitbucket_review_pull_request "
+    "change team-visible data: confirm the exact comment text or review with the user "
+    "before calling them, and treat a DRY RUN result as nothing changed. Most take a "
+    "project key and a "
     "repository slug; when the user names the project they work in, call "
     "bitbucket_set_default_project once and leave project out afterwards. To say what "
     "still blocks a pull request, use bitbucket_get_pull_request_merge_status. Bitbucket "

@@ -6,6 +6,7 @@ from typing import Any
 import httpx
 import pytest
 from mcp.server.mcpserver import MCPServer
+from mcp.server.mcpserver.exceptions import ToolError
 
 from productivity_agent_tools import cli
 from productivity_agent_tools.bitbucket.client import BitbucketClient
@@ -234,6 +235,8 @@ class FakeBitbucket:
             200, json={"values": TASKS, "isLastPage": False}
         )
         self.issues: httpx.Response = httpx.Response(200, json=ISSUES)
+        self.whoami: httpx.Response = httpx.Response(200, text="pat.example@corp\n")
+        self.review: httpx.Response | None = None
 
     def handler(self, request: httpx.Request) -> httpx.Response:
         self.requests.append(request)
@@ -242,6 +245,12 @@ class FakeBitbucket:
                 401, json={"errors": [{"message": "Authentication failed", "context": None}]}
             )
         path = request.url.path
+        if path == "/bitbucket/plugins/servlet/applinks/whoami":
+            return self.whoami
+        if path == f"{API}/users/pat.example@corp":
+            return httpx.Response(
+                200, json={"name": "pat.example@corp", "slug": "pat.example_corp"}
+            )
         if path == f"{API}/application-properties":
             return httpx.Response(200, json={"version": "9.4.2"})
         if path == f"{API}/dashboard/pull-requests":
@@ -272,7 +281,15 @@ class FakeBitbucket:
         if path == f"{base}/merge":
             return httpx.Response(200, json=MERGE)
         if path == f"{base}/blocker-comments":
+            if request.method == "POST":
+                return httpx.Response(201, json={"id": 77, "severity": "BLOCKER"})
             return self.tasks
+        if path == f"{base}/comments" and request.method == "POST":
+            return httpx.Response(201, json={"id": 76, **json.loads(request.content)})
+        if path.startswith(f"{base}/participants/") and request.method == "PUT":
+            if self.review is not None:
+                return self.review
+            return httpx.Response(200, json={"status": json.loads(request.content)["status"]})
         if (
             path
             == "/bitbucket/rest/jira/latest/projects/OPS/repos/uploader/pull-requests/42/issues"
@@ -300,10 +317,11 @@ def bitbucket() -> FakeBitbucket:
 async def make_api(bitbucket: FakeBitbucket) -> AsyncIterator[Callable[..., AtlassianClient]]:
     created: list[AtlassianClient] = []
 
-    def build(token: str = "bb-token") -> AtlassianClient:
+    def build(token: str = "bb-token", dry_run: bool = True) -> AtlassianClient:
         api = AtlassianClient(
             base_url="https://host.example",
             token=token,
+            dry_run=dry_run,
             transport=httpx.MockTransport(bitbucket.handler),
         )
         created.append(api)
@@ -468,6 +486,7 @@ async def test_tools_are_registered_only_when_bitbucket_is_connected(
     )
     tools = {t.name: t for t in await server.list_tools() if t.name.startswith("bitbucket_")}
     assert sorted(tools) == [
+        "bitbucket_add_pull_request_comment",
         "bitbucket_get_commit_builds",
         "bitbucket_get_deployment",
         "bitbucket_get_pull_request",
@@ -483,16 +502,21 @@ async def test_tools_are_registered_only_when_bitbucket_is_connected(
         "bitbucket_list_repositories",
         "bitbucket_list_repository_pull_requests",
         "bitbucket_list_required_builds",
+        "bitbucket_review_pull_request",
         "bitbucket_search_code",
         "bitbucket_set_default_project",
         "bitbucket_status",
     ]
-    not_read_only = [
+    not_read_only = sorted(
         name
         for name, tool in tools.items()
         if tool.annotations is None or not tool.annotations.read_only_hint
+    )
+    assert not_read_only == [
+        "bitbucket_add_pull_request_comment",
+        "bitbucket_review_pull_request",
+        "bitbucket_set_default_project",
     ]
-    assert not_read_only == ["bitbucket_set_default_project"]
     assert "bitbucket_" in (server.instructions or "")
 
     status = _structured(await server.call_tool("bitbucket_status", {}))
@@ -501,6 +525,8 @@ async def test_tools_are_registered_only_when_bitbucket_is_connected(
         "bitbucket_version": "9.4.2",
         "token_source": "bb source",
         "authenticated": True,
+        "user_slug": "pat.example_corp",
+        "dry_run": True,
         "default_project": None,
         "extra_cookies": ["consent"],
     }
@@ -1047,3 +1073,177 @@ async def test_linked_jira_issues_skip_entries_without_a_key(
     bitbucket.issues = httpx.Response(404, json={"errors": [{"message": "Not found"}]})
     with pytest.raises(AtlassianError, match="not linked to Jira"):
         await client.get_pull_request_issues("uploader", 42, "OPS")
+
+
+def _live(make_api: Callable[..., AtlassianClient], **settings: Any) -> BitbucketClient:
+    return BitbucketClient(make_api(dry_run=False), BitbucketSettings(**settings))
+
+
+def _writes(bitbucket: FakeBitbucket) -> list[httpx.Request]:
+    return [r for r in bitbucket.requests if r.method in ("POST", "PUT")]
+
+
+async def test_user_slug_comes_from_whoami_and_is_asked_for_once(
+    bitbucket: FakeBitbucket, make_api: Callable[..., AtlassianClient]
+) -> None:
+    client = _live(make_api)
+    assert await client.user_slug() == "pat.example_corp"
+    assert await client.user_slug() == "pat.example_corp"
+    whoami, lookup = bitbucket.requests
+    assert whoami.headers["accept"] == "text/plain"
+    assert lookup.url.raw_path.endswith(b"/users/pat.example%40corp")
+
+
+async def test_configured_user_slug_skips_the_lookup(
+    bitbucket: FakeBitbucket, make_api: Callable[..., AtlassianClient]
+) -> None:
+    assert await _live(make_api, user_slug="me").user_slug() == "me"
+    assert bitbucket.requests == []
+
+
+async def test_unknown_user_is_explained_or_tolerated(
+    bitbucket: FakeBitbucket, make_api: Callable[..., AtlassianClient]
+) -> None:
+    bitbucket.whoami = httpx.Response(200, text="  ")
+    client = _live(make_api)
+    assert await client.user_slug(required=False) is None
+    with pytest.raises(AtlassianError, match="Set user_slug under"):
+        await client.user_slug()
+
+    bitbucket.whoami = httpx.Response(404, json={"errors": [{"message": "No servlet"}]})
+    failing = _live(make_api)
+    assert await failing.user_slug(required=False) is None
+    with pytest.raises(AtlassianError, match="No servlet"):
+        await failing.user_slug()
+
+
+async def test_comment_reply_and_task_go_to_the_right_place(
+    bitbucket: FakeBitbucket, make_api: Callable[..., AtlassianClient]
+) -> None:
+    client = _live(make_api)
+    plain = await client.add_comment("uploader", 42, "Looks good", "OPS")
+    reply = await client.add_comment("uploader", 42, "Agreed", "OPS", reply_to=3)
+    task = await client.add_comment("uploader", 42, "Add a test", "OPS", task=True)
+    paths = [r.url.path.rsplit("/", 1)[-1] for r in _writes(bitbucket)]
+    assert paths == ["comments", "comments", "blocker-comments"]
+    assert [json.loads(r.content) for r in _writes(bitbucket)] == [
+        {"text": "Looks good"},
+        {"text": "Agreed", "parent": {"id": 3}},
+        {"text": "Add a test"},
+    ]
+    assert all(r.headers["x-atlassian-token"] == "no-check" for r in _writes(bitbucket))
+    assert (plain.sent, reply.sent, task.sent) == (True, True, True)
+
+
+@pytest.mark.parametrize(
+    ("text", "reply_to", "number", "message"),
+    [
+        ("  ", None, 42, "must not be empty"),
+        ("hi", 0, 42, "not a valid comment identifier"),
+        ("hi", None, 0, "not a valid pull request number"),
+    ],
+)
+async def test_bad_comments_are_refused_before_any_request(
+    bitbucket: FakeBitbucket,
+    make_api: Callable[..., AtlassianClient],
+    text: str,
+    reply_to: int | None,
+    number: int,
+    message: str,
+) -> None:
+    with pytest.raises(AtlassianError, match=message):
+        await _live(make_api).add_comment("uploader", number, text, "OPS", reply_to=reply_to)
+    assert bitbucket.requests == []
+
+
+@pytest.mark.parametrize(
+    ("review", "status"),
+    [("approve", "APPROVED"), ("Needs work", "NEEDS_WORK"), (" Unapprove ", "UNAPPROVED")],
+)
+async def test_reviews_set_the_users_participant_status(
+    bitbucket: FakeBitbucket, make_api: Callable[..., AtlassianClient], review: str, status: str
+) -> None:
+    chosen, outcome = await _live(make_api).set_review("uploader", 42, review, "OPS")
+    (request,) = _writes(bitbucket)
+    assert request.url.path.endswith("/pull-requests/42/participants/pat.example_corp")
+    assert json.loads(request.content) == {"status": status}
+    assert (chosen, outcome.sent) == (status, True)
+
+
+async def test_bad_review_choices_list_the_options(client: BitbucketClient) -> None:
+    with pytest.raises(AtlassianError, match="approve, needs_work, unapprove"):
+        await client.set_review("uploader", 42, "decline", "OPS")
+
+
+async def test_tools_write_once_and_honour_dry_run(
+    bitbucket: FakeBitbucket, make_api: Callable[..., AtlassianClient]
+) -> None:
+    settings = _settings(default_project="OPS")
+    dry = build_server(settings, bitbucket_api=make_api())
+    pull = {"repository": "uploader", "pull_request_id": 42}
+
+    blocked = _structured(
+        await dry.call_tool("bitbucket_add_pull_request_comment", {**pull, "text": "hi"})
+    )
+    assert (blocked["sent"], blocked["dry_run"]) == (False, True)
+    assert blocked["message"].startswith("DRY RUN: nothing was sent to Bitbucket")
+    assert blocked["request"] == {
+        "method": "POST",
+        "path": f"{API}/projects/OPS/repos/uploader/pull-requests/42/comments",
+        "body": {"text": "hi"},
+    }
+    assert blocked["url"].endswith("/pull-requests/42/overview")
+    dry_review = _structured(
+        await dry.call_tool("bitbucket_review_pull_request", {**pull, "review": "approve"})
+    )
+    assert dry_review["request"]["path"].endswith("/participants/pat.example_corp")
+    assert _writes(bitbucket) == []
+
+    live = build_server(settings, bitbucket_api=make_api(dry_run=False))
+    arguments = {**pull, "text": "Ship it", "reply_to": 3}
+    first = _structured(await live.call_tool("bitbucket_add_pull_request_comment", arguments))
+    again = _structured(await live.call_tool("bitbucket_add_pull_request_comment", arguments))
+    assert (first["sent"], first["comment_id"], first["action"]) == (True, 76, "add_comment")
+    assert first["message"] == "Reply added to OPS/uploader pull request 42."
+    assert first["url"].endswith("/pull-requests/42/overview?commentId=76")
+    assert (again["repeat_suppressed"], again["comment_id"]) == (True, 76)
+    assert "not sent a second time" in again["message"]
+
+    task = _structured(
+        await live.call_tool(
+            "bitbucket_add_pull_request_comment", {**pull, "text": "Ship it", "task": True}
+        )
+    )
+    assert (task["action"], task["comment_id"]) == ("add_task", 77)
+    assert task["message"].startswith("Task added")
+
+    review = {**pull, "review": "needs-work"}
+    marked = _structured(await live.call_tool("bitbucket_review_pull_request", review))
+    repeat = _structured(
+        await live.call_tool("bitbucket_review_pull_request", {**pull, "review": "Needs work"})
+    )
+    assert (marked["action"], marked["comment_id"]) == ("review_needs_work", None)
+    assert marked["message"] == (
+        "OPS/uploader pull request 42 is now marked as needing work by the user."
+    )
+    assert repeat["repeat_suppressed"] is True
+    assert len(_writes(bitbucket)) == 3
+
+
+async def test_bitbucket_refusals_reach_the_agent(
+    bitbucket: FakeBitbucket, make_api: Callable[..., AtlassianClient]
+) -> None:
+    bitbucket.review = httpx.Response(
+        409, json={"errors": [{"message": "You cannot review your own pull request."}]}
+    )
+    server = build_server(_settings(), bitbucket_api=make_api(dry_run=False))
+    with pytest.raises(ToolError, match=r"HTTP 409\. \(You cannot review your own pull request"):
+        await server.call_tool(
+            "bitbucket_review_pull_request",
+            {
+                "project": "OPS",
+                "repository": "uploader",
+                "pull_request_id": 42,
+                "review": "approve",
+            },
+        )

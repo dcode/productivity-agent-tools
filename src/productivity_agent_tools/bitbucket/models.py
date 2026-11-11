@@ -2,6 +2,8 @@
 
 from pydantic import BaseModel, Field
 
+from productivity_agent_tools.writes import WriteReport
+
 
 class Reviewer(BaseModel):
     """One reviewer on a pull request."""
@@ -303,6 +305,12 @@ class BitbucketStatus(BaseModel):
     bitbucket_version: str | None = Field(default=None, description="Server version.")
     token_source: str = Field(description="Where the access token was read from.")
     authenticated: bool = Field(description="True if the token was accepted.")
+    user_slug: str | None = Field(
+        default=None,
+        description="Slug of the signed-in user; None if Bitbucket would not say, in which "
+        "case reviews fail until user_slug is set under [bitbucket].",
+    )
+    dry_run: bool = Field(description="True if comments and reviews are currently blocked.")
     default_project: str | None = Field(
         default=None, description="Project key used when a tool call names no project."
     )
@@ -397,3 +405,13 @@ class PullRequestIssues(BaseModel):
 
     returned: int = Field(description="Number of issues found.")
     issues: list[LinkedIssue] = Field(description="Linked issues.")
+
+
+class PullRequestWriteResult(WriteReport):
+    """Outcome of a Bitbucket write tool."""
+
+    project: str = Field(description="Project key of the repository.")
+    repository: str = Field(description="Repository slug.")
+    pull_request_id: int = Field(description="Pull request number.")
+    comment_id: int | None = Field(default=None, description="Identifier of a new comment.")
+    url: str | None = Field(default=None, description="Browser URL of the change, if known.")

@@ -91,11 +91,14 @@ class BitbucketSettings(ProductSettings):
         path: Sub-path Bitbucket is served under, or an empty string when it is at the site root.
         default_max_results: Row cap for lists when the caller gives none.
         default_project: Project key used when a tool call names no project, or None.
+        user_slug: The signed-in user's Bitbucket slug, or None to ask the server. Only
+            needed when the server cannot say who the token belongs to.
     """
 
     path: str = "/bitbucket"
     default_max_results: int = 25
     default_project: str | None = None
+    user_slug: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -444,6 +447,7 @@ def _parse_bitbucket(raw: dict[str, Any]) -> BitbucketSettings:
         path=_sub_path(raw, defaults.path),
         default_max_results=_max_results(raw, "bitbucket", defaults.default_max_results),
         default_project=(_as_str(raw, "default_project", None) or "").strip() or None,
+        user_slug=(_as_str(raw, "user_slug", None) or "").strip() or None,
         **_product_overrides(raw, "bitbucket"),
     )
 

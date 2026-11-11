@@ -1,6 +1,8 @@
 """Typed results returned by the Jira tools."""
 
-from pydantic import BaseModel, Field, JsonValue
+from pydantic import BaseModel, Field
+
+from productivity_agent_tools.writes import WriteReport
 
 
 class IssueSummary(BaseModel):
@@ -62,28 +64,10 @@ class Transition(BaseModel):
     to_status: str | None = Field(default=None, description="Status the issue would move to.")
 
 
-class WriteRequest(BaseModel):
-    """The exact HTTP request a write tool sends, or would send."""
+class WriteResult(WriteReport):
+    """Outcome of a Jira write tool."""
 
-    method: str = Field(description="HTTP method.")
-    path: str = Field(description="Request path on the Jira host.")
-    body: dict[str, JsonValue] = Field(description="JSON request body.")
-
-
-class WriteResult(BaseModel):
-    """Outcome of a write tool."""
-
-    action: str = Field(description="What the tool was asked to do.")
     issue_key: str = Field(description="Issue the action applies to.")
-    sent: bool = Field(description="True if the change was sent to Jira.")
-    dry_run: bool = Field(description="True if dry-run blocked the change.")
-    request: WriteRequest = Field(description="The request that was, or would be, sent.")
-    message: str = Field(description="Plain-language summary of the outcome.")
-    repeat_suppressed: bool = Field(
-        default=False,
-        description="True if this call repeated an identical change made moments ago, so it "
-        "was not sent a second time. The change exists once.",
-    )
 
 
 class ServerStatus(BaseModel):

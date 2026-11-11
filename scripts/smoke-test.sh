@@ -2,7 +2,7 @@
 #
 # Smoke test: run every tool once against your real servers with `call`,
 # no agent and no model credits. Nothing here changes Jira or Bitbucket:
-# the only write tool it runs is forced into dry-run.
+# every write tool it runs is forced into dry-run.
 #
 # 1. Replace the <placeholder> values below.
 # 2. Run it from anywhere:  ./scripts/smoke-test.sh
@@ -158,6 +158,12 @@ if offers bitbucket_status; then
     bitbucket_get_deployment "repository=$BITBUCKET_REPO" "project=$BITBUCKET_PROJECT" \
     "commit_id=$BITBUCKET_COMMIT" "deployment_key=$BITBUCKET_DEPLOY_KEY" \
     "environment_key=$BITBUCKET_DEPLOY_ENV" "sequence_number=$BITBUCKET_DEPLOY_RUN"
+  # Write tools, forced into dry-run: they show the request and send nothing.
+  # The review also checks that the server can tell who you are (user_slug).
+  check "bitbucket comment (dry run)" "${B_PR[@]}" -- \
+    bitbucket_add_pull_request_comment "${pr_args[@]}" "text=smoke test, not sent" --dry-run
+  check "bitbucket review (dry run)" "${B_PR[@]}" -- \
+    bitbucket_review_pull_request "${pr_args[@]}" review=approve --dry-run
   check "bitbucket code search" "$BITBUCKET_SEARCH" -- \
     bitbucket_search_code "query=$BITBUCKET_SEARCH" max_results=3
 else
