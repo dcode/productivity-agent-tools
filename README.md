@@ -292,6 +292,9 @@ tool approval on so you see each comment or transition before it is sent.
 | `jira_list_transitions` | read | Workflow transitions available on an issue |
 | `jira_add_comment` | write | Add a comment (Jira wiki markup) |
 | `jira_transition_issue` | write | Move an issue through a transition |
+| `jira_list_worklogs` | read | Time logged on an issue, with the total |
+| `jira_log_work` | write | Log time (`1h 30m`, `2d`) with an optional comment and start time |
+| `jira_assign_issue` | write | Assign to `me`, `none`, or a person found by name or username |
 | `bitbucket_status` | read | Bitbucket version, whether the token is accepted, the default project |
 | `bitbucket_search_code` | read | Search file contents across repositories, optionally within a project or repository |
 | `bitbucket_list_projects` | read | Projects you can see, with their keys |
@@ -338,8 +341,13 @@ Most other Bitbucket tools need a project key. Set `default_project` under
 You can also tell the agent which project to use; it calls
 `bitbucket_set_default_project`, which lasts until the server restarts.
 
+`jira_assign_issue` only assigns someone Jira allows on that issue. A name that
+matches more than one person is refused with the candidates listed, and the
+agent has to ask you which one; it does this even in dry-run.
+
 An identical write (the same comment text on the same issue or pull request,
-the same transition of an issue, or the same review of a pull request)
+the same transition, worklog or assignee of an issue, or the same review of a
+pull request)
 repeated within 30 seconds is not sent again; the tool returns the
 first result with `repeat_suppressed` set. Agents sometimes issue one call twice,
 for example when a generated script runs its body two times.

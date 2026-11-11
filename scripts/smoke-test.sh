@@ -112,9 +112,15 @@ if offers jira_status; then
   check "jira search" "$JIRA_JQL" -- jira_search "jql=$JIRA_JQL" max_results=3
   check "jira get issue" "$JIRA_ISSUE" -- jira_get_issue "key=$JIRA_ISSUE" max_comments=2
   check "jira transitions" "$JIRA_ISSUE" -- jira_list_transitions "key=$JIRA_ISSUE"
-  # A write tool, forced into dry-run: it shows the request and sends nothing.
+  check "jira worklogs" "$JIRA_ISSUE" -- jira_list_worklogs "key=$JIRA_ISSUE" max_results=3
+  # Write tools, forced into dry-run: they show the request and send nothing.
   check "jira comment (dry run)" "$JIRA_ISSUE" -- \
     jira_add_comment "key=$JIRA_ISSUE" "body=smoke test, not sent" --dry-run
+  check "jira log work (dry run)" "$JIRA_ISSUE" -- \
+    jira_log_work "key=$JIRA_ISSUE" "time_spent=15m" "comment=smoke test, not sent" --dry-run
+  # Looks you up as an assignable user even in dry-run.
+  check "jira assign to me (dry run)" "$JIRA_ISSUE" -- \
+    jira_assign_issue "key=$JIRA_ISSUE" assignee=me --dry-run
 else
   printf '\n== jira\n   skipped: no [jira] table in the config\n'
   SKIPPED+=("jira (not configured)")

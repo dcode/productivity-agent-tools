@@ -5,16 +5,22 @@ from mcp.server.mcpserver import MCPServer
 from productivity_agent_tools.api import WriteOutcome
 from productivity_agent_tools.config import Settings
 from productivity_agent_tools.errors import AtlassianError
-from productivity_agent_tools.jira.client import JiraClient, normalize_issue_key
+from productivity_agent_tools.jira.client import (
+    JiraClient,
+    normalize_duration,
+    normalize_issue_key,
+)
 from productivity_agent_tools.jira.models import (
     IssueDetail,
     Preset,
     SearchResult,
     ServerStatus,
     Transition,
+    WorklogList,
     WriteResult,
 )
 from productivity_agent_tools.repeats import RepeatGuard
+from productivity_agent_tools.tooling import IDEMPOTENT_WRITE as _IDEMPOTENT_WRITE
 from productivity_agent_tools.tooling import LOCAL_READ as _LOCAL_READ
 from productivity_agent_tools.tooling import READ as _READ
 from productivity_agent_tools.tooling import WRITE as _WRITE
@@ -35,8 +41,13 @@ def _write_result(action: str, issue_key: str, outcome: WriteOutcome, done: str)
     Returns:
         The tool result.
     """
+    created = outcome.response.get("id") if isinstance(outcome.response, dict) else None
     return WriteResult.model_validate(
-        {**report(action, "Jira", outcome, done), "issue_key": issue_key}
+        {
+            **report(action, "Jira", outcome, done),
+            "issue_key": issue_key,
+            "created_id": str(created) if isinstance(created, str | int) else None,
+        }
     )
 
 
@@ -193,3 +204,81 @@ def register_jira_tools(
         return await _once(
             guard, ("transition_issue", issue_key, transition.strip().casefold()), send
         )
+
+    @server.tool(annotations=_READ)
+    @_anticipated
+    async def jira_list_worklogs(key: str, max_results: int = 10) -> WorklogList:
+        """List the time logged on an issue, with the total across all worklogs.
+
+        Args:
+            key: Issue key, such as ABC-123.
+            max_results: How many of the newest worklogs to include (0 for totals only).
+        """
+        return await jira.list_worklogs(key, max_results)
+
+    @server.tool(annotations=_WRITE)
+    @_anticipated
+    async def jira_log_work(
+        key: str, time_spent: str, comment: str | None = None, started: str | None = None
+    ) -> WriteResult:
+        """Log time spent on an issue, as the user. Visible to the team.
+
+        Jira lowers the remaining estimate by the same amount. Write any
+        comment in Jira wiki markup, not Markdown.
+
+        In dry-run mode nothing is sent and the result shows the request that
+        would have been made. Call this once per worklog: an identical worklog
+        on the same issue within 30 seconds is not sent again.
+
+        Args:
+            key: Issue key, such as ABC-123.
+            time_spent: Duration in Jira's syntax: numbers with w, d, h or m, such as
+                "1h 30m", "2d" or "45m".
+            comment: What the work was, in Jira wiki markup.
+            started: When the work started, in ISO 8601 such as 2026-11-11T09:30 (local
+                time unless an offset is given) or a date; leave out for now.
+        """
+        issue_key = normalize_issue_key(key)
+        duration = normalize_duration(time_spent)
+
+        async def send() -> WriteResult:
+            outcome = await jira.log_work(issue_key, duration, comment, started)
+            return _write_result(
+                "log_work", issue_key, outcome, f"Logged {duration} on {issue_key}."
+            )
+
+        return await _once(
+            guard,
+            ("log_work", issue_key, duration, (started or "").strip(), (comment or "").strip()),
+            send,
+        )
+
+    @server.tool(annotations=_IDEMPOTENT_WRITE)
+    @_anticipated
+    async def jira_assign_issue(key: str, assignee: str) -> WriteResult:
+        """Assign an issue to someone, to the user, or to nobody. Visible to the team.
+
+        The person must be able to be assigned the issue. A name that matches
+        several people is refused with the candidates listed: ask the user which
+        one, then call again with that username. The person is looked up even
+        in dry-run mode, where nothing is sent and the result shows the request
+        that would have been made.
+
+        Args:
+            key: Issue key, such as ABC-123.
+            assignee: "me" for the user, "none" to unassign, or a username, display
+                name or email address.
+        """
+        issue_key = normalize_issue_key(key)
+        who = await jira.find_assignee(issue_key, assignee)
+
+        async def send() -> WriteResult:
+            outcome = await jira.assign_issue(issue_key, who)
+            target = (
+                f"assigned to {who.display_name or who.username}" if who.username else "unassigned"
+            )
+            return _write_result(
+                "assign_issue", issue_key, outcome, f"{issue_key} is now {target}."
+            )
+
+        return await _once(guard, ("assign_issue", issue_key, who.username), send)
