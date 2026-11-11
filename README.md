@@ -2,7 +2,8 @@
 
 An MCP server that gives an AI agent (Goose first, Claude Code later) tools for
 daily work against a **self-hosted Atlassian Data Center** deployment. It covers
-Jira (read and write) and, when configured, Bitbucket pull requests (read-only).
+Jira (read and write) and, when configured, Bitbucket (reads, plus pull-request
+comments and reviews).
 
 ## Quickstart
 
@@ -309,9 +310,17 @@ tool approval on so you see each comment or transition before it is sent.
 | `bitbucket_get_commit_builds` | read | CI build results for any commit, with totals and test counts |
 | `bitbucket_list_required_builds` | read | Builds that must pass before a repository's pull requests can merge |
 | `bitbucket_get_deployment` | read | One deployment's state, by key, environment and run number |
+| `bitbucket_add_pull_request_comment` | write | Comment on a pull request, reply to a comment, or add a task (Markdown) |
+| `bitbucket_review_pull_request` | write | Approve, mark as needing work, or withdraw your review |
 
-The `bitbucket_` tools appear only when Bitbucket is configured, and none of
-them changes anything in Bitbucket.
+The `bitbucket_` tools appear only when Bitbucket is configured. Only the two
+write tools change anything in Bitbucket, and `dry_run` blocks them just as it
+blocks Jira's writes.
+
+A review is recorded as the token's owner, so the server needs your Bitbucket
+user slug. It asks Bitbucket once per run (`bitbucket_status` shows the
+answer). If `bitbucket_status` shows `user_slug: null`, set `user_slug` under
+`[bitbucket]` to the name in your Bitbucket profile URL.
 
 `bitbucket_search_code` uses the endpoint behind Bitbucket's own search page
 (`rest/search/1.0/search`). Atlassian does not document it, so it may behave
@@ -329,8 +338,9 @@ Most other Bitbucket tools need a project key. Set `default_project` under
 You can also tell the agent which project to use; it calls
 `bitbucket_set_default_project`, which lasts until the server restarts.
 
-An identical write (same issue and same comment text, or same issue and same
-transition) repeated within 30 seconds is not sent again; the tool returns the
+An identical write (the same comment text on the same issue or pull request,
+the same transition of an issue, or the same review of a pull request)
+repeated within 30 seconds is not sent again; the tool returns the
 first result with `repeat_suppressed` set. Agents sometimes issue one call twice,
 for example when a generated script runs its body two times.
 

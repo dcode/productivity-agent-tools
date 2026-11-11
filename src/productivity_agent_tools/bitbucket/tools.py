@@ -1,9 +1,17 @@
-"""MCP tool definitions for Bitbucket. None of them changes anything in Bitbucket."""
+"""MCP tool definitions for Bitbucket.
+
+Only bitbucket_add_pull_request_comment and bitbucket_review_pull_request change
+anything in Bitbucket, and dry-run blocks both.
+"""
 
 from mcp.server.mcpserver import MCPServer
 from mcp.types import ToolAnnotations
 
-from productivity_agent_tools.bitbucket.client import DEFAULT_DIFF_CHARS, BitbucketClient
+from productivity_agent_tools.bitbucket.client import (
+    DEFAULT_DIFF_CHARS,
+    BitbucketClient,
+    normalize_review,
+)
 from productivity_agent_tools.bitbucket.models import (
     BitbucketStatus,
     CodeSearchResult,
@@ -20,16 +28,28 @@ from productivity_agent_tools.bitbucket.models import (
     PullRequestIssues,
     PullRequestList,
     PullRequestTasks,
+    PullRequestWriteResult,
     RepositoryList,
     RepositoryPullRequests,
     RequiredBuildList,
 )
-from productivity_agent_tools.tooling import READ, anticipated
+from productivity_agent_tools.repeats import RepeatGuard
+from productivity_agent_tools.tooling import READ, WRITE, anticipated
+from productivity_agent_tools.writes import once, report
 
 # Changes only this server's memory of which project to assume, nothing in Bitbucket.
 _SESSION_SETTING = ToolAnnotations(
     read_only_hint=False, destructive_hint=False, idempotent_hint=True, open_world_hint=True
 )
+# Setting a review status twice leaves the same status.
+_REVIEW = ToolAnnotations(
+    read_only_hint=False, destructive_hint=False, idempotent_hint=True, open_world_hint=True
+)
+_REVIEW_WORDS: dict[str, str] = {
+    "APPROVED": "approved",
+    "NEEDS_WORK": "marked as needing work",
+    "UNAPPROVED": "no longer approved or marked as needing work",
+}
 
 
 def register_bitbucket_tools(
@@ -37,6 +57,7 @@ def register_bitbucket_tools(
     bitbucket: BitbucketClient,
     token_source: str,
     cookie_names: list[str],
+    repeats: RepeatGuard[PullRequestWriteResult] | None = None,
 ) -> None:
     """Register every Bitbucket tool on an MCP server.
 
@@ -45,12 +66,14 @@ def register_bitbucket_tools(
         bitbucket: Bitbucket client the tools call.
         token_source: Description of where the access token came from.
         cookie_names: Names of the extra cookies sent to Bitbucket.
+        repeats: Guard against identical repeated writes; a default one is made when None.
     """
+    guard = repeats if repeats is not None else RepeatGuard[PullRequestWriteResult]()
 
     @server.tool(annotations=READ)
     @anticipated
     async def bitbucket_status() -> BitbucketStatus:
-        """Check the Bitbucket connection, the access token, and the default project.
+        """Check the Bitbucket connection, the access token, who is signed in, and dry-run.
 
         Call this first if another Bitbucket tool fails, to see what is wrong.
         """
@@ -61,6 +84,8 @@ def register_bitbucket_tools(
             bitbucket_version=version,
             token_source=token_source,
             authenticated=True,
+            user_slug=await bitbucket.user_slug(required=False),
+            dry_run=bitbucket.dry_run,
             default_project=bitbucket.default_project,
             extra_cookies=cookie_names,
         )
@@ -396,3 +421,104 @@ def register_bitbucket_tools(
         return await bitbucket.get_deployment(
             repository, commit_id, deployment_key, environment_key, sequence_number, project
         )
+
+    @server.tool(annotations=WRITE)
+    @anticipated
+    async def bitbucket_add_pull_request_comment(
+        repository: str,
+        pull_request_id: int,
+        text: str,
+        project: str | None = None,
+        reply_to: int | None = None,
+        task: bool = False,
+    ) -> PullRequestWriteResult:
+        """Comment on a pull request, reply to a comment, or add a task. Visible to the team.
+
+        Write the text in Markdown. The comment is attributed to the user. To
+        reply, pass the id of the comment from bitbucket_get_pull_request or
+        bitbucket_get_pull_request_activity. With task=true the comment becomes
+        a task that must be resolved before merging.
+
+        In dry-run mode nothing is sent and the result shows the request that
+        would have been made. Call this once per comment: an identical comment
+        on the same pull request within 30 seconds is not sent again.
+
+        Args:
+            repository: Repository slug, such as my-service.
+            pull_request_id: Pull request number within the repository.
+            text: Comment text in Markdown.
+            project: Project key; leave out to use the default project.
+            reply_to: Id of the comment to reply to; leave out for a new comment.
+            task: True to add a task (blocker comment) instead of a plain comment.
+        """
+        key, slug, number = bitbucket.pull_request_ref(project, repository, pull_request_id)
+
+        async def send() -> PullRequestWriteResult:
+            outcome = await bitbucket.add_comment(slug, number, text, key, reply_to, task)
+            kind = "Task" if task else "Reply" if reply_to is not None else "Comment"
+            new_id = outcome.response.get("id") if isinstance(outcome.response, dict) else None
+            comment_id = new_id if isinstance(new_id, int) else None
+            page = bitbucket.pull_request_url(key, slug, number)
+            return PullRequestWriteResult.model_validate(
+                {
+                    **report(
+                        "add_task" if task else "add_comment",
+                        "Bitbucket",
+                        outcome,
+                        f"{kind} added to {key}/{slug} pull request {number}.",
+                    ),
+                    "project": key,
+                    "repository": slug,
+                    "pull_request_id": number,
+                    "comment_id": comment_id,
+                    "url": f"{page}?commentId={comment_id}" if comment_id is not None else page,
+                }
+            )
+
+        return await once(guard, ("add_comment", key, slug, number, reply_to, task, text), send)
+
+    @server.tool(annotations=_REVIEW)
+    @anticipated
+    async def bitbucket_review_pull_request(
+        repository: str,
+        pull_request_id: int,
+        review: str,
+        project: str | None = None,
+    ) -> PullRequestWriteResult:
+        """Approve a pull request, mark it as needing work, or withdraw either. Visible to the team.
+
+        The review is recorded as the user's. Bitbucket refuses a review of the
+        user's own pull request. To explain a needs-work review, add a comment
+        with bitbucket_add_pull_request_comment as well.
+
+        In dry-run mode nothing is sent and the result shows the request that
+        would have been made. An identical review of the same pull request
+        within 30 seconds is not sent again.
+
+        Args:
+            repository: Repository slug, such as my-service.
+            pull_request_id: Pull request number within the repository.
+            review: approve, needs_work, or unapprove (clears an approval or needs-work).
+            project: Project key; leave out to use the default project.
+        """
+        key, slug, number = bitbucket.pull_request_ref(project, repository, pull_request_id)
+
+        async def send() -> PullRequestWriteResult:
+            status, outcome = await bitbucket.set_review(slug, number, review, key)
+            return PullRequestWriteResult.model_validate(
+                {
+                    **report(
+                        f"review_{status.lower()}",
+                        "Bitbucket",
+                        outcome,
+                        f"{key}/{slug} pull request {number} is now {_REVIEW_WORDS[status]} "
+                        "by the user.",
+                    ),
+                    "project": key,
+                    "repository": slug,
+                    "pull_request_id": number,
+                    "url": bitbucket.pull_request_url(key, slug, number),
+                }
+            )
+
+        return await once(guard, ("review", key, slug, number, normalize_review(review)), send)
