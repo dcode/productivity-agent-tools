@@ -68,6 +68,39 @@ class WriteResult(WriteReport):
     """Outcome of a Jira write tool."""
 
     issue_key: str = Field(description="Issue the action applies to.")
+    created_id: str | None = Field(
+        default=None, description="Identifier of the comment or worklog created, if any."
+    )
+
+
+class Worklog(BaseModel):
+    """Time someone logged on an issue."""
+
+    id: str = Field(description="Worklog identifier.")
+    author: str | None = Field(default=None, description="Who logged the time.")
+    started: str | None = Field(default=None, description="When the work started (ISO 8601).")
+    time_spent: str | None = Field(
+        default=None, description="Duration as Jira shows it, e.g. 1h 30m."
+    )
+    seconds: int = Field(default=0, description="Duration in seconds.")
+    comment: str | None = Field(default=None, description="Work description in wiki markup.")
+
+
+class WorklogList(BaseModel):
+    """Time logged on an issue."""
+
+    issue_key: str = Field(description="Issue the worklogs belong to.")
+    total: int = Field(description="Number of worklogs on the issue.")
+    total_seconds: int = Field(description="Time logged across all worklogs, in seconds.")
+    returned: int = Field(description="Number of worklogs included in this result.")
+    worklogs: list[Worklog] = Field(description="Most recent worklogs, oldest first.")
+
+
+class Assignee(BaseModel):
+    """The person an issue was, or would be, assigned to."""
+
+    username: str | None = Field(default=None, description="Jira username; None to unassign.")
+    display_name: str | None = Field(default=None, description="Display name.")
 
 
 class ServerStatus(BaseModel):

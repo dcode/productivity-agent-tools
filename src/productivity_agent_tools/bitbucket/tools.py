@@ -34,15 +34,11 @@ from productivity_agent_tools.bitbucket.models import (
     RequiredBuildList,
 )
 from productivity_agent_tools.repeats import RepeatGuard
-from productivity_agent_tools.tooling import READ, WRITE, anticipated
+from productivity_agent_tools.tooling import IDEMPOTENT_WRITE, READ, WRITE, anticipated
 from productivity_agent_tools.writes import once, report
 
 # Changes only this server's memory of which project to assume, nothing in Bitbucket.
 _SESSION_SETTING = ToolAnnotations(
-    read_only_hint=False, destructive_hint=False, idempotent_hint=True, open_world_hint=True
-)
-# Setting a review status twice leaves the same status.
-_REVIEW = ToolAnnotations(
     read_only_hint=False, destructive_hint=False, idempotent_hint=True, open_world_hint=True
 )
 _REVIEW_WORDS: dict[str, str] = {
@@ -477,7 +473,7 @@ def register_bitbucket_tools(
 
         return await once(guard, ("add_comment", key, slug, number, reply_to, task, text), send)
 
-    @server.tool(annotations=_REVIEW)
+    @server.tool(annotations=IDEMPOTENT_WRITE)
     @anticipated
     async def bitbucket_review_pull_request(
         repository: str,
