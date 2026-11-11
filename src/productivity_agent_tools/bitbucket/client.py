@@ -3,10 +3,11 @@
 import html
 import re
 from datetime import UTC, datetime
+from urllib.parse import quote
 
 from pydantic import JsonValue
 
-from productivity_agent_tools.api import ApiClient
+from productivity_agent_tools.api import ApiClient, WriteOutcome
 from productivity_agent_tools.bitbucket.models import (
     Activity,
     BuildCounts,
@@ -51,6 +52,11 @@ from productivity_agent_tools.payload import JsonObject, as_object, number, obje
 ROLES: tuple[str, ...] = ("reviewer", "author", "participant")
 STATES: tuple[str, ...] = ("open", "merged", "declined", "all")
 TASK_STATES: tuple[str, ...] = ("open", "resolved", "all")
+REVIEWS: dict[str, str] = {
+    "approve": "APPROVED",
+    "needs_work": "NEEDS_WORK",
+    "unapprove": "UNAPPROVED",
+}
 MAX_RESULTS_LIMIT: int = 100
 DEFAULT_DIFF_CHARS: int = 20_000
 MAX_DIFF_CHARS: int = 100_000
@@ -82,6 +88,21 @@ def _choice(value: str, allowed: tuple[str, ...], what: str) -> str:
     if cleaned not in allowed:
         raise AtlassianError(f"'{value}' is not a valid {what}. Use one of: {', '.join(allowed)}.")
     return cleaned
+
+
+def normalize_review(review: str) -> str:
+    """Turn a review choice into one of the keys of ``REVIEWS``.
+
+    Args:
+        review: The caller's choice, such as "Needs work" or "approve".
+
+    Returns:
+        The validated key, such as ``needs_work``.
+
+    Raises:
+        AtlassianError: If it is not a known review.
+    """
+    return _choice(re.sub(r"[\s-]+", "_", review.strip()), tuple(REVIEWS), "review")
 
 
 def _name(value: str, what: str) -> str:
@@ -277,6 +298,7 @@ class BitbucketClient:
         self._jira = f"{settings.path}/rest/jira/latest"
         self._search = f"{settings.path}/rest/search/1.0/search"
         self._default_project = settings.default_project
+        self._user_slug = settings.user_slug
 
     @property
     def default_project(self) -> str | None:
@@ -344,12 +366,8 @@ class BitbucketClient:
         Raises:
             AtlassianError: If a part is invalid.
         """
-        if pull_request_id < 1:
-            raise AtlassianError(f"{pull_request_id} is not a valid pull request number.")
-        return (
-            f"{self._api}/projects/{self._project(project)}"
-            f"/repos/{_name(repository, 'repository slug')}/pull-requests/{pull_request_id}"
-        )
+        key, slug, number = self.pull_request_ref(project, repository, pull_request_id)
+        return f"{self._api}/projects/{key}/repos/{slug}/pull-requests/{number}"
 
     async def _page(
         self, path: str, params: dict[str, str | int], what: str
@@ -369,6 +387,85 @@ class BitbucketClient:
         """
         body = as_object(await self._core.get(path, params=params), what)
         return objects(body.get("values")), body.get("isLastPage") is False
+
+    @property
+    def dry_run(self) -> bool:
+        """True while the adapter blocks writes."""
+        return self._core.dry_run
+
+    def pull_request_ref(
+        self, project: str | None, repository: str, pull_request_id: int
+    ) -> tuple[str, str, int]:
+        """Resolve and validate what names one pull request.
+
+        Args:
+            project: Project key, or None for the default project.
+            repository: Repository slug.
+            pull_request_id: Pull request number within the repository.
+
+        Returns:
+            The project key, repository slug and number.
+
+        Raises:
+            AtlassianError: If a part is invalid or no project is known.
+        """
+        if pull_request_id < 1:
+            raise AtlassianError(f"{pull_request_id} is not a valid pull request number.")
+        key, slug = self._repo(project, repository)
+        return key, slug, pull_request_id
+
+    def pull_request_url(self, project: str, repository: str, pull_request_id: int) -> str:
+        """Build the browser URL of a pull request.
+
+        Args:
+            project: Project key.
+            repository: Repository slug.
+            pull_request_id: Pull request number.
+
+        Returns:
+            The address of the pull request's overview page.
+        """
+        return (
+            f"{self.base_url}/projects/{project}/repos/{repository}/pull-requests/"
+            f"{pull_request_id}/overview"
+        )
+
+    async def user_slug(self, required: bool = True) -> str | None:
+        """Find the signed-in user's slug, asking Bitbucket once per server run.
+
+        Bitbucket's REST API 1.0 has no "who am I" resource, so this reads the
+        user name from the ``applinks/whoami`` servlet and looks up its slug.
+        ``user_slug`` under ``[bitbucket]`` skips both requests.
+
+        Args:
+            required: Raise when the user cannot be found, instead of returning None.
+
+        Returns:
+            The slug, or None when it is unknown and not required.
+
+        Raises:
+            AtlassianError: If it is required and cannot be found.
+        """
+        if self._user_slug is None:
+            try:
+                name = (
+                    await self._core.get_text(
+                        f"{self._settings.path}/plugins/servlet/applinks/whoami"
+                    )
+                ).strip()
+                if name:
+                    found = await self._core.get(f"{self._api}/users/{quote(name, safe='')}")
+                    self._user_slug = text(found, "slug") or name
+            except AtlassianError:
+                if required:
+                    raise
+        if self._user_slug is None and required:
+            raise AtlassianError(
+                "Bitbucket did not say who the access token belongs to, so the review cannot "
+                "be recorded. Set user_slug under [bitbucket] in the config to your Bitbucket "
+                "user slug (shown in your profile URL) and restart the server."
+            )
+        return self._user_slug
 
     @property
     def base_url(self) -> str:
@@ -1171,3 +1268,74 @@ class BitbucketClient:
             if text(item, "key")
         ]
         return PullRequestIssues(returned=len(issues), issues=issues)
+
+    async def add_comment(
+        self,
+        repository: str,
+        pull_request_id: int,
+        comment: str,
+        project: str | None = None,
+        reply_to: int | None = None,
+        task: bool = False,
+    ) -> WriteOutcome:
+        """Add a comment, reply or task to a pull request (blocked when dry-run is on).
+
+        Args:
+            repository: Repository slug.
+            pull_request_id: Pull request number within the repository.
+            comment: Comment text in Markdown.
+            project: Project key, or None for the default project.
+            reply_to: Identifier of the comment to reply to, or None for a new thread.
+            task: Post it as a task (a blocker comment) that must be resolved.
+
+        Returns:
+            The write outcome.
+
+        Raises:
+            AtlassianError: If a parameter is invalid or the request fails.
+        """
+        base = self._pull_path(project, repository, pull_request_id)
+        if not comment.strip():
+            raise AtlassianError("Comment text must not be empty.")
+        if reply_to is not None and reply_to < 1:
+            raise AtlassianError(f"{reply_to} is not a valid comment identifier.")
+        payload: dict[str, JsonValue] = {"text": comment}
+        if reply_to is not None:
+            payload["parent"] = {"id": reply_to}
+        return await self._core.write(
+            "POST", f"{base}/{'blocker-comments' if task else 'comments'}", payload
+        )
+
+    async def set_review(
+        self,
+        repository: str,
+        pull_request_id: int,
+        review: str,
+        project: str | None = None,
+    ) -> tuple[str, WriteOutcome]:
+        """Approve a pull request, mark it as needing work, or withdraw either.
+
+        The user is looked up even in dry-run, so a missing slug is reported
+        either way.
+
+        Args:
+            repository: Repository slug.
+            pull_request_id: Pull request number within the repository.
+            review: approve, needs_work or unapprove.
+            project: Project key, or None for the default project.
+
+        Returns:
+            Bitbucket's name for the new status, and the write outcome.
+
+        Raises:
+            AtlassianError: If a parameter is invalid, the user is unknown, or the
+                request fails (for example on the user's own pull request).
+        """
+        choice = normalize_review(review)
+        base = self._pull_path(project, repository, pull_request_id)
+        slug = await self.user_slug()
+        status = REVIEWS[choice]
+        outcome = await self._core.write(
+            "PUT", f"{base}/participants/{quote(slug or '', safe='')}", {"status": status}
+        )
+        return status, outcome

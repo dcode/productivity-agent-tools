@@ -17,8 +17,8 @@ reach development only as script output that the user pastes back.
 ## Solution
 
 `productivity-agent-tools` is one Python MCP server over stdio. It gives an agent typed tools
-for Jira (read and a narrow set of writes) and Bitbucket (read-only: code, pull requests, builds
-and deployments), and has a CLI for setup,
+for Jira and Bitbucket (reads of issues, code, pull requests, builds and deployments, plus a
+narrow set of writes in each), and has a CLI for setup,
 diagnosis and running a tool directly.
 
 Probing the real deployment showed that smart-card authentication is not required. The
@@ -83,10 +83,11 @@ keeps writes behind a dry-run switch that is on by default.
     that I can run read-only on days I want no risk.
 17. As a user, I want a blocked write to return the exact request it would have sent, so
     that I can check what the agent meant to do.
-18. As a user, I want an identical write (same issue and comment text, or same issue and
-    transition) repeated within 30 seconds to be sent once, with the first result returned
-    and `repeat_suppressed` set, so that an agent that runs one call twice (for example from
-    a generated script) does not post twice. Failed and dry-run writes are not remembered.
+18. As a user, I want an identical write (the same comment on the same issue or pull request,
+    the same transition, or the same review) repeated within 30 seconds to be sent once,
+    with the first result returned and `repeat_suppressed` set, so that an agent that runs
+    one call twice (for example from a generated script) does not post twice. Failed and
+    dry-run writes are not remembered.
 19. As a user, I want tools annotated as read or write in MCP, so that the agent's approval
     mode can run reads freely and show me each write before it is sent.
 
@@ -132,51 +133,57 @@ keeps writes behind a dry-run switch that is on by default.
 34. As a user, I want the CI build results of any commit (with totals, test counts and
     descriptions), the builds a repository requires before merging, and the state of a
     deployment I name, so that the agent can explain a red build or a stuck release.
+35. As a user, I want the agent to comment on a pull request, reply to a comment, or add a
+    task, in Markdown, so that it can post review feedback for me.
+36. As a user, I want the agent to approve a pull request, mark it as needing work, or
+    withdraw either, so that it can record my review once I have agreed to it.
+37. As a user, I want the server to find my Bitbucket user slug itself, and to let me set it
+    under `[bitbucket]` when it cannot, so that reviews work without extra setup.
 
 ### Diagnostics and operation
 
-35. As a user, I want `doctor` to check config, token and connection for each configured
+38. As a user, I want `doctor` to check config, token and connection for each configured
     product and report each separately, so that I can find what is wrong without an agent.
-36. As a user, I want structured logs (structlog) on stderr, readable in a terminal and JSON
+39. As a user, I want structured logs (structlog) on stderr, readable in a terminal and JSON
     otherwise, with `log_level` in the config or `--log-level`, so that the MCP protocol keeps
     stdout and an agent host's log file is parseable.
-37. As a user, I want `debug` to log each HTTP exchange (method, path, status, content type,
+40. As a user, I want `debug` to log each HTTP exchange (method, path, status, content type,
     size, duration, redirect target, cookie names, identifying headers) and never the token,
     cookie values, query values or bodies, so that I can paste debug logs safely.
-38. As a user, I want a redirect error to name its destination and say what to check, so
+41. As a user, I want a redirect error to name its destination and say what to check, so
     that I can tell a login page from a wrong path.
-39. As a user, I want a failed request whose path repeats a segment (such as `/jira/jira`) or
+42. As a user, I want a failed request whose path repeats a segment (such as `/jira/jira`) or
     contains `//` to ask whether that was intended and show the full address, without
     rejecting such paths outright, so that a legitimate shared prefix still works.
-40. As a user, I want an empty 2xx answered with an HTML content type treated as success, so
+43. As a user, I want an empty 2xx answered with an HTML content type treated as success, so
     that a Jira transition that went through is not reported as a banner page.
-41. As a user, I want `call <tool> name=value ...` to run any tool without an agent and print
+44. As a user, I want `call <tool> name=value ...` to run any tool without an agent and print
     JSON, typed from the tool's schema and obeying `dry_run`, so that I can test against real
     servers without spending model credits. With no tool name, it lists the tools.
-42. As a user, I want `call --field NAME` to print one field as written, with a diff coloured
+45. As a user, I want `call --field NAME` to print one field as written, with a diff coloured
     only when stdout is a terminal, so that a diff reads as a diff and agents and pipes stay
     plain.
-43. As a user, I want `scripts/smoke-test.sh` to run every tool once through `call`, skipping
+46. As a user, I want `scripts/smoke-test.sh` to run every tool once through `call`, skipping
     unconfigured products and unfilled `<placeholder>` values and forcing its one write into
     dry-run, so that I can confirm a release against my servers in one step.
 
 ### Agent registration
 
-44. As a user, I want `configure-agent` to add a `productivity` stdio extension to Goose's
+47. As a user, I want `configure-agent` to add a `productivity` stdio extension to Goose's
     config that starts the server by the absolute path of the command in this checkout's
     environment, so that it does not depend on Goose's working directory or `PATH`.
-45. As a user, I want `configure-agent` to keep the rest of the file and its comments, save
+48. As a user, I want `configure-agent` to keep the rest of the file and its comments, save
     `config.yaml.bak`, update in place on re-run, and preview with `--show`, so that it is
     safe to run.
 
 ### Development
 
-46. As a developer, I want product modules to depend only on an `ApiClient` protocol, so that
+49. As a developer, I want product modules to depend only on an `ApiClient` protocol, so that
     a service with different sign-in (such as Microsoft Graph) is a new adapter and the Jira
     code does not change.
-47. As a developer, I want tests to run against an in-process fake Jira, fake Bitbucket and
+50. As a developer, I want tests to run against an in-process fake Jira, fake Bitbucket and
     intercepting proxy, so that nothing in the suite contacts a real server.
-48. As a developer, I want one set of checks (ruff, rumdl, taplo, ty, pytest with coverage)
+51. As a developer, I want one set of checks (ruff, rumdl, taplo, ty, pytest with coverage)
     run by pre-commit, hatch and CI alike, so that a passing local run means a passing CI run.
 
 ## Implementation Decisions
@@ -241,17 +248,33 @@ keeps writes behind a dry-run switch that is on by default.
 
 ### Write safety
 
-- Jira writes in this version are add comment and transition issue only.
+- Jira writes in this version are add comment and transition issue only. Bitbucket writes
+  are add a pull-request comment (new, reply or task) and set the user's review (approve,
+  needs work, or neither).
 - Dry-run is on by default and returns the would-be request. This was chosen over relying on
   the agent's approval prompt alone, or a two-step confirm tool that the agent could call
   itself.
 - Tools carry MCP read and write annotations so the host's approval mode applies as well.
-- Repeat suppression keys on (issue, comment text) or (issue, transition) with a 30-second
-  window (`repeats.py`). Simultaneous repeats share one in-flight result.
+- Repeat suppression keys on (issue, comment text), (issue, transition), (pull request,
+  parent comment, task flag, comment text) or (pull request, review) with a 30-second window
+  (`repeats.py`). Simultaneous repeats share one in-flight result. Each product has its own
+  guard.
+- `writes.py` holds what every product's writes share: `WriteRequest`, the `WriteReport`
+  base model that each product's result extends (Jira adds the issue key, Bitbucket the
+  pull request and new comment id), the dry-run message, and the repeat wrapper.
 
 ### Bitbucket specifics
 
-- Read-only: no tool changes anything in Bitbucket.
+- Only `bitbucket_add_pull_request_comment` and `bitbucket_review_pull_request` change
+  anything. Comments POST to `comments`, tasks to `blocker-comments`, both with an optional
+  `parent` for replies. File and line comments are not offered yet.
+- Reviews use `PUT .../participants/{userSlug}` with `APPROVED`, `NEEDS_WORK` or
+  `UNAPPROVED`. The older `POST .../approve` was deprecated in 4.2 and cannot mark needs
+  work. REST API 1.0 has no "who am I" resource, so the slug comes from
+  `plugins/servlet/applinks/whoami` (the user name, as plain text) plus `users/{name}`,
+  once per run. `user_slug` under `[bitbucket]` skips both. The lookup runs in dry-run too,
+  so a missing slug shows up before writes are turned on. `bitbucket_status` reports the
+  slug, or null if Bitbucket would not say, and does not fail over it.
 - Code search uses the undocumented `rest/search/1.0/search` endpoint (POST, through `query`).
   It searches all projects unless one is named, does not apply the default project, and
   covers default branches only.
@@ -319,7 +342,8 @@ Designed for but deferred. [ROADMAP.md](ROADMAP.md) has the ordered backlog and 
   same host and sub-path pattern as Jira and Bitbucket.
 - **More Jira writes:** log work, edit fields and create issues. These were deferred
   because field rules vary by project and they are the riskiest writes.
-- **Bitbucket writes:** pull-request comments and approve / needs-work.
+- **More Bitbucket writes:** comments on a file or line of the diff, resolving tasks, and
+  editing or deleting the user's own comments.
 - **Microsoft Graph (Microsoft 365 calendar and mail):** a new adapter implementing
   `ApiClient` with its own sign-in, plus a new product module. This is the reason
   per-product hosts and the adapter protocol exist.
@@ -331,7 +355,7 @@ Designed for but deferred. [ROADMAP.md](ROADMAP.md) has the ordered backlog and 
 - Automated tests run against in-process fakes of Jira and Bitbucket and an intercepting
   proxy that serves a banner page until a cookie is present. Nothing in the suite contacts a
   real server.
-- The coverage floor is 90% (branch coverage). The suite is currently at about 99.9% (197
+- The coverage floor is 90% (branch coverage). The suite is currently at about 99.9% (210
   tests).
 - The live servers cannot be reached from development or CI, so verification against them is
   manual. The user runs `doctor`, `call`, or `scripts/smoke-test.sh` on the work laptop and
@@ -343,8 +367,9 @@ Designed for but deferred. [ROADMAP.md](ROADMAP.md) has the ordered backlog and 
 - Not yet confirmed against a real server (tracked in [ROADMAP.md](ROADMAP.md)): comment
   parsing on an issue or pull request that has comments, Bitbucket build results, a moved or
   renamed file in the changed-files list, code search (the server's index was returning
-  503), and every tool added for merge status, activity, tasks, linked issues, commit
-  builds, required builds and deployments.
+  503), every tool added for merge status, activity, tasks, linked issues, commit
+  builds, required builds and deployments, and the Bitbucket writes (including the
+  `applinks/whoami` lookup through a bearer token).
 - Prior art: none before this project. These tests establish the repo's convention.
 
 ## Out of Scope
@@ -354,7 +379,9 @@ Designed for but deferred. [ROADMAP.md](ROADMAP.md) has the ordered backlog and 
 - **Automatically accepting a consent banner, or shipping any site's cookie name.** The user
   supplies the cookie deliberately (see Authentication).
 - **Jira worklogs, field edits and issue creation.** Deferred (see Roadmap).
-- **Any Bitbucket write.** Deferred (see Roadmap).
+- **Bitbucket merges, declines and branch changes.** These change code or end a review,
+  so they are left to the user in the browser. Comment anchors and task resolution are
+  deferred (see Roadmap).
 - **Confluence and Microsoft 365.** Deferred (see Roadmap).
 - **Claude Code as an agent host.** Not planned: it will not be available in the work
   environment for a long time. Because the server speaks MCP, adding it later means only a

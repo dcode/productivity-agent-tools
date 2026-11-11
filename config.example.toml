@@ -70,8 +70,8 @@ mine-open = "assignee = currentUser() AND resolution = Unresolved ORDER BY updat
 updated-since-yesterday = "assignee = currentUser() AND updated >= startOfDay(-1d) ORDER BY updated DESC"
 current-sprint = "assignee = currentUser() AND sprint in openSprints() ORDER BY status ASC, updated DESC"
 
-# Optional: Bitbucket pull-request tools (read-only). They are off until this
-# table exists. Bitbucket needs its own token: run
+# Optional: Bitbucket tools (reads, plus pull-request comments and reviews,
+# which dry_run blocks like Jira's writes). They are off until this table exists. Bitbucket needs its own token: run
 # `productivity-agent-tools set-token bitbucket`.
 # [bitbucket]
 # Sub-path Bitbucket is served under. Use "" when it is at the root of its host.
@@ -80,6 +80,9 @@ current-sprint = "assignee = currentUser() AND sprint in openSprints() ORDER BY 
 # Project key used when the agent names no project. The agent can also choose
 # one for a session with the bitbucket_set_default_project tool.
 # default_project = "PROJ"
+# Your Bitbucket user slug. Leave unset: the server asks Bitbucket who the token
+# belongs to. Set it only if bitbucket_status shows no user.
+# user_slug = "jdoe"
 # Like [jira], this table can set its own base_url, ca_bundle, timeout_seconds
 # and a [bitbucket.cookies] table.
 # base_url = "https://bitbucket.example.com"

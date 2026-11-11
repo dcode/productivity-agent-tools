@@ -1,7 +1,5 @@
 """MCP tool definitions for Jira."""
 
-from collections.abc import Awaitable, Callable
-
 from mcp.server.mcpserver import MCPServer
 
 from productivity_agent_tools.api import WriteOutcome
@@ -14,7 +12,6 @@ from productivity_agent_tools.jira.models import (
     SearchResult,
     ServerStatus,
     Transition,
-    WriteRequest,
     WriteResult,
 )
 from productivity_agent_tools.repeats import RepeatGuard
@@ -22,6 +19,8 @@ from productivity_agent_tools.tooling import LOCAL_READ as _LOCAL_READ
 from productivity_agent_tools.tooling import READ as _READ
 from productivity_agent_tools.tooling import WRITE as _WRITE
 from productivity_agent_tools.tooling import anticipated as _anticipated
+from productivity_agent_tools.writes import once as _once
+from productivity_agent_tools.writes import report
 
 
 def _write_result(action: str, issue_key: str, outcome: WriteOutcome, done: str) -> WriteResult:
@@ -36,50 +35,8 @@ def _write_result(action: str, issue_key: str, outcome: WriteOutcome, done: str)
     Returns:
         The tool result.
     """
-    message = (
-        done
-        if outcome.sent
-        else (
-            "DRY RUN: nothing was sent to Jira. The request shown is what would be sent. "
-            "The user must restart the server with --no-dry-run (or dry_run = false in the "
-            "config) to allow writes."
-        )
-    )
-    return WriteResult(
-        action=action,
-        issue_key=issue_key,
-        sent=outcome.sent,
-        dry_run=not outcome.sent,
-        request=WriteRequest(method=outcome.method, path=outcome.path, body=outcome.payload),
-        message=message,
-    )
-
-
-async def _once(
-    guard: RepeatGuard[WriteResult],
-    key: tuple[str, ...],
-    send: Callable[[], Awaitable[WriteResult]],
-) -> WriteResult:
-    """Make a change unless the identical change was just made.
-
-    Args:
-        guard: Remembers recent changes.
-        key: Identifies the change.
-        send: Makes the change and builds its result.
-
-    Returns:
-        The result; for a repeat, the first result marked as not sent again.
-    """
-    result, age = await guard.run(key, send, lambda r: r.sent)
-    if age is None or not result.sent:
-        return result
-    when = "is already in progress" if age < 1 else f"was made {round(age)} seconds ago"
-    return result.model_copy(
-        update={
-            "repeat_suppressed": True,
-            "message": f"{result.message} This identical request {when}, so it was not sent "
-            "a second time; the change exists once.",
-        }
+    return WriteResult.model_validate(
+        {**report(action, "Jira", outcome, done), "issue_key": issue_key}
     )
 
 
