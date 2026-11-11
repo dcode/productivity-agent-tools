@@ -44,6 +44,30 @@ TRANSITIONS = {
 }
 
 
+WORKLOGS: dict[str, Any] = {
+    "total": 3,
+    "worklogs": [
+        {
+            "id": "1",
+            "author": {"name": "pat", "displayName": "Pat Example"},
+            "started": "2026-11-09T09:00:00.000+0000",
+            "timeSpent": "1h",
+            "timeSpentSeconds": 3600,
+            "comment": "triage",
+        },
+        {"id": "2", "author": {"name": "sam"}, "timeSpentSeconds": 1800},
+        {"id": "3", "timeSpent": "2h", "timeSpentSeconds": 7200},
+    ],
+}
+PEOPLE: list[dict[str, Any]] = [
+    {"name": "jlee", "displayName": "Jo Lee"},
+    {"name": "jleeson", "displayName": "Jamie Leeson"},
+    {"name": "kim", "displayName": "Kim Park"},
+    {"name": "pat", "displayName": "Pat Example"},
+    {"displayName": "No Username"},
+]
+
+
 class FakeJira:
     """Records requests and answers like the proxy plus Jira would."""
 
@@ -81,6 +105,22 @@ class FakeJira:
             return httpx.Response(204)
         if path == "/jira/rest/api/2/issue/ABC-1/comment" and request.method == "POST":
             return httpx.Response(201, json={"id": "99", **json.loads(request.content)})
+        if path == "/jira/rest/api/2/issue/ABC-1/worklog":
+            if request.method == "POST":
+                return httpx.Response(201, json={"id": 501, **json.loads(request.content)})
+            return httpx.Response(200, json=WORKLOGS)
+        if path == "/jira/rest/api/2/issue/ABC-1/assignee" and request.method == "PUT":
+            return httpx.Response(204)
+        if path == "/jira/rest/api/2/user/assignable/search":
+            wanted = request.url.params["username"].casefold()
+            return httpx.Response(
+                200,
+                json=[
+                    p
+                    for p in PEOPLE
+                    if wanted in p.get("name", "") or wanted in p["displayName"].casefold()
+                ],
+            )
         return httpx.Response(404, json={"errorMessages": ["Issue Does Not Exist"]})
 
     def writes(self) -> list[httpx.Request]:

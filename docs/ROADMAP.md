@@ -17,13 +17,16 @@ Last updated: 2026-11-11.
     Bitbucket, `call`, opt-in products, smoke test
   - [#3](https://github.com/dcode/productivity-agent-tools/pull/3): Bitbucket builds,
     deployments and more pull-request reads
-- **In review:** Bitbucket pull-request writes (branch `claude/beautiful-hamilton-k4u2un`)
-- **Tests:** 210 passing, about 99.9% branch coverage. All hooks clean.
+  - [#4](https://github.com/dcode/productivity-agent-tools/pull/4): Bitbucket pull-request
+    writes, shared `writes.py`
+- **In review:** Jira log work and assign (branch `claude/beautiful-hamilton-k4u2un`)
+- **Tests:** 232 passing, about 99.9% branch coverage. All hooks clean.
 - **In use:** Goose on the work laptop, against Jira 11.3 and Bitbucket 10.2.8.
 
 ## Done
 
-- [x] Jira: status, presets, search, issue detail, transitions; add comment, transition (writes)
+- [x] Jira: status, presets, search, issue detail, transitions, worklogs; add comment,
+      transition, log work, assign (writes)
 - [x] Bitbucket (read-only): status, projects, repositories, pull-request lists, pull-request
       detail, commits, changes, diff, code search, default project
 - [x] Bitbucket pull requests: merge status (blocking checks), activity history, tasks, linked
@@ -66,6 +69,13 @@ chance comes up and tick it here.
   - [ ] `bitbucket_list_required_builds`
   - [ ] `bitbucket_get_deployment`, if the CI/CD server reports deployments; also check that
         `updated` is a sensible date (seconds vs milliseconds, see DESIGN.md)
+- [ ] Jira log work and assign:
+  - [ ] `jira_list_worklogs` on an issue with time logged, compared with the browser
+  - [ ] One real `jira_log_work` with a comment and a `started` time: check the time zone
+        in the browser, and that the remaining estimate went down
+  - [ ] `jira_assign_issue` with `me`, with a colleague's display name, and with `none`
+  - [ ] Whether `user/assignable/search` matches on display names on Jira 11.3 (it takes
+        `username`, which Data Center matches against name, display name and email)
 - [ ] Bitbucket writes:
   - [ ] `bitbucket_status` shows your `user_slug` (the `applinks/whoami` servlet accepts a
         bearer token and gets past the banner proxy); if not, set `user_slug` and note it
@@ -77,8 +87,9 @@ chance comes up and tick it here.
 
 Rough order. Each item is one pull request.
 
-1. **More Jira writes**, from the scope deferred in the design interview: log work, assign,
-   edit fields, create issue. Field rules vary by project, so start with log work and assign.
+1. **More Jira writes, part 2:** edit fields and create issue. Field rules vary by project,
+   so start by reading `issue/{key}/editmeta` and `issue/createmeta` and offering only what
+   they allow. Needs a short design interview first (which fields, how to show them).
 2. **Link Jira and Bitbucket:** pull requests linked to an issue. The other direction
    (issues linked to a pull request) is done as `bitbucket_get_pull_request_issues`. Needs
    both products configured.
