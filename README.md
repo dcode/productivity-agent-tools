@@ -301,6 +301,7 @@ tool approval on so you see each comment or transition before it is sent.
 | `jira_create_issue` | write | Create an issue or sub-task with the standard fields |
 | `jira_list_link_types` | read | Kinds of issue links, with both wordings |
 | `jira_link_issues` | write | Link two issues, read as a sentence: "ABC-1 blocks ABC-2" |
+| `jira_get_issue_pull_requests` | read | Pull requests linked to an issue (needs Jira and Bitbucket both configured) |
 | `bitbucket_status` | read | Bitbucket version, whether the token is accepted, the default project |
 | `bitbucket_search_code` | read | Search file contents across repositories, optionally within a project or repository |
 | `bitbucket_list_projects` | read | Projects you can see, with their keys |
@@ -315,7 +316,7 @@ tool approval on so you see each comment or transition before it is sent.
 | `bitbucket_get_pull_request_merge_status` | read | Whether a pull request can merge, and each check blocking it |
 | `bitbucket_get_pull_request_activity` | read | History: pushes, comments, approvals, needs-work reviews, merges |
 | `bitbucket_list_pull_request_tasks` | read | Open or resolved tasks on a pull request |
-| `bitbucket_get_pull_request_issues` | read | Jira issue keys linked to a pull request |
+| `bitbucket_get_pull_request_issues` | read | Jira issues linked to a pull request, with summary, status and assignee when Jira is configured |
 | `bitbucket_get_commit_builds` | read | CI build results for any commit, with totals and test counts |
 | `bitbucket_list_required_builds` | read | Builds that must pass before a repository's pull requests can merge |
 | `bitbucket_get_deployment` | read | One deployment's state, by key, environment and run number |
@@ -337,6 +338,13 @@ differently between versions; if a server does not have it, the tool says so.
 It accepts Bitbucket's
 [search syntax](https://confluence.atlassian.com/bitbucketserver/search-for-code-in-bitbucket-server-814204781.html),
 searches every project unless you name one, and only covers default branches.
+
+With both Jira and Bitbucket configured, `jira_get_issue_pull_requests` lists an
+issue's pull requests from two sources and merges them: Jira's Development
+panel (which also knows pull requests linked only by branch name or title) and
+the pull requests containing commits that mention the key. If one source is
+missing, for example when the products are not linked, the result says so and
+still shows the other.
 
 Bitbucket has no way to list deployments. `bitbucket_get_deployment` needs
 the deployment key, environment key and sequence number that your CI or CD

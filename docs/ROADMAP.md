@@ -19,9 +19,10 @@ Last updated: 2026-11-12.
     writes, shared `writes.py`
   - [#5](https://github.com/dcode/productivity-agent-tools/pull/5): Jira log work, worklogs,
     assign
-- **In review:** Jira standard fields: full issue detail, edit, create, links, resolution on
-  transitions (branch `claude/beautiful-hamilton-k4u2un`)
-- **Tests:** 262 passing, about 99.9% branch coverage. All hooks clean.
+  - [#6](https://github.com/dcode/productivity-agent-tools/pull/6): Jira standard fields
+- **In review:** Jira and Bitbucket together: an issue's pull requests, and Jira details on
+  a pull request's issues (branch `claude/beautiful-hamilton-k4u2un`)
+- **Tests:** 271 passing, about 99.9% branch coverage. All hooks clean.
 - **In use:** Goose on the work laptop, against Jira 11.3 and Bitbucket 10.2.8.
 
 ## Done
@@ -38,6 +39,8 @@ Last updated: 2026-11-12.
       identifiers
 - [x] Bitbucket writes: comment, reply or task on a pull request; approve, needs-work or
       withdraw a review; user slug from `applinks/whoami` or `user_slug` in the config
+- [x] Jira and Bitbucket together: `jira_get_issue_pull_requests` (Development panel plus
+      commits that mention the key), Jira details in `bitbucket_get_pull_request_issues`
 - [x] Safety: `dry_run` on by default, MCP read/write annotations, 30-second repeat suppression
 - [x] Connection: bearer tokens (environment variable, env file, Keychain), system trust store,
       generic extra cookies, per-product hosts and paths behind the `ApiClient` protocol
@@ -88,6 +91,11 @@ chance comes up and tick it here.
   - [ ] One real `jira_link_issues` with "blocks": **confirm the direction** in the browser
         (the first issue should say "blocks", the second "is blocked by")
   - [ ] `jira_transition_issue` with a resolution, on a workflow whose Done screen has one
+- [ ] Jira and Bitbucket together:
+  - [ ] `jira_get_issue_pull_requests` on an issue with a pull request linked only by branch
+        name: both sources listed under `sources`, and the pull request found by the panel.
+        If `rest/dev-status` fails, paste the error (its shape is undocumented).
+  - [ ] `bitbucket_get_pull_request_issues` shows summaries and statuses
 - [ ] Bitbucket writes:
   - [ ] `bitbucket_status` shows your `user_slug` (the `applinks/whoami` servlet accepts a
         bearer token and gets past the banner proxy); if not, set `user_slug` and note it
@@ -97,19 +105,20 @@ chance comes up and tick it here.
 
 ## Next up
 
-Rough order. Each item is one pull request.
+Rough order. Each item is one pull request. API references: the Jira 11.0.2 and Bitbucket
+10.5 OpenAPI specs (`https://dac-static.atlassian.com/server/jira/platform/jira_software_dc_11002_swagger.v3.json`,
+`https://dac-static.atlassian.com/server/bitbucket/10.5.swagger.v3.json`).
 
-1. **Link Jira and Bitbucket:** pull requests linked to an issue. The other direction
-   (issues linked to a pull request) is done as `bitbucket_get_pull_request_issues`. Needs
-   both products configured.
-2. **Deployment listing:** Bitbucket's public API cannot list deployments, but its commit
+1. **Deployment listing:** Bitbucket's public API cannot list deployments, but its commit
    page shows them, so the page uses some internal endpoint. Find it with the browser's
    network tab on the work laptop and decide whether to use it (as code search does) for a
    `bitbucket_list_deployments`.
 
 ## Later
 
-- **Confluence** product module (read and search first) on the same adapter.
+- **Confluence** product module (read and search first) on the same adapter. The 10.2.20
+  OpenAPI spec is at
+  `https://dac-static.atlassian.com/server/confluence/10.2.20.swagger.v3.json`.
 - **OpenTelemetry** traces of httpx requests and responses, alongside structlog.
 - **Microsoft Graph adapter** (Microsoft 365 calendar and mail): a new `ApiClient` with its
   own sign-in, plus a product module. Needs its own design interview first, covering

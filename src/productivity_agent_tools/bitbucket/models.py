@@ -398,6 +398,13 @@ class LinkedIssue(BaseModel):
 
     key: str = Field(description="Jira issue key, usable with the jira_ tools.")
     url: str | None = Field(default=None, description="Browser URL of the issue.")
+    summary: str | None = Field(
+        default=None, description="Issue summary, when Jira is configured too."
+    )
+    status: str | None = Field(default=None, description="Issue status, when Jira is configured.")
+    assignee: str | None = Field(
+        default=None, description="Assignee display name, when Jira is configured."
+    )
 
 
 class PullRequestIssues(BaseModel):
@@ -405,6 +412,22 @@ class PullRequestIssues(BaseModel):
 
     returned: int = Field(description="Number of issues found.")
     issues: list[LinkedIssue] = Field(description="Linked issues.")
+    details_note: str | None = Field(
+        default=None,
+        description="Why summaries and statuses are missing, when Jira could not supply them.",
+    )
+
+
+class IssueCommit(BaseModel):
+    """A commit whose message mentions a Jira issue key."""
+
+    project: str = Field(description="Project key of the repository.")
+    repository: str = Field(description="Repository slug.")
+    id: str = Field(description="Full commit hash.")
+    short_id: str | None = Field(default=None, description="Abbreviated commit hash.")
+    author: str | None = Field(default=None, description="Author name.")
+    authored: str | None = Field(default=None, description="Author timestamp (ISO 8601).")
+    message: str = Field(default="", description="Commit message.")
 
 
 class PullRequestWriteResult(WriteReport):
