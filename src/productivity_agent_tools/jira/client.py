@@ -9,7 +9,7 @@ from pydantic import JsonValue
 
 from productivity_agent_tools.api import ApiClient, WriteOutcome
 from productivity_agent_tools.capabilities import IssueDetails
-from productivity_agent_tools.errors import AtlassianError
+from productivity_agent_tools.errors import AgentToolsError
 from productivity_agent_tools.jira.fields import (
     FieldMeta,
     check_label,
@@ -112,11 +112,11 @@ def normalize_project_key(project: str) -> str:
         The upper-cased key.
 
     Raises:
-        AtlassianError: If it is not shaped like a project key.
+        AgentToolsError: If it is not shaped like a project key.
     """
     normalized = project.strip().upper()
     if not _PROJECT_KEY.fullmatch(normalized):
-        raise AtlassianError(
+        raise AgentToolsError(
             f"'{project}' is not a valid project key (expected something like ABC)."
         )
     return normalized
@@ -132,12 +132,12 @@ def normalize_duration(time_spent: str) -> str:
         The duration with single spaces and lower-case units.
 
     Raises:
-        AtlassianError: If it is not in Jira's syntax.
+        AgentToolsError: If it is not in Jira's syntax.
     """
     cleaned = " ".join(time_spent.lower().split())
     cleaned = re.sub(r"(\d)\s+([wdhm])\b", r"\1\2", cleaned)
     if not _DURATION.fullmatch(cleaned):
-        raise AtlassianError(
+        raise AgentToolsError(
             f"'{time_spent}' is not a Jira duration. Use numbers with w, d, h or m, such as "
             "'1h 30m', '2d' or '45m'."
         )
@@ -157,7 +157,7 @@ def jira_time(started: str) -> str:
         Such as ``2026-11-11T14:30:00.000+0100``.
 
     Raises:
-        AtlassianError: If it cannot be read.
+        AgentToolsError: If it cannot be read.
     """
     text = started.strip()
     try:
@@ -167,7 +167,7 @@ def jira_time(started: str) -> str:
             day = date.fromisoformat(text)
             moment = datetime(day.year, day.month, day.day, 9)
     except ValueError:
-        raise AtlassianError(
+        raise AgentToolsError(
             f"'{started}' is not an ISO 8601 date or time, such as 2026-11-11T14:30."
         ) from None
     if moment.tzinfo is None:
@@ -185,11 +185,13 @@ def normalize_issue_key(key: str) -> str:
         The upper-cased key.
 
     Raises:
-        AtlassianError: If the value is not shaped like an issue key.
+        AgentToolsError: If the value is not shaped like an issue key.
     """
     normalized = key.strip().upper()
     if not _ISSUE_KEY.fullmatch(normalized):
-        raise AtlassianError(f"'{key}' is not a valid issue key (expected something like ABC-123).")
+        raise AgentToolsError(
+            f"'{key}' is not a valid issue key (expected something like ABC-123)."
+        )
     return normalized
 
 
@@ -303,7 +305,7 @@ class JiraClient:
             The decoded profile object.
 
         Raises:
-            AtlassianError: If the request fails.
+            AgentToolsError: If the request fails.
         """
         return _object(await self._core.get(f"{self._api}/myself"), "profile")
 
@@ -314,7 +316,7 @@ class JiraClient:
             The version string, or None if the server does not report one.
 
         Raises:
-            AtlassianError: If the request fails.
+            AgentToolsError: If the request fails.
         """
         return _text(await self._core.get(f"{self._api}/serverInfo"), "version")
 
@@ -329,7 +331,7 @@ class JiraClient:
             The matching issues and the server-side total.
 
         Raises:
-            AtlassianError: If the query is invalid or the request fails.
+            AgentToolsError: If the query is invalid or the request fails.
         """
         limit = max(1, min(max_results or self._settings.default_max_results, MAX_RESULTS_LIMIT))
         body = _object(
@@ -359,7 +361,7 @@ class JiraClient:
             The issue detail.
 
         Raises:
-            AtlassianError: If the key is invalid or the request fails.
+            AgentToolsError: If the key is invalid or the request fails.
         """
         issue_key = normalize_issue_key(key)
         body = _object(
@@ -416,7 +418,7 @@ class JiraClient:
             The available transitions.
 
         Raises:
-            AtlassianError: If the key is invalid or the request fails.
+            AgentToolsError: If the key is invalid or the request fails.
         """
         issue_key = normalize_issue_key(key)
         body = _object(
@@ -439,11 +441,11 @@ class JiraClient:
             The write outcome.
 
         Raises:
-            AtlassianError: If the key or body is invalid, or the request fails.
+            AgentToolsError: If the key or body is invalid, or the request fails.
         """
         issue_key = normalize_issue_key(key)
         if not body.strip():
-            raise AtlassianError("Comment body must not be empty.")
+            raise AgentToolsError("Comment body must not be empty.")
         return await self._core.write(
             "POST", f"{self._api}/issue/{issue_key}/comment", {"body": body}
         )
@@ -465,7 +467,7 @@ class JiraClient:
             The resolved transition and the write outcome.
 
         Raises:
-            AtlassianError: If the transition is not available or the request fails.
+            AgentToolsError: If the transition is not available or the request fails.
         """
         issue_key = normalize_issue_key(key)
         available = await self.list_transitions(issue_key)
@@ -476,13 +478,13 @@ class JiraClient:
         )
         if match is None:
             names = ", ".join(f"'{t.name}'" for t in available) or "none"
-            raise AtlassianError(
+            raise AgentToolsError(
                 f"Transition '{transition}' is not available on {issue_key}. Available: {names}."
             )
         payload: dict[str, JsonValue] = {"transition": {"id": match.id}}
         if resolution and resolution.strip():
             if not match.resolutions:
-                raise AtlassianError(
+                raise AgentToolsError(
                     f"The '{match.name}' transition on {issue_key} does not set a resolution. "
                     "Leave resolution out."
                 )
@@ -491,13 +493,13 @@ class JiraClient:
                 None,
             )
             if chosen is None:
-                raise AtlassianError(
+                raise AgentToolsError(
                     f"'{resolution}' is not a resolution the '{match.name}' transition allows. "
                     f"Allowed: {', '.join(match.resolutions)}."
                 )
             payload["fields"] = {"resolution": {"name": chosen}}
         elif match.resolution_required:
-            raise AtlassianError(
+            raise AgentToolsError(
                 f"The '{match.name}' transition on {issue_key} needs a resolution. Ask the user "
                 f"which one: {', '.join(match.resolutions)}."
             )
@@ -517,7 +519,7 @@ class JiraClient:
             The newest worklogs and totals over all of them.
 
         Raises:
-            AtlassianError: If the key is invalid or the request fails.
+            AgentToolsError: If the key is invalid or the request fails.
         """
         issue_key = normalize_issue_key(key)
         body = _object(await self._core.get(f"{self._api}/issue/{issue_key}/worklog"), "worklogs")
@@ -558,7 +560,7 @@ class JiraClient:
             The write outcome.
 
         Raises:
-            AtlassianError: If a value is invalid or the request fails.
+            AgentToolsError: If a value is invalid or the request fails.
         """
         issue_key = normalize_issue_key(key)
         payload: dict[str, JsonValue] = {"timeSpent": normalize_duration(time_spent)}
@@ -579,7 +581,7 @@ class JiraClient:
             The person, or an empty assignee to unassign.
 
         Raises:
-            AtlassianError: If nobody or more than one person matches, or a request fails.
+            AgentToolsError: If nobody or more than one person matches, or a request fails.
         """
         issue_key = normalize_issue_key(key)
         return await self.find_user(
@@ -610,7 +612,7 @@ class JiraClient:
             The user, or an empty assignee for "none".
 
         Raises:
-            AtlassianError: If nobody or more than one person matches, or a request fails.
+            AgentToolsError: If nobody or more than one person matches, or a request fails.
         """
         wanted = " ".join(person.split()).casefold()
         if allow_nobody and wanted in _NOBODY:
@@ -621,7 +623,7 @@ class JiraClient:
                 username=_text(profile, "name"), display_name=_text(profile, "displayName")
             )
         if not wanted:
-            raise AtlassianError("A person must be named.")
+            raise AgentToolsError("A person must be named.")
         found = await self._core.get(
             search or f"{self._api}/user/search",
             params={**(scope or {}), "username": person.strip(), "maxResults": 50},
@@ -640,13 +642,13 @@ class JiraClient:
         if len(matches) == 1:
             return matches[0]
         if not matches:
-            raise AtlassianError(
+            raise AgentToolsError(
                 f"Nobody matching '{person}' {who}. Check the spelling, or ask the user for "
                 "the person's Jira username."
             )
         listed = ", ".join(f"{p.display_name} ({p.username})" for p in matches[:MAX_CANDIDATES])
         more = f" and {len(matches) - MAX_CANDIDATES} more" if len(matches) > MAX_CANDIDATES else ""
-        raise AtlassianError(
+        raise AgentToolsError(
             f"'{person}' matches more than one person who {who}: {listed}{more}. Ask the user "
             "which one, then pass that username."
         )
@@ -662,7 +664,7 @@ class JiraClient:
             The write outcome.
 
         Raises:
-            AtlassianError: If the key is invalid or the request fails.
+            AgentToolsError: If the key is invalid or the request fails.
         """
         issue_key = normalize_issue_key(key)
         return await self._core.write(
@@ -679,7 +681,7 @@ class JiraClient:
             The fields by id.
 
         Raises:
-            AtlassianError: If the request fails.
+            AgentToolsError: If the request fails.
         """
         return parse_editmeta(await self._core.get(f"{self._api}/issue/{issue_key}/editmeta"))
 
@@ -693,7 +695,7 @@ class JiraClient:
             The fields on the issue's edit screen.
 
         Raises:
-            AtlassianError: If the key is invalid or the request fails.
+            AgentToolsError: If the key is invalid or the request fails.
         """
         issue_key = normalize_issue_key(key)
         fields = await self._editmeta(issue_key)
@@ -716,13 +718,13 @@ class JiraClient:
             The ``fields`` object to send.
 
         Raises:
-            AtlassianError: If a field is not on the screen or a value is not allowed.
+            AgentToolsError: If a field is not on the screen or a value is not allowed.
         """
         out: dict[str, JsonValue] = {}
         if changes.summary is not None:
             require(fields, "summary", where)
             if not changes.summary.strip():
-                raise AtlassianError("The summary must not be empty.")
+                raise AgentToolsError("The summary must not be empty.")
             out["summary"] = changes.summary.strip()
         if changes.description is not None:
             require(fields, "description", where)
@@ -764,7 +766,7 @@ class JiraClient:
             The names of the changed fields, and the write outcome.
 
         Raises:
-            AtlassianError: If nothing is asked for, a field or value is not allowed, or
+            AgentToolsError: If nothing is asked for, a field or value is not allowed, or
                 the request fails.
         """
         issue_key = normalize_issue_key(key)
@@ -788,7 +790,7 @@ class JiraClient:
                     ops.append({verb: target})
             update[field_id] = ops
         if not values and not update:
-            raise AtlassianError("Nothing to change: give at least one field.")
+            raise AgentToolsError("Nothing to change: give at least one field.")
         payload: dict[str, JsonValue] = {}
         if values:
             payload["fields"] = values
@@ -808,7 +810,7 @@ class JiraClient:
             The issue types.
 
         Raises:
-            AtlassianError: If the key is invalid or the request fails.
+            AgentToolsError: If the key is invalid or the request fails.
         """
         key = normalize_project_key(project)
         body = await self._core.get(
@@ -836,7 +838,7 @@ class JiraClient:
             The project key, all issue types, the chosen one, and its fields.
 
         Raises:
-            AtlassianError: If the type is not offered or a request fails.
+            AgentToolsError: If the type is not offered or a request fails.
         """
         key = normalize_project_key(project)
         types = await self.issue_types(key)
@@ -844,7 +846,7 @@ class JiraClient:
         chosen = next((t for t in types if wanted in {t.name.casefold(), t.id}), None)
         if chosen is None:
             names = ", ".join(t.name for t in types) or "none"
-            raise AtlassianError(
+            raise AgentToolsError(
                 f"'{issue_type}' is not an issue type you can create in {key}. Available: {names}."
             )
         body = await self._core.get(
@@ -864,7 +866,7 @@ class JiraClient:
             The issue types, and the chosen type's fields.
 
         Raises:
-            AtlassianError: If a value is invalid or a request fails.
+            AgentToolsError: If a value is invalid or a request fails.
         """
         if issue_type is None or not issue_type.strip():
             key = normalize_project_key(project)
@@ -903,12 +905,12 @@ class JiraClient:
             The issue type used, and the write outcome.
 
         Raises:
-            AtlassianError: If a field or value is not allowed, a required field is
+            AgentToolsError: If a field or value is not allowed, a required field is
                 missing, or the request fails.
         """
         key, _, chosen, fields = await self._create_screen(project, issue_type)
         if not changes.summary or not changes.summary.strip():
-            raise AtlassianError("A new issue needs a summary.")
+            raise AgentToolsError("A new issue needs a summary.")
         where = f"the create screen of {chosen.name} in {key}"
         values = await self._set_values(fields, where, changes)
         values["project"] = {"key": key}
@@ -934,7 +936,7 @@ class JiraClient:
             )
             values["assignee"] = {"name": who.username}
         if chosen.subtask != bool(parent and parent.strip()):
-            raise AtlassianError(
+            raise AgentToolsError(
                 f"{chosen.name} is a sub-task type, so give the parent issue key."
                 if chosen.subtask
                 else f"{chosen.name} is not a sub-task type, so leave parent out."
@@ -944,7 +946,7 @@ class JiraClient:
         missing = missing_required(fields, set(values))
         if missing:
             listed = ", ".join(f"{m.name} ({m.id})" for m in missing)
-            raise AtlassianError(
+            raise AgentToolsError(
                 f"Creating a {chosen.name} in {key} also needs: {listed}. This tool cannot "
                 "fill those fields; ask the user to create the issue in the browser, or "
                 "choose another issue type."
@@ -959,7 +961,7 @@ class JiraClient:
             The link types.
 
         Raises:
-            AtlassianError: If the request fails.
+            AgentToolsError: If the request fails.
         """
         body = await self._core.get(f"{self._api}/issueLinkType")
         return [
@@ -989,12 +991,12 @@ class JiraClient:
             The link as a sentence, and the write outcome.
 
         Raises:
-            AtlassianError: If a key or the relation is invalid, or the request fails.
+            AgentToolsError: If a key or the relation is invalid, or the request fails.
         """
         first = normalize_issue_key(key)
         second = normalize_issue_key(other_key)
         if first == second:
-            raise AtlassianError("An issue cannot be linked to itself.")
+            raise AgentToolsError("An issue cannot be linked to itself.")
         wanted = " ".join(relation.split()).casefold()
         types = await self.link_types()
         for link in types:
@@ -1006,7 +1008,7 @@ class JiraClient:
                 break
         else:
             listed = "; ".join(f"{t.outward} / {t.inward}" for t in types) or "none"
-            raise AtlassianError(
+            raise AgentToolsError(
                 f"'{relation}' is not a kind of issue link here. Use one of: {listed}."
             )
         # Jira's inwardIssue is the link's source, the issue that shows the outward wording.
@@ -1031,7 +1033,7 @@ class JiraClient:
             The issues found, by key; keys Jira does not return are left out.
 
         Raises:
-            AtlassianError: If the search fails.
+            AgentToolsError: If the search fails.
         """
         valid = sorted({key for key in keys if _ISSUE_KEY.fullmatch(key)})
         if not valid:
@@ -1063,7 +1065,7 @@ class JiraClient:
             The panel's pull request entries, as Jira sends them.
 
         Raises:
-            AtlassianError: If the key is invalid or a request fails.
+            AgentToolsError: If the key is invalid or a request fails.
         """
         issue_key = normalize_issue_key(key)
         issue = _object(
@@ -1072,7 +1074,7 @@ class JiraClient:
         )
         issue_id = _text(issue, "id")
         if issue_id is None:
-            raise AtlassianError(f"Jira did not give the internal id of {issue_key}.")
+            raise AgentToolsError(f"Jira did not give the internal id of {issue_key}.")
         body = await self._core.get(
             f"{self._settings.path}/rest/dev-status/1.0/issue/detail",
             params={"issueId": issue_id, "applicationType": "stash", "dataType": "pullrequest"},

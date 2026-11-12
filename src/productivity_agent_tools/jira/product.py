@@ -29,7 +29,7 @@ async def doctor(jira: JiraClient) -> AsyncIterator[str]:
         One line per check that passed.
 
     Raises:
-        AtlassianError: When a check fails.
+        AgentToolsError: When a check fails.
     """
     profile = await jira.myself()
     yield f"authenticated to {jira.base_url} as {profile.get('displayName')}"

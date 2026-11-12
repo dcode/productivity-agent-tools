@@ -5,23 +5,23 @@ and the user. Messages never contain token values.
 """
 
 
-class AtlassianError(Exception):
+class AgentToolsError(Exception):
     """Base class for every error this package raises on purpose."""
 
 
-class ConfigError(AtlassianError):
+class ConfigError(AgentToolsError):
     """The configuration file or a command-line override is invalid."""
 
 
-class TokenNotFoundError(AtlassianError):
+class TokenNotFoundError(AgentToolsError):
     """No personal access token could be found in any configured source."""
 
 
-class ConnectivityError(AtlassianError):
+class ConnectivityError(AgentToolsError):
     """The server could not be reached (VPN down, DNS, TLS trust, timeout)."""
 
 
-class InterstitialPageError(AtlassianError):
+class InterstitialPageError(AgentToolsError):
     """A web page came back where API data was expected.
 
     This usually means something in front of the application, such as a
@@ -29,19 +29,19 @@ class InterstitialPageError(AtlassianError):
     """
 
 
-class AuthenticationError(AtlassianError):
+class AuthenticationError(AgentToolsError):
     """The server rejected the token (HTTP 401)."""
 
 
-class PermissionDeniedError(AtlassianError):
+class PermissionDeniedError(AgentToolsError):
     """The authenticated user may not perform this action (HTTP 403)."""
 
 
-class NotFoundError(AtlassianError):
+class NotFoundError(AgentToolsError):
     """The requested resource does not exist or is not visible (HTTP 404)."""
 
 
-class ApiError(AtlassianError):
+class ApiError(AgentToolsError):
     """Any other unexpected response from the server.
 
     Attributes:
