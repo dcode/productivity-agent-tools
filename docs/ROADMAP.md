@@ -3,13 +3,11 @@
 Read this first when coming back to the project. The design and the reasons behind it are in
 [DESIGN.md](DESIGN.md). Update this file in the same commit as the work it describes.
 
-Last updated: 2026-11-11.
+Last updated: 2026-11-12.
 
 ## Where things stand
 
-- **Version:** 0.1.0. The `v0.1.0` tag marks `main` at 92a7d95 (the design-record commit).
-  It was made in a cloud session that could not push tags; if `git ls-remote --tags origin`
-  does not show it, push it from a local clone (see Open questions).
+- **Version:** 0.1.0, tagged `v0.1.0` at 92a7d95 (the design-record commit) and released.
 - **Merged to `main`:**
   - [#1](https://github.com/dcode/productivity-agent-tools/pull/1): Jira server, CLI,
     CI, `configure-agent`
@@ -19,14 +17,18 @@ Last updated: 2026-11-11.
     deployments and more pull-request reads
   - [#4](https://github.com/dcode/productivity-agent-tools/pull/4): Bitbucket pull-request
     writes, shared `writes.py`
-- **In review:** Jira log work and assign (branch `claude/beautiful-hamilton-k4u2un`)
-- **Tests:** 232 passing, about 99.9% branch coverage. All hooks clean.
+  - [#5](https://github.com/dcode/productivity-agent-tools/pull/5): Jira log work, worklogs,
+    assign
+- **In review:** Jira standard fields: full issue detail, edit, create, links, resolution on
+  transitions (branch `claude/beautiful-hamilton-k4u2un`)
+- **Tests:** 262 passing, about 99.9% branch coverage. All hooks clean.
 - **In use:** Goose on the work laptop, against Jira 11.3 and Bitbucket 10.2.8.
 
 ## Done
 
-- [x] Jira: status, presets, search, issue detail, transitions, worklogs; add comment,
-      transition, log work, assign (writes)
+- [x] Jira: status, presets, search, issue detail with every standard field, transitions
+      (with resolutions), worklogs, edit and create screens, link types; add comment,
+      transition, log work, assign, edit, create, link (writes)
 - [x] Bitbucket (read-only): status, projects, repositories, pull-request lists, pull-request
       detail, commits, changes, diff, code search, default project
 - [x] Bitbucket pull requests: merge status (blocking checks), activity history, tasks, linked
@@ -76,6 +78,16 @@ chance comes up and tick it here.
   - [ ] `jira_assign_issue` with `me`, with a colleague's display name, and with `none`
   - [ ] Whether `user/assignable/search` matches on display names on Jira 11.3 (it takes
         `username`, which Data Center matches against name, display name and email)
+- [ ] Jira standard fields:
+  - [ ] `jira_get_issue` on an issue with links, components, fix versions and time tracking,
+        compared with the browser
+  - [ ] `jira_get_edit_fields` and `jira_get_create_fields` on the projects in daily use
+        (which fields are on the screens, and whether createmeta answers on 11.3)
+  - [ ] One real `jira_edit_issue` (a label and the priority) and one real
+        `jira_create_issue` in a test project
+  - [ ] One real `jira_link_issues` with "blocks": **confirm the direction** in the browser
+        (the first issue should say "blocks", the second "is blocked by")
+  - [ ] `jira_transition_issue` with a resolution, on a workflow whose Done screen has one
 - [ ] Bitbucket writes:
   - [ ] `bitbucket_status` shows your `user_slug` (the `applinks/whoami` servlet accepts a
         bearer token and gets past the banner proxy); if not, set `user_slug` and note it
@@ -87,13 +99,10 @@ chance comes up and tick it here.
 
 Rough order. Each item is one pull request.
 
-1. **More Jira writes, part 2:** edit fields and create issue. Field rules vary by project,
-   so start by reading `issue/{key}/editmeta` and `issue/createmeta` and offering only what
-   they allow. Needs a short design interview first (which fields, how to show them).
-2. **Link Jira and Bitbucket:** pull requests linked to an issue. The other direction
+1. **Link Jira and Bitbucket:** pull requests linked to an issue. The other direction
    (issues linked to a pull request) is done as `bitbucket_get_pull_request_issues`. Needs
    both products configured.
-3. **Deployment listing:** Bitbucket's public API cannot list deployments, but its commit
+2. **Deployment listing:** Bitbucket's public API cannot list deployments, but its commit
    page shows them, so the page uses some internal endpoint. Find it with the browser's
    network tab on the work laptop and decide whether to use it (as code search does) for a
    `bitbucket_list_deployments`.
@@ -105,6 +114,8 @@ Rough order. Each item is one pull request.
 - **Microsoft Graph adapter** (Microsoft 365 calendar and mail): a new `ApiClient` with its
   own sign-in, plus a product module. Needs its own design interview first, covering
   authentication and data handling.
+- **Custom Jira fields** (`customfield_*`, such as story points and epic links), read and
+  set through the same screen metadata.
 - **More Bitbucket writes:** comments on a file or line of the diff (needs the anchor's
   path, line, line type and file type), resolving and reopening tasks, editing or deleting
   the user's own comments.
@@ -114,6 +125,4 @@ Rough order. Each item is one pull request.
 
 ## Open questions
 
-- **`v0.1.0` tag push:** the tag was created in a cloud session whose git proxy refused tag
-  pushes. If it is missing on GitHub, run `git tag -a v0.1.0 92a7d95 -m "v0.1.0"` and
-  `git push origin v0.1.0` from a local clone; the release workflow then publishes it.
+- None outstanding. Add any that come up here, rather than leaving them in chat.

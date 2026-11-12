@@ -107,6 +107,12 @@ async def test_server_exposes_tools_with_read_write_annotations(
         "jira_list_worklogs",
         "jira_log_work",
         "jira_assign_issue",
+        "jira_get_edit_fields",
+        "jira_edit_issue",
+        "jira_get_create_fields",
+        "jira_create_issue",
+        "jira_list_link_types",
+        "jira_link_issues",
     }
     writes = {
         name
@@ -118,6 +124,9 @@ async def test_server_exposes_tools_with_read_write_annotations(
         "jira_transition_issue",
         "jira_log_work",
         "jira_assign_issue",
+        "jira_edit_issue",
+        "jira_create_issue",
+        "jira_link_issues",
     }
 
 

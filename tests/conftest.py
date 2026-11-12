@@ -27,6 +27,31 @@ ISSUE: dict[str, Any] = {
         "reporter": {"displayName": "Sam Example"},
         "created": "2026-11-01T10:00:00.000+0000",
         "labels": ["ops"],
+        "project": {"key": "ABC"},
+        "duedate": "2026-11-30",
+        "resolution": None,
+        "timetracking": {"originalEstimate": "2d", "remainingEstimate": "1d", "timeSpent": "1d"},
+        "timeoriginalestimate": 57600,
+        "timespent": 28800,
+        "components": [{"id": "10", "name": "API"}, {"id": "11"}],
+        "fixVersions": [{"id": "20", "name": "1.0"}],
+        "versions": [],
+        "issuelinks": [
+            {
+                "id": "900",
+                "type": {"name": "Blocks", "inward": "is blocked by", "outward": "blocks"},
+                "outwardIssue": {
+                    "key": "ABC-2",
+                    "fields": {"summary": "Ship it", "status": {"name": "To Do"}},
+                },
+            },
+            {
+                "id": "901",
+                "type": {"name": "Relates", "inward": "relates to", "outward": "relates to"},
+                "inwardIssue": {"key": "XYZ-9"},
+            },
+            {"id": "902", "type": {"name": "Odd"}, "inwardIssue": {"key": "XYZ-10"}},
+        ],
         "comment": {
             "comments": [
                 {"id": str(n), "author": {"displayName": "Sam Example"}, "body": f"note {n}"}
@@ -39,7 +64,21 @@ ISSUE: dict[str, Any] = {
 TRANSITIONS = {
     "transitions": [
         {"id": "11", "name": "Start Progress", "to": {"name": "In Progress"}},
-        {"id": "21", "name": "Done", "to": {"name": "Done"}},
+        {
+            "id": "21",
+            "name": "Done",
+            "to": {"name": "Done"},
+            "fields": {
+                "resolution": {
+                    "required": False,
+                    "name": "Resolution",
+                    "allowedValues": [
+                        {"id": "1", "name": "Fixed"},
+                        {"id": "2", "name": "Won't Do"},
+                    ],
+                }
+            },
+        },
     ]
 }
 
@@ -66,6 +105,88 @@ PEOPLE: list[dict[str, Any]] = [
     {"name": "pat", "displayName": "Pat Example"},
     {"displayName": "No Username"},
 ]
+
+
+EDITMETA: dict[str, Any] = {
+    "fields": {
+        "summary": {"required": True, "name": "Summary", "schema": {"type": "string"}},
+        "description": {"name": "Description", "schema": {"type": "string"}},
+        "priority": {
+            "name": "Priority",
+            "schema": {"type": "priority"},
+            "allowedValues": [{"id": "2", "name": "High"}, {"id": "3", "name": "Medium"}],
+        },
+        "reporter": {"name": "Reporter", "schema": {"type": "user"}},
+        "duedate": {"name": "Due Date", "schema": {"type": "date"}},
+        "timetracking": {"name": "Time Tracking", "schema": {"type": "timetracking"}},
+        "labels": {
+            "name": "Labels",
+            "schema": {"type": "array", "items": "string"},
+            "operations": ["add", "set", "remove"],
+        },
+        "components": {
+            "name": "Component/s",
+            "schema": {"type": "array", "items": "component"},
+            "allowedValues": [{"id": "10", "name": "API"}, {"id": "12", "name": "Web"}],
+        },
+        "fixVersions": {
+            "name": "Fix Version/s",
+            "schema": {"type": "array", "items": "version"},
+            "allowedValues": [{"id": "20", "name": "1.0"}, {"id": "21", "name": "1.1"}],
+        },
+        "versions": {
+            "name": "Affects Version/s",
+            "schema": {"type": "array", "items": "version"},
+            "allowedValues": [{"id": "20", "name": "1.0"}],
+        },
+        "options": {"name": "Choice", "allowedValues": [{"value": "Red"}, {"key": "k"}]},
+        "broken": "not an object",
+    }
+}
+ISSUE_TYPES: dict[str, Any] = {
+    "values": [
+        {"id": "1", "name": "Bug", "subtask": False},
+        {"id": "3", "name": "Task", "subtask": False},
+        {"id": "5", "name": "Sub-task", "subtask": True},
+    ]
+}
+CREATE_FIELDS: dict[str, Any] = {
+    "values": [
+        {"fieldId": "project", "name": "Project", "required": True},
+        {"fieldId": "issuetype", "name": "Issue Type", "required": True},
+        {"fieldId": "summary", "name": "Summary", "required": True},
+        {"fieldId": "reporter", "name": "Reporter", "required": True},
+        {"fieldId": "description", "name": "Description"},
+        {"fieldId": "assignee", "name": "Assignee"},
+        {"fieldId": "parent", "name": "Parent"},
+        {
+            "fieldId": "priority",
+            "name": "Priority",
+            "required": True,
+            "hasDefaultValue": True,
+            "allowedValues": [{"id": "2", "name": "High"}],
+        },
+        {"fieldId": "labels", "name": "Labels"},
+        {
+            "fieldId": "components",
+            "name": "Component/s",
+            "allowedValues": [{"id": "10", "name": "API"}],
+        },
+        {"name": "No id"},
+    ]
+}
+BUG_FIELDS: dict[str, Any] = {
+    "values": [
+        *CREATE_FIELDS["values"],
+        {"fieldId": "customfield_100", "name": "Severity", "required": True},
+    ]
+}
+LINK_TYPES: dict[str, Any] = {
+    "issueLinkTypes": [
+        {"id": "1", "name": "Blocks", "inward": "is blocked by", "outward": "blocks"},
+        {"id": "2", "name": "Duplicate", "inward": "is duplicated by", "outward": "duplicates"},
+    ]
+}
 
 
 class FakeJira:
@@ -111,7 +232,21 @@ class FakeJira:
             return httpx.Response(200, json=WORKLOGS)
         if path == "/jira/rest/api/2/issue/ABC-1/assignee" and request.method == "PUT":
             return httpx.Response(204)
-        if path == "/jira/rest/api/2/user/assignable/search":
+        if path == "/jira/rest/api/2/issue/ABC-1" and request.method == "PUT":
+            return httpx.Response(204)
+        if path == "/jira/rest/api/2/issue/ABC-1/editmeta":
+            return httpx.Response(200, json=EDITMETA)
+        if path == "/jira/rest/api/2/issue/createmeta/ABC/issuetypes":
+            return httpx.Response(200, json=ISSUE_TYPES)
+        if path.startswith("/jira/rest/api/2/issue/createmeta/ABC/issuetypes/"):
+            return httpx.Response(200, json=BUG_FIELDS if path.endswith("/1") else CREATE_FIELDS)
+        if path == "/jira/rest/api/2/issue" and request.method == "POST":
+            return httpx.Response(201, json={"id": "10002", "key": "ABC-2"})
+        if path == "/jira/rest/api/2/issueLinkType":
+            return httpx.Response(200, json=LINK_TYPES)
+        if path == "/jira/rest/api/2/issueLink" and request.method == "POST":
+            return httpx.Response(201)
+        if path in ("/jira/rest/api/2/user/assignable/search", "/jira/rest/api/2/user/search"):
             wanted = request.url.params["username"].casefold()
             return httpx.Response(
                 200,
