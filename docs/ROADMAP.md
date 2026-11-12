@@ -29,16 +29,16 @@ Last updated: 2026-11-12.
   `claude/beautiful-hamilton-k4u2un`), for a management request to publish an "About me"
   page. Not yet run against the real Confluence; see the checks below.
 - **Tests:** 311 passing, about 99.9% branch coverage. All hooks clean.
-- **In use:** Goose on the work laptop, against Jira 11.3.12 and Bitbucket 10.2.8. No CI
+- **In use:** Goose on the work laptop, against Jira 11.3.12, Bitbucket 10.2.8 and Confluence
+  10.2.19. No CI
   server (Bamboo or other) reports builds or deployments to this Bitbucket.
-- **Last smoke run:** build `v0.1.0-9-g31880f4` (before Confluence), 2026-11-12. 30 calls
-  answered, 3 failed; all three are fixed on this branch and need a re-run:
-  - merge status of an already merged pull request was an HTTP 409 error; it is now a
-    `note` on the result
-  - `applinks/whoami` answers nothing for a bearer token, so `user_slug` was null and the
-    dry-run review failed; the server now falls back to the `X-AUSERNAME` response header
-  - the dry-run create used issue type `Task`, which the project lacks; the script now has
-    `JIRA_ISSUE_TYPE`
+- **Last smoke run:** build `v0.1.0-15-g04c2e92`, 2026-11-12, with `ci = false` and
+  Confluence on. 37 calls answered, 2 failed:
+  - the dry-run review still could not find the user: with no earlier request in the
+    process, only `applinks/whoami` was asked, and it sends no `X-AUSERNAME` header. Fixed
+    on this branch (a REST request is made first); needs a re-run.
+  - the dry-run create still used `Task`: set `JIRA_ISSUE_TYPE` at the top of the script
+    to a type the project has (name or numeric id)
 
 ## Done
 
@@ -88,7 +88,7 @@ chance comes up and tick it here.
 - [ ] `call --field` colouring, viewed in a real terminal
 - [ ] The new Bitbucket reads, through `scripts/smoke-test.sh` (fill in the new placeholders):
   - [ ] `bitbucket_get_pull_request_merge_status` on an **open** pull request blocked by a
-        check (the smoke run used a merged one; re-run to see the new `note`)
+        check (a merged one now gives the `note`, confirmed)
   - [ ] `bitbucket_get_pull_request_activity`: answers (OPENED and MERGED seen); still
         check that REVIEWED is shown for needs-work
   - [ ] `bitbucket_list_pull_request_tasks`: answers, but only seen empty; try a pull
@@ -124,23 +124,27 @@ chance comes up and tick it here.
   - [x] `bitbucket_status` shows your `user_slug`, from the `X-AUSERNAME` header
         (`applinks/whoami` does not accept a bearer token on 10.2.8)
   - [x] The dry-run comment shows the request it would send
-  - [ ] The dry-run review does too (needs `user_slug`, above)
+  - [ ] The dry-run review does too (failed twice; see the last smoke run)
   - [ ] One real comment and one real approve and unapprove on a test pull request, with
         `--no-dry-run`, compared in the browser
-- [ ] Confluence (fill in `CONFLUENCE_SPACE` and `CONFLUENCE_PAGE` in the smoke test first):
-  - [ ] Set up: `[confluence]` with the right `path`, `set-token confluence`, then `doctor`
-  - [ ] `confluence_status` shows `personal_space`; if it is null but you have one, the
-        key is probably `~` plus your user key rather than your username: note it here
-  - [ ] Whether `rest/api/server-information` answers (the version shows), and whether
-        `doctor`'s search (`contributor = currentUser()`) is accepted
-  - [ ] `confluence_get_page` on a page with macros and a table: the body round-trips
-  - [ ] The dry-run create shows the converted body; then one real `confluence_create_page`
-        in your personal space, viewed in the browser (headings, list, table, code block,
-        an image by URL)
-  - [ ] One real `confluence_update_page` with `mode=append`, then one with a stale
+- [ ] Confluence:
+  - [x] Set up and `confluence_status`: 10.2.19, `rest/api/server-information` answers
+  - [x] Spaces, CQL search in a space, a page by id, child pages and the dry-run create
+        (Markdown converted) all answer
+  - [ ] `personal_space` came back null: either there is no personal space, or its key is
+        not `~` plus the username. Check the browser; not needed for the profile page.
+  - [ ] `contributor = currentUser()` was accepted but found nothing; confirm once you
+        have edited a page
+  - [ ] `confluence_get_page` with `max_chars` high enough for the whole body: the layout,
+        macros and `ac:placeholder` hints come back intact
+  - [ ] One real `confluence_update_page` on a page of your own, then one with a stale
         `version` to see it refused
-  - [ ] **The "About me" page**: draft it with the agent in Markdown, review the dry run,
-        then publish with `--no-dry-run` to the space management named
+  - [ ] **The profile page.** It already exists, made from a team template: "Profile |
+        <your name>" in the team space, 2,850 characters of storage format with layout
+        sections, a to-do note macro and nine `ac:placeholder` hints, due Fri Nov 20. So
+        this is an edit, not a create: read it whole, replace each hint with text, remove
+        the note macro, send it back with `mode=replace` and `body_format=storage`, review
+        the dry run, then publish with `--no-dry-run`.
 
 ## Next up
 
@@ -148,9 +152,12 @@ Rough order. Each item is one pull request. API references: the Jira 11.0.2 and 
 10.5 OpenAPI specs (`https://dac-static.atlassian.com/server/jira/platform/jira_software_dc_11002_swagger.v3.json`,
 `https://dac-static.atlassian.com/server/bitbucket/10.5.swagger.v3.json`).
 
-1. **Set `ci = false`** under `[bitbucket]` on the work laptop and re-run the smoke test.
-2. **Confirm Confluence and publish the "About me" page** (see the Confluence checks
-   above), then open the pull request for this branch.
+1. **Fill in the profile page** (see the Confluence checks above) before Fri Nov 20.
+2. Re-run the smoke test for the dry-run review, then open the pull request for this
+   branch.
+3. Maybe: a find-and-replace mode for `confluence_update_page` (exact storage snippets in,
+   replacements out), so filling a template does not send the whole page through the
+   model. Decide after the profile page shows how well `replace` works.
 
 ## Later
 
