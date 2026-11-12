@@ -109,87 +109,96 @@ keeps writes behind a dry-run switch that is on by default.
 26. As a user, I want the agent to log time on an issue in Jira's own duration syntax, with
     an optional comment and start time, and to list what is already logged, so that it can
     keep my timesheet current.
-27. As a user, I want the agent to assign an issue to me, to nobody, or to a person I name,
+27. As a user, I want `jira_get_issue` to show every standard field (project, type, status,
+    priority, people, dates, resolution, time tracking, labels, components, versions and
+    links), so that the agent sees what I see in the browser.
+28. As a user, I want the agent to edit an issue's standard fields and create issues, checked
+    against the screens Jira configures for the project, so that a field or value Jira would
+    reject is caught with the allowed choices before anything is sent.
+29. As a user, I want the agent to link issues as a sentence ("ABC-1 blocks ABC-2") and to
+    set a resolution through a transition, so that status, resolution and links change the
+    way Jira expects.
+30. As a user, I want the agent to assign an issue to me, to nobody, or to a person I name,
     and to ask me when a name matches more than one person, so that it never assigns work to
     the wrong person.
 
 ### Bitbucket
 
-28. As a user, I want to list pull requests where I am reviewer, author or participant, and
+31. As a user, I want to list pull requests where I am reviewer, author or participant, and
     every pull request in a repository by state and text, so that the agent can find what
     needs my attention.
-29. As a user, I want one pull request with its description, reviewers, newest comments and
+32. As a user, I want one pull request with its description, reviewers, newest comments and
     build results, plus its commits, changed files and a unified diff cut at a size limit, so
     that the agent can review it.
-30. As a user, I want to list projects and repositories, so that the agent can discover keys
+33. As a user, I want to list projects and repositories, so that the agent can discover keys
     and slugs.
-31. As a user, I want a `default_project` under `[bitbucket]` and a
+34. As a user, I want a `default_project` under `[bitbucket]` and a
     `bitbucket_set_default_project` tool that lasts until the server restarts, so that I do
     not have to name the project on every call.
-32. As a user, I want code search through the endpoint behind Bitbucket's own search page, so
+35. As a user, I want code search through the endpoint behind Bitbucket's own search page, so
     that the agent can find where something is defined or used.
-33. As a user, I want a search-index outage (a 5xx) reported as such, with an instruction not
+36. As a user, I want a search-index outage (a 5xx) reported as such, with an instruction not
     to rebuild the search by walking every repository, so that a failed search does not burn
     my model's daily credit quota.
-34. As a user, I want to know whether a pull request can merge now and which checks block it
+37. As a user, I want to know whether a pull request can merge now and which checks block it
     (approvals, builds, tasks, conflicts), its open and resolved tasks, and its history of
     pushes, comments and reviews, so that the agent can tell me what is left to do on it.
-35. As a user, I want the Jira issues a pull request is linked to, as keys the `jira_` tools
+38. As a user, I want the Jira issues a pull request is linked to, as keys the `jira_` tools
     accept, so that the agent can move from a pull request to its ticket.
-36. As a user, I want the CI build results of any commit (with totals, test counts and
+39. As a user, I want the CI build results of any commit (with totals, test counts and
     descriptions), the builds a repository requires before merging, and the state of a
     deployment I name, so that the agent can explain a red build or a stuck release.
-37. As a user, I want the agent to comment on a pull request, reply to a comment, or add a
+40. As a user, I want the agent to comment on a pull request, reply to a comment, or add a
     task, in Markdown, so that it can post review feedback for me.
-38. As a user, I want the agent to approve a pull request, mark it as needing work, or
+41. As a user, I want the agent to approve a pull request, mark it as needing work, or
     withdraw either, so that it can record my review once I have agreed to it.
-39. As a user, I want the server to find my Bitbucket user slug itself, and to let me set it
+42. As a user, I want the server to find my Bitbucket user slug itself, and to let me set it
     under `[bitbucket]` when it cannot, so that reviews work without extra setup.
 
 ### Diagnostics and operation
 
-40. As a user, I want `doctor` to check config, token and connection for each configured
+43. As a user, I want `doctor` to check config, token and connection for each configured
     product and report each separately, so that I can find what is wrong without an agent.
-41. As a user, I want structured logs (structlog) on stderr, readable in a terminal and JSON
+44. As a user, I want structured logs (structlog) on stderr, readable in a terminal and JSON
     otherwise, with `log_level` in the config or `--log-level`, so that the MCP protocol keeps
     stdout and an agent host's log file is parseable.
-42. As a user, I want `debug` to log each HTTP exchange (method, path, status, content type,
+45. As a user, I want `debug` to log each HTTP exchange (method, path, status, content type,
     size, duration, redirect target, cookie names, identifying headers) and never the token,
     cookie values, query values or bodies, so that I can paste debug logs safely.
-43. As a user, I want a redirect error to name its destination and say what to check, so
+46. As a user, I want a redirect error to name its destination and say what to check, so
     that I can tell a login page from a wrong path.
-44. As a user, I want a failed request whose path repeats a segment (such as `/jira/jira`) or
+47. As a user, I want a failed request whose path repeats a segment (such as `/jira/jira`) or
     contains `//` to ask whether that was intended and show the full address, without
     rejecting such paths outright, so that a legitimate shared prefix still works.
-45. As a user, I want an empty 2xx answered with an HTML content type treated as success, so
+48. As a user, I want an empty 2xx answered with an HTML content type treated as success, so
     that a Jira transition that went through is not reported as a banner page.
-46. As a user, I want `call <tool> name=value ...` to run any tool without an agent and print
+49. As a user, I want `call <tool> name=value ...` to run any tool without an agent and print
     JSON, typed from the tool's schema and obeying `dry_run`, so that I can test against real
     servers without spending model credits. With no tool name, it lists the tools.
-47. As a user, I want `call --field NAME` to print one field as written, with a diff coloured
+50. As a user, I want `call --field NAME` to print one field as written, with a diff coloured
     only when stdout is a terminal, so that a diff reads as a diff and agents and pipes stay
     plain.
-48. As a user, I want `scripts/smoke-test.sh` to run every tool once through `call`, skipping
+51. As a user, I want `scripts/smoke-test.sh` to run every tool once through `call`, skipping
     unconfigured products and unfilled `<placeholder>` values and forcing its one write into
     dry-run, so that I can confirm a release against my servers in one step.
 
 ### Agent registration
 
-49. As a user, I want `configure-agent` to add a `productivity` stdio extension to Goose's
+52. As a user, I want `configure-agent` to add a `productivity` stdio extension to Goose's
     config that starts the server by the absolute path of the command in this checkout's
     environment, so that it does not depend on Goose's working directory or `PATH`.
-50. As a user, I want `configure-agent` to keep the rest of the file and its comments, save
+53. As a user, I want `configure-agent` to keep the rest of the file and its comments, save
     `config.yaml.bak`, update in place on re-run, and preview with `--show`, so that it is
     safe to run.
 
 ### Development
 
-51. As a developer, I want product modules to depend only on an `ApiClient` protocol, so that
+54. As a developer, I want product modules to depend only on an `ApiClient` protocol, so that
     a service with different sign-in (such as Microsoft Graph) is a new adapter and the Jira
     code does not change.
-52. As a developer, I want tests to run against an in-process fake Jira, fake Bitbucket and
+55. As a developer, I want tests to run against an in-process fake Jira, fake Bitbucket and
     intercepting proxy, so that nothing in the suite contacts a real server.
-53. As a developer, I want one set of checks (ruff, rumdl, taplo, ty, pytest with coverage)
+56. As a developer, I want one set of checks (ruff, rumdl, taplo, ty, pytest with coverage)
     run by pre-commit, hatch and CI alike, so that a passing local run means a passing CI run.
 
 ## Implementation Decisions
@@ -254,7 +263,8 @@ keeps writes behind a dry-run switch that is on by default.
 
 ### Write safety
 
-- Jira writes in this version are add comment, transition issue, log work and assign.
+- Jira writes in this version are add comment, transition issue (with an optional
+  resolution), log work, assign, edit issue, create issue and link issues.
   Bitbucket writes
   are add a pull-request comment (new, reply or task) and set the user's review (approve,
   needs work, or neither).
@@ -263,7 +273,8 @@ keeps writes behind a dry-run switch that is on by default.
   itself.
 - Tools carry MCP read and write annotations so the host's approval mode applies as well.
 - Repeat suppression keys on (issue, comment text), (issue, transition), (issue, duration,
-  start, comment), (issue, resolved username), (pull request,
+  start, comment), (issue, resolved username), (issue, requested edits), (project, issue type, fields),
+  (issue, relation, other issue), (pull request,
   parent comment, task flag, comment text) or (pull request, review) with a 30-second window
   (`repeats.py`). Simultaneous repeats share one in-flight result. Each product has its own
   guard.
@@ -284,7 +295,31 @@ keeps writes behind a dry-run switch that is on by default.
   more than one is refused with up to ten candidates listed. The lookup happens before the
   dry-run check and before repeat suppression, so "me" and the user's own username count as
   the same change.
-- Write results now carry `created_id`, the id of a new comment or worklog.
+- Write results now carry `created_id`: the id of a new comment or worklog, or the key of a
+  new issue.
+- Field metadata lives in `jira/fields.py`. `editmeta` (one issue) and
+  `createmeta/{project}/issuetypes[/{id}]` (Data Center 9 and later; pages or bare lists are
+  both read) say which fields a screen has, which are required, and their allowed values.
+  Every field the edit and create tools set is checked against that metadata, even in
+  dry-run. Values are matched by name or id in any letter case and sent as `{"id": ...}`
+  (or `{"name": ...}` when Jira gives no id).
+- Of the standard fields: summary, description, issue type, priority, reporter, due date and
+  `timetracking` (original and remaining estimate) are set through `fields`. Labels,
+  components, fix versions and affects versions (`versions`) are added or removed through
+  `update`, so the rest of each list is kept. On create they are set as lists. Status and
+  resolution change only through transitions (the transition is fetched with
+  `expand=transitions.fields`, which lists the resolutions its screen allows), the assignee
+  through `jira_assign_issue`, time spent through worklogs, and links through `issueLink`.
+  Project, created, updated, `timeoriginalestimate` and `timespent` are read-only here.
+- Creating an issue fills project and issue type itself and leaves reporter to Jira's
+  default (the user). A required field without a default that the tool cannot fill, such as
+  a custom field, refuses the create with the field names listed. A sub-task type needs a
+  parent and any other type must not have one.
+- Links read as a sentence: (key, relation, other key). The relation may be a link type's
+  name, its outward wording or its inward wording. An inward wording swaps the ends. The
+  request puts the sentence's first issue in `inwardIssue`, because Jira treats
+  `inwardIssue` as the link's source, the issue that shows the outward wording. This
+  direction is to be confirmed on the live server (see ROADMAP.md).
 
 ### Bitbucket specifics
 
@@ -363,8 +398,8 @@ Designed for but deferred. [ROADMAP.md](ROADMAP.md) has the ordered backlog and 
 
 - **Confluence:** a third Atlassian product module behind the same adapter. It sits on the
   same host and sub-path pattern as Jira and Bitbucket.
-- **More Jira writes:** edit fields and create issues. These were deferred because field
-  rules vary by project and they are the riskiest writes.
+- **Custom Jira fields:** reading and setting `customfield_*` values (such as story points or
+  epic links), whose shapes vary by field type.
 - **More Bitbucket writes:** comments on a file or line of the diff, resolving tasks, and
   editing or deleting the user's own comments.
 - **Microsoft Graph (Microsoft 365 calendar and mail):** a new adapter implementing
@@ -378,7 +413,7 @@ Designed for but deferred. [ROADMAP.md](ROADMAP.md) has the ordered backlog and 
 - Automated tests run against in-process fakes of Jira and Bitbucket and an intercepting
   proxy that serves a banner page until a cookie is present. Nothing in the suite contacts a
   real server.
-- The coverage floor is 90% (branch coverage). The suite is currently at about 99.9% (232
+- The coverage floor is 90% (branch coverage). The suite is currently at about 99.9% (262
   tests).
 - The live servers cannot be reached from development or CI, so verification against them is
   manual. The user runs `doctor`, `call`, or `scripts/smoke-test.sh` on the work laptop and
@@ -392,7 +427,8 @@ Designed for but deferred. [ROADMAP.md](ROADMAP.md) has the ordered backlog and 
   renamed file in the changed-files list, code search (the server's index was returning
   503), every tool added for merge status, activity, tasks, linked issues, commit
   builds, required builds and deployments, and the Bitbucket writes (including the
-  `applinks/whoami` lookup through a bearer token), and the Jira worklog and assign tools.
+  `applinks/whoami` lookup through a bearer token), the Jira worklog and assign tools, and
+  the Jira field, create, transition-resolution and link tools.
 - Prior art: none before this project. These tests establish the repo's convention.
 
 ## Out of Scope
@@ -401,8 +437,9 @@ Designed for but deferred. [ROADMAP.md](ROADMAP.md) has the ordered backlog and 
   the API accepts bearer tokens once past the banner (see Authentication and Further Notes).
 - **Automatically accepting a consent banner, or shipping any site's cookie name.** The user
   supplies the cookie deliberately (see Authentication).
-- **Jira field edits and issue creation.** Deferred (see Roadmap). Editing or deleting
-  worklogs is also left out for now.
+- **Moving an issue to another project, deleting issues or links, and editing or deleting
+  worklogs.** Moving needs Jira's bulk-move wizard; deletes are left to the browser.
+  Custom fields are deferred (see Roadmap).
 - **Bitbucket merges, declines and branch changes.** These change code or end a review,
   so they are left to the user in the browser. Comment anchors and task resolution are
   deferred (see Roadmap).

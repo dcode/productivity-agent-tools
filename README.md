@@ -295,6 +295,12 @@ tool approval on so you see each comment or transition before it is sent.
 | `jira_list_worklogs` | read | Time logged on an issue, with the total |
 | `jira_log_work` | write | Log time (`1h 30m`, `2d`) with an optional comment and start time |
 | `jira_assign_issue` | write | Assign to `me`, `none`, or a person found by name or username |
+| `jira_get_edit_fields` | read | Fields an issue's edit screen allows, with their allowed values |
+| `jira_edit_issue` | write | Summary, description, type, priority, reporter, due date, estimates; add or remove labels, components, versions |
+| `jira_get_create_fields` | read | Issue types a project offers, and one type's fields |
+| `jira_create_issue` | write | Create an issue or sub-task with the standard fields |
+| `jira_list_link_types` | read | Kinds of issue links, with both wordings |
+| `jira_link_issues` | write | Link two issues, read as a sentence: "ABC-1 blocks ABC-2" |
 | `bitbucket_status` | read | Bitbucket version, whether the token is accepted, the default project |
 | `bitbucket_search_code` | read | Search file contents across repositories, optionally within a project or repository |
 | `bitbucket_list_projects` | read | Projects you can see, with their keys |
@@ -341,12 +347,23 @@ Most other Bitbucket tools need a project key. Set `default_project` under
 You can also tell the agent which project to use; it calls
 `bitbucket_set_default_project`, which lasts until the server restarts.
 
+`jira_edit_issue` and `jira_create_issue` check every field against the issue's
+edit screen or the project's create screen first, and match values (priorities,
+components, versions) by name, so a field the screen lacks or a value it does
+not allow is refused with the choices listed. Creating an issue whose screen
+requires a custom field is refused; create it in the browser instead. Status
+and resolution change only through `jira_transition_issue`, which takes a
+`resolution` when the transition offers one. `jira_get_issue` shows all the
+standard fields, including links, components, versions, due date, resolution
+and time tracking.
+
 `jira_assign_issue` only assigns someone Jira allows on that issue. A name that
 matches more than one person is refused with the candidates listed, and the
 agent has to ask you which one; it does this even in dry-run.
 
 An identical write (the same comment text on the same issue or pull request,
-the same transition, worklog or assignee of an issue, or the same review of a
+the same transition, worklog, assignee, edit or link of an issue, the same new
+issue, or the same review of a
 pull request)
 repeated within 30 seconds is not sent again; the tool returns the
 first result with `repeat_suppressed` set. Agents sometimes issue one call twice,

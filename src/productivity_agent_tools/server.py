@@ -11,9 +11,9 @@ from productivity_agent_tools.jira.tools import register_jira_tools
 
 _JIRA_INSTRUCTIONS: str = (
     "The jira_ tools work with the user's self-hosted Jira. Reads are safe to call freely. "
-    "jira_add_comment, jira_transition_issue, jira_log_work and jira_assign_issue change "
-    "team-visible data: confirm the exact comment text, transition, time or person with the "
-    "user before calling them. When a write result says "
+    "jira_add_comment, jira_transition_issue, jira_log_work, jira_assign_issue, "
+    "jira_edit_issue, jira_create_issue and jira_link_issues change team-visible data: "
+    "confirm exactly what will change with the user before calling them. When a write result says "
     "DRY RUN, nothing was changed; tell the user so and do not claim the update was made. "
     "Make each write call exactly once; if a script calls a tool, do not run the script's "
     "body twice. "
