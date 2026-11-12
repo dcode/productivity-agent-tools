@@ -2,6 +2,7 @@
 
 from collections.abc import AsyncIterator
 
+from productivity_agent_tools.http import AtlassianClient
 from productivity_agent_tools.jira.client import JiraClient
 from productivity_agent_tools.jira.settings import JiraSettings, parse_jira_settings
 from productivity_agent_tools.jira.tools import register_jira_tools
@@ -43,6 +44,7 @@ PRODUCT: Product[JiraSettings, JiraClient] = Product(
     title="Jira",
     instructions=INSTRUCTIONS,
     settings_type=JiraSettings,
+    adapter=AtlassianClient.from_connection,
     parse_settings=parse_jira_settings,
     make_client=JiraClient,
     register_tools=register_jira_tools,
