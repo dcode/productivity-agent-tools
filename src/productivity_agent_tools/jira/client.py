@@ -1,13 +1,14 @@
 """Jira Data Center REST client (API v2) built on an ``ApiClient`` adapter."""
 
 import re
+from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import date, datetime
 
 from pydantic import JsonValue
 
 from productivity_agent_tools.api import ApiClient, WriteOutcome
-from productivity_agent_tools.config import JiraSettings
+from productivity_agent_tools.capabilities import IssueDetails
 from productivity_agent_tools.errors import AtlassianError
 from productivity_agent_tools.jira.fields import (
     FieldMeta,
@@ -35,6 +36,7 @@ from productivity_agent_tools.jira.models import (
     Worklog,
     WorklogList,
 )
+from productivity_agent_tools.jira.settings import JiraSettings
 from productivity_agent_tools.payload import JsonObject
 from productivity_agent_tools.payload import as_object as _object
 from productivity_agent_tools.payload import number as _number
@@ -1017,6 +1019,34 @@ class JiraClient:
             payload["comment"] = {"body": comment}
         outcome = await self._core.write("POST", f"{self._api}/issueLink", payload)
         return f"{source} {words} {target}", outcome
+
+    async def describe_issues(self, keys: Sequence[str]) -> dict[str, IssueDetails]:
+        """Look up issues by key in one search, for other products to show beside a mention.
+
+        Args:
+            keys: Issue keys; ones not shaped like ``ABC-123`` are ignored, so the
+                rest can go into JQL unquoted.
+
+        Returns:
+            The issues found, by key; keys Jira does not return are left out.
+
+        Raises:
+            AtlassianError: If the search fails.
+        """
+        valid = sorted({key for key in keys if _ISSUE_KEY.fullmatch(key)})
+        if not valid:
+            return {}
+        result = await self.search(f"key in ({', '.join(valid)})", len(valid))
+        return {
+            issue.key: IssueDetails(
+                key=issue.key,
+                url=issue.url,
+                summary=issue.summary,
+                status=issue.status,
+                assignee=issue.assignee,
+            )
+            for issue in result.issues
+        }
 
     async def development_pull_requests(self, key: str) -> list[JsonObject]:
         """Fetch the pull requests Jira's Development panel shows for an issue.

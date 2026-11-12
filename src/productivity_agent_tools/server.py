@@ -1,97 +1,84 @@
 """Assembles the MCP server from the configured product modules."""
 
+from collections.abc import Iterable, Mapping
+from dataclasses import dataclass
+from typing import Any
+
 from mcp.server.mcpserver import MCPServer
 
 from productivity_agent_tools.api import ApiClient
-from productivity_agent_tools.bitbucket.client import BitbucketClient
-from productivity_agent_tools.bitbucket.tools import register_bitbucket_tools
 from productivity_agent_tools.config import Settings
-from productivity_agent_tools.jira.client import JiraClient
-from productivity_agent_tools.jira.tools import register_jira_tools
-from productivity_agent_tools.links import issue_describer, register_link_tools
-
-_JIRA_INSTRUCTIONS: str = (
-    "The jira_ tools work with the user's self-hosted Jira. Reads are safe to call freely. "
-    "jira_add_comment, jira_transition_issue, jira_log_work, jira_assign_issue, "
-    "jira_edit_issue, jira_create_issue and jira_link_issues change team-visible data: "
-    "confirm exactly what will change with the user before calling them. When a write result says "
-    "DRY RUN, nothing was changed; tell the user so and do not claim the update was made. "
-    "Make each write call exactly once; if a script calls a tool, do not run the script's "
-    "body twice. "
-    "Jira text uses wiki markup, not Markdown."
-)
-_BITBUCKET_INSTRUCTIONS: str = (
-    "The bitbucket_ tools work with the user's self-hosted Bitbucket. Reads are safe to "
-    "call freely. bitbucket_add_pull_request_comment and bitbucket_review_pull_request "
-    "change team-visible data: confirm the exact comment text or review with the user "
-    "before calling them, and treat a DRY RUN result as nothing changed. Most take a "
-    "project key and a "
-    "repository slug; when the user names the project they work in, call "
-    "bitbucket_set_default_project once and leave project out afterwards. To say what "
-    "still blocks a pull request, use bitbucket_get_pull_request_merge_status. Bitbucket "
-    "text uses Markdown."
+from productivity_agent_tools.products import (
+    Integration,
+    Product,
+    ToolContext,
+    installed_integrations,
+    installed_products,
 )
 
 
-_LINK_INSTRUCTIONS: str = (
-    "To go from a Jira issue to its pull requests, call jira_get_issue_pull_requests; from a "
-    "pull request to its issues, bitbucket_get_pull_request_issues."
-)
+@dataclass(frozen=True, slots=True)
+class Connected:
+    """One product's open connection.
+
+    Attributes:
+        api: API adapter connected to the product's server.
+        token_source: Description of where the access token came from.
+    """
+
+    api: ApiClient
+    token_source: str = ""
 
 
 def build_server(
     settings: Settings,
-    jira_api: ApiClient | None = None,
-    token_source: str = "",
+    connected: Mapping[str, Connected],
     *,
-    bitbucket_api: ApiClient | None = None,
-    bitbucket_token_source: str = "",
+    products: Mapping[str, Product[Any, Any]] | None = None,
+    integrations: Iterable[Integration] | None = None,
 ) -> MCPServer:
     """Create the MCP server with the tools of every configured, connected product.
 
     A product's tools are registered only when its table is in the config and
-    an adapter for it is given, so an agent is never offered a tool that
-    cannot work.
+    a connection for it is given, so an agent is never offered a tool that
+    cannot work. An integration's tools are registered only when every product
+    it requires is.
 
     Args:
         settings: Resolved settings.
-        jira_api: API adapter connected to Jira, or None to leave its tools out.
-        token_source: Description of where the Jira access token came from.
-        bitbucket_api: API adapter connected to Bitbucket, or None to leave its tools out.
-        bitbucket_token_source: Description of where the Bitbucket access token came from.
+        connected: Open connection of each product to offer, by product name.
+        products: The known products; None uses the installed ones.
+        integrations: The known integrations; None uses the installed ones.
 
     Returns:
         The MCP server, ready to run.
     """
-    jira = settings.jira if jira_api is not None else None
-    bitbucket = settings.bitbucket if bitbucket_api is not None else None
-    both = jira is not None and bitbucket is not None
+    known = installed_products() if products is None else products
+    active = {
+        name: known[name].activate(connected[name].api, product_settings)
+        for name, product_settings in settings.products.items()
+        if name in connected and name in known
+    }
+    joined = [
+        integration
+        for integration in (installed_integrations() if integrations is None else integrations)
+        if all(name in active for name in integration.requires)
+    ]
     instructions = " ".join(
-        text
-        for wanted, text in (
-            (jira is not None, _JIRA_INSTRUCTIONS),
-            (bitbucket is not None, _BITBUCKET_INSTRUCTIONS),
-            (both, _LINK_INSTRUCTIONS),
-        )
-        if wanted
+        [item.product.instructions for item in active.values()]
+        + [integration.instructions for integration in joined]
     )
     server = MCPServer("productivity-agent-tools", instructions=instructions)
-    jira_client = JiraClient(jira_api, jira) if jira is not None and jira_api is not None else None
-    bitbucket_client = (
-        BitbucketClient(bitbucket_api, bitbucket)
-        if bitbucket is not None and bitbucket_api is not None
-        else None
-    )
-    if jira_client is not None:
-        register_jira_tools(server, jira_client, settings, token_source)
-    if bitbucket_client is not None and bitbucket is not None:
-        register_bitbucket_tools(
-            server,
-            bitbucket_client,
-            bitbucket_token_source,
-            list(settings.connection_for(bitbucket).cookies),
-            describe_issues=issue_describer(jira_client) if jira_client is not None else None,
+    clients = {name: item.client for name, item in active.items()}
+    for name, item in active.items():
+        connection = settings.connection_for(settings.products[name])
+        context = ToolContext(
+            dry_run=settings.dry_run,
+            token_source=connected[name].token_source,
+            cookie_names=tuple(connection.cookies),
+            peers={peer: client for peer, client in clients.items() if peer != name},
         )
-    if jira_client is not None and bitbucket_client is not None:
-        register_link_tools(server, jira_client, bitbucket_client)
+        item.register_tools(server, context)
+    for integration in joined:
+        integration.register_tools(server, clients)
     return server

@@ -1,4 +1,4 @@
-"""Tools that join Jira and Bitbucket, offered only when both are configured.
+"""The Jira and Bitbucket integration: tools offered only when both are configured.
 
 An issue's pull requests come from two places, merged into one list:
 
@@ -13,16 +13,17 @@ undocumented resource gone), so each answers or is reported as unavailable.
 
 import asyncio
 import re
-from collections.abc import Awaitable, Callable
+from collections.abc import Mapping
 
 from mcp.server.mcpserver import MCPServer
 from pydantic import BaseModel, Field
 
 from productivity_agent_tools.bitbucket.client import BitbucketClient
-from productivity_agent_tools.bitbucket.models import LinkedIssue, PullRequestSummary
+from productivity_agent_tools.bitbucket.models import PullRequestSummary
 from productivity_agent_tools.errors import AtlassianError
 from productivity_agent_tools.jira.client import JiraClient, normalize_issue_key
 from productivity_agent_tools.payload import JsonObject, text
+from productivity_agent_tools.products import Integration, client_of
 from productivity_agent_tools.tooling import READ, anticipated
 
 DEVELOPMENT_PANEL: str = "Jira development panel"
@@ -216,50 +217,6 @@ async def issue_pull_requests(
     )
 
 
-def issue_describer(jira: JiraClient) -> Callable[[list[str]], Awaitable[dict[str, LinkedIssue]]]:
-    """Make a function that looks up Jira issues by key, for Bitbucket's linked-issue tool.
-
-    Args:
-        jira: Jira client.
-
-    Returns:
-        A function from keys to issues; keys Jira does not return are left out.
-    """
-
-    async def describe(keys: list[str]) -> dict[str, LinkedIssue]:
-        valid = sorted({k for k in keys if _is_key(k)})
-        if not valid:
-            return {}
-        result = await jira.search(f"key in ({', '.join(valid)})", len(valid))
-        return {
-            issue.key: LinkedIssue(
-                key=issue.key,
-                url=issue.url,
-                summary=issue.summary,
-                status=issue.status,
-                assignee=issue.assignee,
-            )
-            for issue in result.issues
-        }
-
-    return describe
-
-
-def _is_key(key: str) -> bool:
-    """Tell whether a string is a valid issue key, so it can go into JQL unquoted.
-
-    Args:
-        key: The candidate key.
-
-    Returns:
-        True if it is shaped like ABC-123.
-    """
-    try:
-        return normalize_issue_key(key) == key
-    except AtlassianError:
-        return False
-
-
 def register_link_tools(server: MCPServer, jira: JiraClient, bitbucket: BitbucketClient) -> None:
     """Register the tools that need both Jira and Bitbucket.
 
@@ -283,3 +240,31 @@ def register_link_tools(server: MCPServer, jira: JiraClient, bitbucket: Bitbucke
             key: Issue key, such as ABC-123.
         """
         return await issue_pull_requests(jira, bitbucket, key)
+
+
+INSTRUCTIONS: str = (
+    "To go from a Jira issue to its pull requests, call jira_get_issue_pull_requests; from a "
+    "pull request to its issues, bitbucket_get_pull_request_issues."
+)
+
+
+def _register(server: MCPServer, clients: Mapping[str, object]) -> None:
+    """Register the link tools from the clients of the products that are on.
+
+    Args:
+        server: The MCP server to add tools to.
+        clients: The product clients, by product name.
+    """
+    register_link_tools(
+        server,
+        client_of(clients, "jira", JiraClient),
+        client_of(clients, "bitbucket", BitbucketClient),
+    )
+
+
+INTEGRATION: Integration = Integration(
+    name="jira_bitbucket",
+    requires=("jira", "bitbucket"),
+    instructions=INSTRUCTIONS,
+    register_tools=_register,
+)

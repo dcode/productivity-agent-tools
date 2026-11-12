@@ -9,7 +9,7 @@ from mcp.server.mcpserver.exceptions import ToolError, UnexpectedToolError
 from pydantic import JsonValue
 
 from productivity_agent_tools.api import ApiClient, WriteOutcome
-from productivity_agent_tools.config import JiraSettings, Settings
+from productivity_agent_tools.config import Settings
 from productivity_agent_tools.errors import AtlassianError
 from productivity_agent_tools.http import AtlassianClient
 from productivity_agent_tools.jira.client import (
@@ -18,7 +18,8 @@ from productivity_agent_tools.jira.client import (
     normalize_duration,
     normalize_issue_key,
 )
-from productivity_agent_tools.server import build_server
+from productivity_agent_tools.jira.settings import JiraSettings
+from productivity_agent_tools.server import Connected, build_server
 from tests.conftest import FakeJira
 
 
@@ -93,7 +94,7 @@ def _structured(result: Any) -> dict[str, Any]:
 async def test_server_exposes_tools_with_read_write_annotations(
     make_core: Callable[..., AtlassianClient], make_settings: Callable[..., Settings]
 ) -> None:
-    server = build_server(make_settings(), make_core(), "test")
+    server = build_server(make_settings(), {"jira": Connected(make_core(), "test")})
     tools = {tool.name: tool for tool in await server.list_tools()}
     assert set(tools) == {
         "jira_status",
@@ -135,7 +136,7 @@ async def test_tools_end_to_end_through_mcp(
     make_core: Callable[..., AtlassianClient],
     make_settings: Callable[..., Settings],
 ) -> None:
-    server = build_server(make_settings(), make_core(), "test source")
+    server = build_server(make_settings(), {"jira": Connected(make_core(), "test source")})
 
     status = _structured(await server.call_tool("jira_status", {}))
     assert status["display_name"] == "Pat Example"
@@ -158,7 +159,7 @@ async def test_tools_end_to_end_through_mcp(
 async def test_tool_errors_reach_the_model_with_their_guidance(
     make_core: Callable[..., AtlassianClient], make_settings: Callable[..., Settings]
 ) -> None:
-    server = build_server(make_settings(), make_core(token="expired"), "test")
+    server = build_server(make_settings(), {"jira": Connected(make_core(token="expired"), "test")})
     with pytest.raises(ToolError, match="rejected the access token") as info:
         await server.call_tool("jira_search", {"jql": "x"})
     assert not isinstance(info.value, UnexpectedToolError)
@@ -213,7 +214,7 @@ async def test_identical_writes_from_an_agent_are_sent_once(
     make_settings: Callable[..., Settings],
 ) -> None:
     settings = make_settings(dry_run=False)
-    server = build_server(settings, make_core(dry_run=False), "test")
+    server = build_server(settings, {"jira": Connected(make_core(dry_run=False), "test")})
     comment = {"key": "ABC-1", "body": "HONK"}
 
     both = await asyncio.gather(
@@ -246,7 +247,7 @@ async def test_identical_writes_from_an_agent_are_sent_once(
 async def test_dry_run_writes_are_never_treated_as_repeats(
     make_core: Callable[..., AtlassianClient], make_settings: Callable[..., Settings]
 ) -> None:
-    server = build_server(make_settings(), make_core(), "test")
+    server = build_server(make_settings(), {"jira": Connected(make_core(), "test")})
     comment = {"key": "ABC-1", "body": "hi"}
     for _ in range(2):
         result = _structured(await server.call_tool("jira_add_comment", comment))
@@ -358,7 +359,7 @@ async def test_worklog_and_assign_tools_end_to_end(
     make_core: Callable[..., AtlassianClient],
     make_settings: Callable[..., Settings],
 ) -> None:
-    dry = build_server(make_settings(), make_core(), "test")
+    dry = build_server(make_settings(), {"jira": Connected(make_core(), "test")})
     blocked = _structured(
         await dry.call_tool("jira_assign_issue", {"key": "abc-1", "assignee": "kim"})
     )
@@ -368,7 +369,9 @@ async def test_worklog_and_assign_tools_end_to_end(
         await dry.call_tool("jira_log_work", {"key": "ABC-1", "time_spent": "lots"})
     assert fake.writes() == []
 
-    live = build_server(make_settings(dry_run=False), make_core(dry_run=False), "test")
+    live = build_server(
+        make_settings(dry_run=False), {"jira": Connected(make_core(dry_run=False), "test")}
+    )
     work = {"key": "ABC-1", "time_spent": "1h 30m", "comment": "review"}
     logged = _structured(await live.call_tool("jira_log_work", work))
     again = _structured(await live.call_tool("jira_log_work", {**work, "time_spent": "1 H 30 M"}))

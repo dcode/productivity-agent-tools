@@ -320,8 +320,8 @@ def test_diff_field_is_coloured_only_in_a_terminal(
 async def test_no_configured_product_is_reported_not_served(
     make_settings: Callable[..., Settings], capsys: pytest.CaptureFixture[str]
 ) -> None:
-    empty = make_settings(jira=None)
-    with pytest.raises(ConfigError, match=r"Add a \[jira\] or \[bitbucket\] table"):
+    empty = make_settings(products={})
+    with pytest.raises(ConfigError, match=r"Add a \[bitbucket\] or \[jira\] table"):
         await cli._serve(empty)
     with pytest.raises(ConfigError, match="No product is configured"):
         await cli._call(empty, None, ())

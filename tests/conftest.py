@@ -8,9 +8,10 @@ import httpx
 import pytest
 import structlog
 
-from productivity_agent_tools.config import JiraSettings, Settings
+from productivity_agent_tools.config import Settings
 from productivity_agent_tools.http import AtlassianClient
 from productivity_agent_tools.jira.client import JiraClient
+from productivity_agent_tools.jira.settings import JiraSettings
 
 BANNER_HTML = "<html><body><button>I accept the terms of use</button></body></html>"
 
@@ -308,7 +309,7 @@ def make_settings() -> Callable[..., Settings]:
         values: dict[str, Any] = {
             "base_url": "https://host.example",
             "cookies": {"consent": "yes"},
-            "jira": JiraSettings(),
+            "products": {"jira": JiraSettings()},
         }
         values.update(overrides)
         return Settings(**values)
@@ -324,9 +325,9 @@ async def make_core(
 
     def build(token: str = "good-token", **overrides: Any) -> AtlassianClient:
         settings = make_settings(**overrides)
-        assert settings.jira is not None
+        assert settings.products["jira"] is not None
         core = AtlassianClient.from_connection(
-            settings.connection_for(settings.jira),
+            settings.connection_for(settings.products["jira"]),
             token,
             dry_run=settings.dry_run,
             transport=httpx.MockTransport(fake.handler),

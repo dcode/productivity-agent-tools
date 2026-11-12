@@ -14,7 +14,7 @@ from productivity_agent_tools.errors import AtlassianError
 from productivity_agent_tools.http import AtlassianClient
 from productivity_agent_tools.jira.client import FieldChanges, JiraClient, normalize_project_key
 from productivity_agent_tools.jira.fields import check_label, due_date, parse_editmeta
-from productivity_agent_tools.server import build_server
+from productivity_agent_tools.server import Connected, build_server
 from tests.conftest import EDITMETA, FakeJira
 
 API = "/jira/rest/api/2"
@@ -341,7 +341,7 @@ async def test_field_tools_end_to_end(
     make_core: Callable[..., AtlassianClient],
     make_settings: Callable[..., Settings],
 ) -> None:
-    dry = build_server(make_settings(), make_core(), "test")
+    dry = build_server(make_settings(), {"jira": Connected(make_core(), "test")})
     edit = {"key": "ABC-1", "priority": "High", "add_labels": ["x"]}
     blocked = _structured(await dry.call_tool("jira_edit_issue", edit))
     assert (blocked["sent"], blocked["request"]["method"]) == (False, "PUT")
@@ -350,7 +350,9 @@ async def test_field_tools_end_to_end(
     assert (planned["issue_key"], planned["created_id"]) == ("ABC (new)", None)
     assert fake.writes() == []
 
-    live = build_server(make_settings(dry_run=False), make_core(dry_run=False), "test")
+    live = build_server(
+        make_settings(dry_run=False), {"jira": Connected(make_core(dry_run=False), "test")}
+    )
     first = _structured(await live.call_tool("jira_edit_issue", edit))
     again = _structured(await live.call_tool("jira_edit_issue", edit))
     assert first["message"] == "Updated ABC-1: Priority, Labels."
