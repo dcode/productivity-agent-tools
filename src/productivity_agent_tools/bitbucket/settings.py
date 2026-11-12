@@ -5,6 +5,7 @@ from typing import Any
 
 from productivity_agent_tools.config import (
     ProductSettings,
+    as_bool,
     as_str,
     max_results,
     product_overrides,
@@ -22,12 +23,16 @@ class BitbucketSettings(ProductSettings):
         default_project: Project key used when a tool call names no project, or None.
         user_slug: The signed-in user's Bitbucket slug, or None to ask the server. Only
             needed when the server cannot say who the token belongs to.
+        ci: False when no CI or CD server reports builds or deployments to this Bitbucket.
+            The build and deployment tools are then not offered, and a pull request is
+            read without asking for its builds.
     """
 
     path: str = "/bitbucket"
     default_max_results: int = 25
     default_project: str | None = None
     user_slug: str | None = None
+    ci: bool = True
 
 
 def parse_bitbucket_settings(raw: dict[str, Any]) -> BitbucketSettings:
@@ -48,5 +53,6 @@ def parse_bitbucket_settings(raw: dict[str, Any]) -> BitbucketSettings:
         default_max_results=max_results(raw, "bitbucket", defaults.default_max_results),
         default_project=(as_str(raw, "default_project", None) or "").strip() or None,
         user_slug=(as_str(raw, "user_slug", None) or "").strip() or None,
+        ci=as_bool(raw, "ci", defaults.ci),
         **product_overrides(raw, "bitbucket"),
     )

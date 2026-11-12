@@ -304,6 +304,11 @@ class BitbucketClient:
         self._user_slug = settings.user_slug
 
     @property
+    def settings(self) -> BitbucketSettings:
+        """The Bitbucket module settings this client was built with."""
+        return self._settings
+
+    @property
     def default_project(self) -> str | None:
         """Project key used when a call names no project, if one is set."""
         return self._default_project
@@ -436,11 +441,12 @@ class BitbucketClient:
     async def user_slug(self, required: bool = True) -> str | None:
         """Find the signed-in user's slug, asking Bitbucket once per server run.
 
-        Bitbucket's REST API 1.0 has no "who am I" resource, so this reads the
-        user name from the ``applinks/whoami`` servlet or, when that answers
-        nothing (it ignores bearer tokens on some versions), from the
-        ``X-AUSERNAME`` header Bitbucket puts on its responses. It then looks
-        up the name's slug. ``user_slug`` under ``[bitbucket]`` skips all of this.
+        Bitbucket's REST API 1.0 has no "who am I" resource. The user name
+        comes from the ``X-AUSERNAME`` header Bitbucket puts on its responses,
+        when an earlier response carried one; otherwise from the
+        ``applinks/whoami`` servlet (which ignores bearer tokens on 10.2.8) and
+        the header on that servlet's own response. It then looks up the name's slug.
+        ``user_slug`` under ``[bitbucket]`` skips all of this.
 
         Args:
             required: Raise when the user cannot be found, instead of returning None.
@@ -454,10 +460,14 @@ class BitbucketClient:
         if self._user_slug is None:
             try:
                 name = (
-                    await self._core.get_text(
-                        f"{self._settings.path}/plugins/servlet/applinks/whoami"
-                    )
-                ).strip() or self._core.username
+                    self._core.username
+                    or (
+                        await self._core.get_text(
+                            f"{self._settings.path}/plugins/servlet/applinks/whoami"
+                        )
+                    ).strip()
+                    or self._core.username
+                )
                 if name:
                     found = await self._core.get(f"{self._api}/users/{quote(name, safe='')}")
                     self._user_slug = text(found, "slug") or name
@@ -948,8 +958,8 @@ class BitbucketClient:
             ]
 
         builds: list[BuildStatus] = []
-        builds_available = latest_commit is not None
-        if latest_commit is not None:
+        builds_available = latest_commit is not None and self._settings.ci
+        if latest_commit is not None and self._settings.ci:
             try:
                 statuses = await self._core.get(f"{self._builds}/commits/{latest_commit}")
             except NotFoundError, ApiError:

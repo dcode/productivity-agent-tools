@@ -183,15 +183,20 @@ if offers bitbucket_status; then
   check "bitbucket pr tasks" "${B_PR[@]}" -- \
     bitbucket_list_pull_request_tasks "${pr_args[@]}" state=all max_results=5
   check "bitbucket pr jira issues" "${B_PR[@]}" -- bitbucket_get_pull_request_issues "${pr_args[@]}"
-  check "bitbucket required builds" "${B_REPO[@]}" -- \
-    bitbucket_list_required_builds "repository=$BITBUCKET_REPO" "project=$BITBUCKET_PROJECT"
-  check "bitbucket commit builds" "$BITBUCKET_COMMIT" -- \
-    bitbucket_get_commit_builds "commit_id=$BITBUCKET_COMMIT" max_results=5
-  check "bitbucket deployment" "${B_REPO[@]}" "$BITBUCKET_COMMIT" "$BITBUCKET_DEPLOY_KEY" \
-    "$BITBUCKET_DEPLOY_ENV" "$BITBUCKET_DEPLOY_RUN" -- \
-    bitbucket_get_deployment "repository=$BITBUCKET_REPO" "project=$BITBUCKET_PROJECT" \
-    "commit_id=$BITBUCKET_COMMIT" "deployment_key=$BITBUCKET_DEPLOY_KEY" \
-    "environment_key=$BITBUCKET_DEPLOY_ENV" "sequence_number=$BITBUCKET_DEPLOY_RUN"
+  if offers bitbucket_get_commit_builds; then
+    check "bitbucket required builds" "${B_REPO[@]}" -- \
+      bitbucket_list_required_builds "repository=$BITBUCKET_REPO" "project=$BITBUCKET_PROJECT"
+    check "bitbucket commit builds" "$BITBUCKET_COMMIT" -- \
+      bitbucket_get_commit_builds "commit_id=$BITBUCKET_COMMIT" max_results=5
+    check "bitbucket deployment" "${B_REPO[@]}" "$BITBUCKET_COMMIT" "$BITBUCKET_DEPLOY_KEY" \
+      "$BITBUCKET_DEPLOY_ENV" "$BITBUCKET_DEPLOY_RUN" -- \
+      bitbucket_get_deployment "repository=$BITBUCKET_REPO" "project=$BITBUCKET_PROJECT" \
+      "commit_id=$BITBUCKET_COMMIT" "deployment_key=$BITBUCKET_DEPLOY_KEY" \
+      "environment_key=$BITBUCKET_DEPLOY_ENV" "sequence_number=$BITBUCKET_DEPLOY_RUN"
+  else
+    printf '\n== bitbucket builds and deployments\n   skipped: ci = false under [bitbucket]\n'
+    SKIPPED+=("bitbucket builds and deployments (ci = false)")
+  fi
   # Write tools, forced into dry-run: they show the request and send nothing.
   # The review also checks that the server can tell who you are (user_slug).
   check "bitbucket comment (dry run)" "${B_PR[@]}" -- \

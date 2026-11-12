@@ -378,6 +378,11 @@ the pull requests containing commits that mention the key. If one source is
 missing, for example when the products are not linked, the result says so and
 still shows the other.
 
+If no CI or CD server reports builds or deployments to your Bitbucket, set
+`ci = false` under `[bitbucket]`. The three build and deployment tools are then
+not offered, so the agent does not try them, and reading a pull request skips
+the build lookup.
+
 Bitbucket has no way to list deployments. `bitbucket_get_deployment` needs
 the deployment key, environment key and sequence number that your CI or CD
 server reported, so the agent asks you for them rather than guessing.

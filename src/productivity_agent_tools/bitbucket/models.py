@@ -152,7 +152,8 @@ class PullRequestDetail(PullRequestSummary):
     )
     builds_available: bool = Field(
         default=True,
-        description="False if build results could not be read; an empty list then means unknown.",
+        description="False if build results could not be read, or builds are switched off "
+        "in the config; an empty list then means unknown.",
     )
 
 

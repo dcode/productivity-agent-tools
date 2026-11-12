@@ -145,7 +145,7 @@ class Settings:
         )
 
 
-def _as_bool(raw: dict[str, Any], key: str, default: bool) -> bool:
+def as_bool(raw: dict[str, Any], key: str, default: bool) -> bool:
     """Read a boolean that may be written as true/false or 1/0.
 
     Args:
@@ -420,7 +420,7 @@ def parse_settings(
     settings = Settings(
         base_url=_base_url(raw, "base_url"),
         ca_bundle=_as_path(raw, "ca_bundle"),
-        dry_run=_as_bool(raw, "dry_run", True),
+        dry_run=as_bool(raw, "dry_run", True),
         cookies=_parse_cookies(raw.get("cookies", {})),
         token_env_file=_as_path(raw, "token_env_file"),
         timeout_seconds=30.0 if timeout is None else timeout,
