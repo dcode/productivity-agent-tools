@@ -113,6 +113,9 @@ if offers jira_status; then
   check "jira get issue" "$JIRA_ISSUE" -- jira_get_issue "key=$JIRA_ISSUE" max_comments=2
   check "jira transitions" "$JIRA_ISSUE" -- jira_list_transitions "key=$JIRA_ISSUE"
   check "jira worklogs" "$JIRA_ISSUE" -- jira_list_worklogs "key=$JIRA_ISSUE" max_results=3
+  check "jira edit fields" "$JIRA_ISSUE" -- jira_get_edit_fields "key=$JIRA_ISSUE"
+  check "jira create fields" "$JIRA_ISSUE" -- jira_get_create_fields "project=${JIRA_ISSUE%%-*}"
+  check "jira link types" -- jira_list_link_types
   # Write tools, forced into dry-run: they show the request and send nothing.
   check "jira comment (dry run)" "$JIRA_ISSUE" -- \
     jira_add_comment "key=$JIRA_ISSUE" "body=smoke test, not sent" --dry-run
@@ -121,6 +124,12 @@ if offers jira_status; then
   # Looks you up as an assignable user even in dry-run.
   check "jira assign to me (dry run)" "$JIRA_ISSUE" -- \
     jira_assign_issue "key=$JIRA_ISSUE" assignee=me --dry-run
+  # Checked against the edit and create screens even in dry-run.
+  check "jira edit (dry run)" "$JIRA_ISSUE" -- \
+    jira_edit_issue "key=$JIRA_ISSUE" 'add_labels=["smoke-test"]' --dry-run
+  check "jira create (dry run)" "$JIRA_ISSUE" -- \
+    jira_create_issue "project=${JIRA_ISSUE%%-*}" issue_type=Task "summary=smoke test, not sent" \
+    --dry-run
 else
   printf '\n== jira\n   skipped: no [jira] table in the config\n'
   SKIPPED+=("jira (not configured)")
