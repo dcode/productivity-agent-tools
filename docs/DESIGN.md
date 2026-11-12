@@ -464,7 +464,7 @@ keeps writes behind a dry-run switch that is on by default.
 - A page read asks for `operations` and reports `can_edit` (true when `update` is among
   them, None when the server sends none). An edit of a page with `can_edit` false is
   refused before anything is sent, in dry run too, so a dry run cannot look like it would
-  have worked.
+  have worked. Confirmed on 10.2.19 against a page with no Edit link.
 - `confluence_create_page` checks the title is free in the space first (also in dry run),
   because Confluence refuses a second page with the same title, and the error then names
   the existing page's id.
