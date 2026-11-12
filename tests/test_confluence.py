@@ -19,7 +19,12 @@ from productivity_agent_tools.confluence.client import (
     to_storage,
 )
 from productivity_agent_tools.confluence.settings import ConfluenceSettings
-from productivity_agent_tools.errors import AgentToolsError, ConfigError, NotFoundError
+from productivity_agent_tools.errors import (
+    AgentToolsError,
+    ConfigError,
+    NotFoundError,
+    PermissionDeniedError,
+)
 from productivity_agent_tools.http import AtlassianClient
 from productivity_agent_tools.server import Connected, build_server
 
@@ -41,6 +46,10 @@ def _content(page_id: str, title: str, body: str, version: int = 3) -> dict[str,
         "ancestors": [{"id": "1", "title": "Pat Example Home"}, {"title": "no id"}],
         "metadata": {"labels": {"results": [{"name": "profile"}, {"prefix": "global"}]}},
         "body": {"storage": {"value": body, "representation": "storage"}},
+        "operations": [
+            {"operation": "read", "targetType": "page"},
+            {"operation": "update", "targetType": "page"},
+        ],
         "_links": {"webui": f"/pages/viewpage.action?pageId={page_id}"},
     }
 
@@ -329,6 +338,21 @@ async def test_plan_update_checks_the_version_and_combines_bodies(
     assert prepended.body == "<p>Top</p>\n<p>Hello</p>"
     renamed = await client.plan_update("100", 3, title=" About Pat ")
     assert (renamed.body, renamed.title) == ("<p>Hello</p>", "About Pat")
+
+
+async def test_a_page_the_user_may_not_edit_says_so_and_refuses_the_edit(
+    confluence: FakeConfluence, make_cf_api: Callable[..., AtlassianClient]
+) -> None:
+    live = ConfluenceClient(make_cf_api(dry_run=False), ConfluenceSettings())
+    assert (await live.get_page("100")).can_edit is True
+    confluence.pages["100"]["operations"] = [{"operation": "read", "targetType": "page"}]
+    assert (await live.get_page("100")).can_edit is False
+    with pytest.raises(PermissionDeniedError, match="do not have permission to edit page 100"):
+        await live.plan_update("100", 3, "x")
+    assert confluence.writes() == []
+    del confluence.pages["100"]["operations"]
+    assert (await live.get_page("100")).can_edit is None
+    assert (await live.plan_update("100", 3, "x")).version == 4
 
 
 async def test_plan_update_refuses_pages_too_long_to_edit_whole(

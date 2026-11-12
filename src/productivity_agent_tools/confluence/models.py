@@ -86,6 +86,12 @@ class Page(PageSummary):
         description="Pages above this one, from the space's top down to its parent."
     )
     labels: list[str] = Field(description="Labels on the page.")
+    can_edit: bool | None = Field(
+        default=None,
+        description="Whether the user may edit this page; None if the server did not say. "
+        "When False, confluence_update_page will be refused: tell the user they need edit "
+        "access from the page's owner or a space administrator.",
+    )
     body: str = Field(
         description="Body in Confluence storage format (XHTML with ac: and ri: elements)."
     )
