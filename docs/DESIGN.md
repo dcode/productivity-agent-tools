@@ -155,50 +155,59 @@ keeps writes behind a dry-run switch that is on by default.
 42. As a user, I want the server to find my Bitbucket user slug itself, and to let me set it
     under `[bitbucket]` when it cannot, so that reviews work without extra setup.
 
+### Jira and Bitbucket together
+
+43. As a user, I want the pull requests linked to a Jira issue, with their state and branches,
+    including ones linked only by branch name or title, so that the agent can tell me where
+    the work on a ticket stands.
+44. As a user, I want the Jira issues linked to a pull request to come with their summary,
+    status and assignee when Jira is configured, so that the agent does not need a second
+    call per issue.
+
 ### Diagnostics and operation
 
-43. As a user, I want `doctor` to check config, token and connection for each configured
+45. As a user, I want `doctor` to check config, token and connection for each configured
     product and report each separately, so that I can find what is wrong without an agent.
-44. As a user, I want structured logs (structlog) on stderr, readable in a terminal and JSON
+46. As a user, I want structured logs (structlog) on stderr, readable in a terminal and JSON
     otherwise, with `log_level` in the config or `--log-level`, so that the MCP protocol keeps
     stdout and an agent host's log file is parseable.
-45. As a user, I want `debug` to log each HTTP exchange (method, path, status, content type,
+47. As a user, I want `debug` to log each HTTP exchange (method, path, status, content type,
     size, duration, redirect target, cookie names, identifying headers) and never the token,
     cookie values, query values or bodies, so that I can paste debug logs safely.
-46. As a user, I want a redirect error to name its destination and say what to check, so
+48. As a user, I want a redirect error to name its destination and say what to check, so
     that I can tell a login page from a wrong path.
-47. As a user, I want a failed request whose path repeats a segment (such as `/jira/jira`) or
+49. As a user, I want a failed request whose path repeats a segment (such as `/jira/jira`) or
     contains `//` to ask whether that was intended and show the full address, without
     rejecting such paths outright, so that a legitimate shared prefix still works.
-48. As a user, I want an empty 2xx answered with an HTML content type treated as success, so
+50. As a user, I want an empty 2xx answered with an HTML content type treated as success, so
     that a Jira transition that went through is not reported as a banner page.
-49. As a user, I want `call <tool> name=value ...` to run any tool without an agent and print
+51. As a user, I want `call <tool> name=value ...` to run any tool without an agent and print
     JSON, typed from the tool's schema and obeying `dry_run`, so that I can test against real
     servers without spending model credits. With no tool name, it lists the tools.
-50. As a user, I want `call --field NAME` to print one field as written, with a diff coloured
+52. As a user, I want `call --field NAME` to print one field as written, with a diff coloured
     only when stdout is a terminal, so that a diff reads as a diff and agents and pipes stay
     plain.
-51. As a user, I want `scripts/smoke-test.sh` to run every tool once through `call`, skipping
+53. As a user, I want `scripts/smoke-test.sh` to run every tool once through `call`, skipping
     unconfigured products and unfilled `<placeholder>` values and forcing its one write into
     dry-run, so that I can confirm a release against my servers in one step.
 
 ### Agent registration
 
-52. As a user, I want `configure-agent` to add a `productivity` stdio extension to Goose's
+54. As a user, I want `configure-agent` to add a `productivity` stdio extension to Goose's
     config that starts the server by the absolute path of the command in this checkout's
     environment, so that it does not depend on Goose's working directory or `PATH`.
-53. As a user, I want `configure-agent` to keep the rest of the file and its comments, save
+55. As a user, I want `configure-agent` to keep the rest of the file and its comments, save
     `config.yaml.bak`, update in place on re-run, and preview with `--show`, so that it is
     safe to run.
 
 ### Development
 
-54. As a developer, I want product modules to depend only on an `ApiClient` protocol, so that
+56. As a developer, I want product modules to depend only on an `ApiClient` protocol, so that
     a service with different sign-in (such as Microsoft Graph) is a new adapter and the Jira
     code does not change.
-55. As a developer, I want tests to run against an in-process fake Jira, fake Bitbucket and
+57. As a developer, I want tests to run against an in-process fake Jira, fake Bitbucket and
     intercepting proxy, so that nothing in the suite contacts a real server.
-56. As a developer, I want one set of checks (ruff, rumdl, taplo, ty, pytest with coverage)
+58. As a developer, I want one set of checks (ruff, rumdl, taplo, ty, pytest with coverage)
     run by pre-commit, hatch and CI alike, so that a passing local run means a passing CI run.
 
 ## Implementation Decisions
@@ -356,6 +365,28 @@ keeps writes behind a dry-run switch that is on by default.
   every other Bitbucket timestamp is in milliseconds. Values below 10^11 are read as
   seconds.
 
+### Jira and Bitbucket together
+
+- `links.py` holds what needs both products. It is registered only when both are
+  configured, as is its paragraph of the server instructions.
+- `jira_get_issue_pull_requests` merges two sources, run concurrently. The first is Jira's
+  Development panel: `rest/dev-status/1.0/issue/detail` with the issue's numeric id,
+  `applicationType=stash` and `dataType=pullrequest`. It is undocumented and read
+  defensively, with project, repository and number taken from each entry's URL. The second
+  is Bitbucket's documented `jira/latest/issues/{key}/commits` (up to 50 commits), followed
+  by `commits/{id}/pull-requests` for up to 20 distinct commits. Pull requests are merged by
+  (project, repository, number), and `found_by` says where each came from.
+- A source that fails with this package's own error is listed under `unavailable` with the
+  reason, and the other still answers. A single commit lookup that fails, such as one in a
+  repository the user cannot read, is counted rather than failing the source. Any other
+  exception is raised, so a bug is not hidden. `more_commits` tells the agent the list may
+  be incomplete, and not to check the rest one by one, because of the model credit budget.
+- `bitbucket_get_pull_request_issues` takes an optional `describe_issues` function, which
+  `server.py` supplies when Jira is configured. It runs one JQL search,
+  `key in (...)`, over keys validated as issue keys. If Jira refuses the search (one
+  missing key fails the whole query), the keys are returned without details and
+  `details_note` says why.
+
 ### Logging
 
 - structlog on stderr, always. Output is readable lines in a terminal and JSON lines
@@ -396,6 +427,9 @@ keeps writes behind a dry-run switch that is on by default.
 
 Designed for but deferred. [ROADMAP.md](ROADMAP.md) has the ordered backlog and status.
 
+- **Writing links between the products:** for example a remote link from an issue to a
+  pull request. Bitbucket and Jira link them by key automatically, so this waits for a
+  need.
 - **Confluence:** a third Atlassian product module behind the same adapter. It sits on the
   same host and sub-path pattern as Jira and Bitbucket.
 - **Custom Jira fields:** reading and setting `customfield_*` values (such as story points or
@@ -413,7 +447,7 @@ Designed for but deferred. [ROADMAP.md](ROADMAP.md) has the ordered backlog and 
 - Automated tests run against in-process fakes of Jira and Bitbucket and an intercepting
   proxy that serves a banner page until a cookie is present. Nothing in the suite contacts a
   real server.
-- The coverage floor is 90% (branch coverage). The suite is currently at about 99.9% (262
+- The coverage floor is 90% (branch coverage). The suite is currently at about 99.9% (271
   tests).
 - The live servers cannot be reached from development or CI, so verification against them is
   manual. The user runs `doctor`, `call`, or `scripts/smoke-test.sh` on the work laptop and
@@ -428,7 +462,8 @@ Designed for but deferred. [ROADMAP.md](ROADMAP.md) has the ordered backlog and 
   503), every tool added for merge status, activity, tasks, linked issues, commit
   builds, required builds and deployments, and the Bitbucket writes (including the
   `applinks/whoami` lookup through a bearer token), the Jira worklog and assign tools, and
-  the Jira field, create, transition-resolution and link tools.
+  the Jira field, create, transition-resolution and link tools, and the Jira and Bitbucket
+  join (`rest/dev-status` in particular).
 - Prior art: none before this project. These tests establish the repo's convention.
 
 ## Out of Scope

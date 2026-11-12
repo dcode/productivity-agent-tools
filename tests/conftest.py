@@ -15,6 +15,7 @@ from productivity_agent_tools.jira.client import JiraClient
 BANNER_HTML = "<html><body><button>I accept the terms of use</button></body></html>"
 
 ISSUE: dict[str, Any] = {
+    "id": "10001",
     "key": "ABC-1",
     "fields": {
         "summary": "Fix the thing",
@@ -189,6 +190,31 @@ LINK_TYPES: dict[str, Any] = {
 }
 
 
+DEV_STATUS: dict[str, Any] = {
+    "errors": [],
+    "detail": [
+        {
+            "pullRequests": [
+                {
+                    "id": "#42",
+                    "name": "ABC-1 retry uploads",
+                    "status": "OPEN",
+                    "url": "https://host.example/bitbucket/projects/OPS/repos/uploader/pull-requests/42",
+                    "author": {"name": "Sam Author"},
+                    "source": {"branch": "feature/ABC-1"},
+                    "destination": {"branch": "main"},
+                    "repositoryName": "uploader",
+                },
+                {"id": "#7", "name": "Elsewhere", "status": "MERGED", "repositoryName": "other"},
+                {"id": "x", "name": "No number"},
+            ],
+            "branches": [],
+        },
+        "junk",
+    ],
+}
+
+
 class FakeJira:
     """Records requests and answers like the proxy plus Jira would."""
 
@@ -242,6 +268,9 @@ class FakeJira:
             return httpx.Response(200, json=BUG_FIELDS if path.endswith("/1") else CREATE_FIELDS)
         if path == "/jira/rest/api/2/issue" and request.method == "POST":
             return httpx.Response(201, json={"id": "10002", "key": "ABC-2"})
+        if path == "/jira/rest/dev-status/1.0/issue/detail":
+            assert request.url.params["issueId"] == "10001"
+            return httpx.Response(200, json=DEV_STATUS)
         if path == "/jira/rest/api/2/issueLinkType":
             return httpx.Response(200, json=LINK_TYPES)
         if path == "/jira/rest/api/2/issueLink" and request.method == "POST":

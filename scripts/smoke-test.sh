@@ -186,6 +186,12 @@ else
   SKIPPED+=("bitbucket (not configured)")
 fi
 
+# ---- Jira and Bitbucket together (only if both are configured) ---------------
+
+if offers jira_get_issue_pull_requests; then
+  check "issue pull requests" "$JIRA_ISSUE" -- jira_get_issue_pull_requests "key=$JIRA_ISSUE"
+fi
+
 # ---- Summary ----------------------------------------------------------------
 
 printf '\n== summary\n'

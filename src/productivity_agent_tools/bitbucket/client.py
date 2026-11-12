@@ -21,6 +21,7 @@ from productivity_agent_tools.bitbucket.models import (
     DefaultProject,
     Deployment,
     DeploymentEnvironment,
+    IssueCommit,
     LinkedIssue,
     MergeStatus,
     MergeVeto,
@@ -65,6 +66,7 @@ MAX_LINES_PER_HIT: int = 12
 _HIGHLIGHT = re.compile(r"</?em>")
 _NAME = re.compile(r"^~?[A-Za-z0-9_][A-Za-z0-9_.\-]*$")
 _COMMIT = re.compile(r"^[0-9a-fA-F]{4,64}$")
+_ISSUE_KEY = re.compile(r"^[A-Z][A-Z0-9_]*-[1-9][0-9]*$")
 # A deployment's lastUpdated is documented with a seconds-sized example, unlike
 # every other Bitbucket timestamp; values below this are read as seconds.
 _SECONDS_CUTOFF: int = 100_000_000_000
@@ -1339,3 +1341,75 @@ class BitbucketClient:
             "PUT", f"{base}/participants/{quote(slug or '', safe='')}", {"status": status}
         )
         return status, outcome
+
+    async def issue_commits(
+        self, issue_key: str, max_results: int | None = None
+    ) -> tuple[list[IssueCommit], bool]:
+        """List commits, in any repository, whose messages mention a Jira issue key.
+
+        This uses Bitbucket's Jira integration, which needs the application
+        link to Jira.
+
+        Args:
+            issue_key: Jira issue key, such as ABC-123.
+            max_results: Row cap; defaults to the configured value, limited to 100.
+
+        Returns:
+            The commits, and whether the server has more.
+
+        Raises:
+            AtlassianError: If the key is invalid, Bitbucket is not linked to Jira, or
+                the request fails.
+        """
+        key = issue_key.strip().upper()
+        if not _ISSUE_KEY.fullmatch(key):
+            raise AtlassianError(f"'{issue_key}' is not a valid issue key.")
+        try:
+            items, more = await self._page(
+                f"{self._jira}/issues/{key}/commits",
+                {"limit": self._limit(max_results), "maxChanges": 0},
+                "issue commits",
+            )
+        except NotFoundError as exc:
+            raise AtlassianError(
+                "Bitbucket could not list commits for a Jira issue. It is probably not "
+                "linked to Jira."
+            ) from exc
+        commits = [
+            IssueCommit(
+                project=text(item, "repository", "project", "key") or "",
+                repository=text(item, "repository", "slug") or "",
+                id=text(item, "toCommit", "id") or "",
+                short_id=text(item, "toCommit", "displayId"),
+                author=text(item, "toCommit", "author", "displayName")
+                or text(item, "toCommit", "author", "name"),
+                authored=_timestamp(item.get("toCommit"), "authorTimestamp"),
+                message=text(item, "toCommit", "message") or "",
+            )
+            for item in items
+        ]
+        return [c for c in commits if c.project and c.repository and c.id], more
+
+    async def commit_pull_requests(
+        self, project: str, repository: str, commit_id: str
+    ) -> list[PullRequestSummary]:
+        """List the pull requests in a repository that contain a commit.
+
+        Args:
+            project: Project key.
+            repository: Repository slug.
+            commit_id: Commit hash.
+
+        Returns:
+            The pull requests.
+
+        Raises:
+            AtlassianError: If a part is invalid or the request fails.
+        """
+        key, slug = self._repo(project, repository)
+        items, _ = await self._page(
+            f"{self._api}/projects/{key}/repos/{slug}/commits/{_commit(commit_id)}/pull-requests",
+            {"limit": MAX_RESULTS_LIMIT},
+            "pull request list",
+        )
+        return [PullRequestSummary.model_validate(self._summary_fields(item)) for item in items]

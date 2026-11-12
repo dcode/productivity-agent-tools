@@ -215,6 +215,31 @@ ISSUES: list[Any] = [
 ]
 
 
+ISSUE_COMMITS: list[dict[str, Any]] = [
+    {
+        "repository": {"slug": "uploader", "project": {"key": "OPS"}},
+        "toCommit": {
+            "id": "abc123def456",
+            "displayId": "abc123d",
+            "author": {"name": "sauthor"},
+            "authorTimestamp": 1794300000000,
+            "message": "ABC-1 retry",
+        },
+    },
+    {
+        "repository": {"slug": "uploader", "project": {"key": "OPS"}},
+        "toCommit": {"id": "def789"},
+    },
+    {"repository": {"slug": "uploader", "project": {"key": "OPS"}}, "toCommit": {}},
+]
+OTHER_PULL: dict[str, Any] = {
+    **PULL,
+    "id": 43,
+    "title": "Backport retry",
+    "links": {},
+}
+
+
 class FakeBitbucket:
     """Answers the Bitbucket endpoints the client uses."""
 
@@ -237,6 +262,9 @@ class FakeBitbucket:
         self.issues: httpx.Response = httpx.Response(200, json=ISSUES)
         self.whoami: httpx.Response = httpx.Response(200, text="pat.example@corp\n")
         self.review: httpx.Response | None = None
+        self.issue_commits: httpx.Response = httpx.Response(
+            200, json={"values": ISSUE_COMMITS, "isLastPage": False}
+        )
 
     def handler(self, request: httpx.Request) -> httpx.Response:
         self.requests.append(request)
@@ -295,6 +323,12 @@ class FakeBitbucket:
             == "/bitbucket/rest/jira/latest/projects/OPS/repos/uploader/pull-requests/42/issues"
         ):
             return self.issues
+        if path == "/bitbucket/rest/jira/latest/issues/ABC-1/commits":
+            return self.issue_commits
+        if path == f"{API}/projects/OPS/repos/uploader/commits/abc123def456/pull-requests":
+            return httpx.Response(200, json={"values": [PULL], "isLastPage": True})
+        if path == f"{API}/projects/OPS/repos/uploader/commits/def789/pull-requests":
+            return httpx.Response(200, json={"values": [PULL, OTHER_PULL], "isLastPage": True})
         if path == "/bitbucket/rest/build-status/1.0/commits/abc123":
             return self.builds
         if path == "/bitbucket/rest/build-status/1.0/commits/stats/abc123":

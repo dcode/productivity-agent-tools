@@ -4,6 +4,8 @@ Only bitbucket_add_pull_request_comment and bitbucket_review_pull_request change
 anything in Bitbucket, and dry-run blocks both.
 """
 
+from collections.abc import Awaitable, Callable
+
 from mcp.server.mcpserver import MCPServer
 from mcp.types import ToolAnnotations
 
@@ -18,6 +20,7 @@ from productivity_agent_tools.bitbucket.models import (
     CommitBuilds,
     DefaultProject,
     Deployment,
+    LinkedIssue,
     MergeStatus,
     ProjectList,
     PullRequestActivity,
@@ -33,6 +36,7 @@ from productivity_agent_tools.bitbucket.models import (
     RepositoryPullRequests,
     RequiredBuildList,
 )
+from productivity_agent_tools.errors import AtlassianError
 from productivity_agent_tools.repeats import RepeatGuard
 from productivity_agent_tools.tooling import IDEMPOTENT_WRITE, READ, WRITE, anticipated
 from productivity_agent_tools.writes import once, report
@@ -54,6 +58,7 @@ def register_bitbucket_tools(
     token_source: str,
     cookie_names: list[str],
     repeats: RepeatGuard[PullRequestWriteResult] | None = None,
+    describe_issues: Callable[[list[str]], Awaitable[dict[str, LinkedIssue]]] | None = None,
 ) -> None:
     """Register every Bitbucket tool on an MCP server.
 
@@ -63,6 +68,7 @@ def register_bitbucket_tools(
         token_source: Description of where the access token came from.
         cookie_names: Names of the extra cookies sent to Bitbucket.
         repeats: Guard against identical repeated writes; a default one is made when None.
+        describe_issues: Looks up Jira issues by key, when Jira is configured too.
     """
     guard = repeats if repeats is not None else RepeatGuard[PullRequestWriteResult]()
 
@@ -349,14 +355,31 @@ def register_bitbucket_tools(
     ) -> PullRequestIssues:
         """List the Jira issue keys a pull request is linked to through its commits and title.
 
-        The keys work with the jira_ tools, such as jira_get_issue.
+        When Jira is configured too, each issue's summary, status and assignee are
+        included. The keys work with the jira_ tools, such as jira_get_issue.
 
         Args:
             repository: Repository slug, such as my-service.
             pull_request_id: Pull request number within the repository.
             project: Project key; leave out to use the default project.
         """
-        return await bitbucket.get_pull_request_issues(repository, pull_request_id, project)
+        found = await bitbucket.get_pull_request_issues(repository, pull_request_id, project)
+        if describe_issues is None or not found.issues:
+            return found
+        try:
+            details = await describe_issues([issue.key for issue in found.issues])
+        except AtlassianError as exc:
+            return found.model_copy(update={"details_note": f"Jira did not describe them: {exc}"})
+        return found.model_copy(
+            update={
+                "issues": [
+                    issue.model_copy(update=details[issue.key].model_dump(exclude={"key", "url"}))
+                    if issue.key in details
+                    else issue
+                    for issue in found.issues
+                ]
+            }
+        )
 
     @server.tool(annotations=READ)
     @anticipated
