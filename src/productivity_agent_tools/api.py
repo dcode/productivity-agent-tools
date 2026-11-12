@@ -8,10 +8,14 @@ sign-in. The safety switch lives in the interface so that no adapter can
 forget it: ``write`` must send nothing while ``dry_run`` is on.
 """
 
+from contextlib import AbstractAsyncContextManager
 from dataclasses import dataclass
 from typing import Protocol
 
+import httpx
 from pydantic import JsonValue
+
+from productivity_agent_tools.config import Connection
 
 
 @dataclass(frozen=True, slots=True)
@@ -101,4 +105,32 @@ class ApiClient(Protocol):
 
     async def aclose(self) -> None:
         """Release the adapter's connections."""
+        ...
+
+
+class Adapter(Protocol):
+    """Opens an ``ApiClient`` for one product's connection; each product names its own.
+
+    ``AtlassianClient.from_connection`` is the one for Atlassian Data Center.
+    """
+
+    def __call__(
+        self,
+        connection: Connection,
+        token: str,
+        *,
+        dry_run: bool = True,
+        transport: httpx.AsyncBaseTransport | None = None,
+    ) -> AbstractAsyncContextManager[ApiClient]:
+        """Create the adapter, to be entered as an async context manager.
+
+        Args:
+            connection: Where and how to reach the product.
+            token: The product's access token.
+            dry_run: When True, writes are described but never sent.
+            transport: Replacement HTTP transport, used by tests.
+
+        Returns:
+            The adapter, open while its context is entered.
+        """
         ...

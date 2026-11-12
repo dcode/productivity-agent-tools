@@ -5,6 +5,7 @@ from collections.abc import AsyncIterator
 from productivity_agent_tools.bitbucket.client import BitbucketClient
 from productivity_agent_tools.bitbucket.settings import BitbucketSettings, parse_bitbucket_settings
 from productivity_agent_tools.bitbucket.tools import register_bitbucket_tools
+from productivity_agent_tools.http import AtlassianClient
 from productivity_agent_tools.products import Product
 
 INSTRUCTIONS: str = (
@@ -43,6 +44,7 @@ PRODUCT: Product[BitbucketSettings, BitbucketClient] = Product(
     title="Bitbucket",
     instructions=INSTRUCTIONS,
     settings_type=BitbucketSettings,
+    adapter=AtlassianClient.from_connection,
     parse_settings=parse_bitbucket_settings,
     make_client=BitbucketClient,
     register_tools=register_bitbucket_tools,
