@@ -22,8 +22,9 @@ Last updated: 2026-11-12.
   - [#6](https://github.com/dcode/productivity-agent-tools/pull/6): Jira standard fields
   - [#7](https://github.com/dcode/productivity-agent-tools/pull/7): Jira and Bitbucket
     together
-- **In progress:** products as entry-point plugins, then neutral names for the shared
-  error and adapter classes (branch `claude/beautiful-hamilton-k4u2un`). Restructuring
+- **In review:** [#8](https://github.com/dcode/productivity-agent-tools/pull/8), products
+  as entry-point plugins, `AgentToolsError`, a per-product adapter (branch
+  `claude/beautiful-hamilton-k4u2un`). Restructuring
   only; no tool or config-format changes except that an unknown product table is now an
   error.
 - **Tests:** 281 passing, about 99.9% branch coverage. All hooks clean.
