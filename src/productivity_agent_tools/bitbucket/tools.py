@@ -385,65 +385,67 @@ def register_bitbucket_tools(
             }
         )
 
-    @server.tool(annotations=READ)
-    @anticipated
-    async def bitbucket_get_commit_builds(
-        commit_id: str, max_results: int | None = None
-    ) -> CommitBuilds:
-        """Get every CI build result reported for a commit, with totals by state.
+    if bitbucket.settings.ci:
 
-        For a pull request, bitbucket_get_pull_request already shows the builds
-        of its latest commit; use this for any other commit, or for test counts
-        and descriptions when there are many builds. Builds are stored per
-        commit, so no project or repository is needed.
+        @server.tool(annotations=READ)
+        @anticipated
+        async def bitbucket_get_commit_builds(
+            commit_id: str, max_results: int | None = None
+        ) -> CommitBuilds:
+            """Get every CI build result reported for a commit, with totals by state.
 
-        Args:
-            commit_id: Commit hash, full or abbreviated.
-            max_results: Maximum builds to return (default from config, at most 100).
-        """
-        return await bitbucket.get_commit_builds(commit_id, max_results)
+            For a pull request, bitbucket_get_pull_request already shows the builds
+            of its latest commit; use this for any other commit, or for test counts
+            and descriptions when there are many builds. Builds are stored per
+            commit, so no project or repository is needed.
 
-    @server.tool(annotations=READ)
-    @anticipated
-    async def bitbucket_list_required_builds(
-        repository: str, project: str | None = None, max_results: int | None = None
-    ) -> RequiredBuildList:
-        """List which builds must pass before a pull request into a repository can merge.
+            Args:
+                commit_id: Commit hash, full or abbreviated.
+                max_results: Maximum builds to return (default from config, at most 100).
+            """
+            return await bitbucket.get_commit_builds(commit_id, max_results)
 
-        Args:
-            repository: Repository slug, such as my-service.
-            project: Project key; leave out to use the default project.
-            max_results: Maximum rows to return (default from config, at most 100).
-        """
-        return await bitbucket.list_required_builds(repository, project, max_results)
+        @server.tool(annotations=READ)
+        @anticipated
+        async def bitbucket_list_required_builds(
+            repository: str, project: str | None = None, max_results: int | None = None
+        ) -> RequiredBuildList:
+            """List which builds must pass before a pull request into a repository can merge.
 
-    @server.tool(annotations=READ)
-    @anticipated
-    async def bitbucket_get_deployment(
-        repository: str,
-        commit_id: str,
-        deployment_key: str,
-        environment_key: str,
-        sequence_number: int,
-        project: str | None = None,
-    ) -> Deployment:
-        """Get the state of one deployment that a CI or CD server reported for a commit.
+            Args:
+                repository: Repository slug, such as my-service.
+                project: Project key; leave out to use the default project.
+                max_results: Maximum rows to return (default from config, at most 100).
+            """
+            return await bitbucket.list_required_builds(repository, project, max_results)
 
-        Bitbucket cannot list deployments: all three identifiers (deployment
-        key, environment key and sequence number) must come from the user or
-        from the CI or CD server. Do not guess them.
+        @server.tool(annotations=READ)
+        @anticipated
+        async def bitbucket_get_deployment(
+            repository: str,
+            commit_id: str,
+            deployment_key: str,
+            environment_key: str,
+            sequence_number: int,
+            project: str | None = None,
+        ) -> Deployment:
+            """Get the state of one deployment that a CI or CD server reported for a commit.
 
-        Args:
-            repository: Repository slug, such as my-service.
-            commit_id: Commit hash the deployment delivered.
-            deployment_key: Deployment key, as the CI or CD server reported it.
-            environment_key: Environment key, such as production.
-            sequence_number: Run number of the deployment.
-            project: Project key; leave out to use the default project.
-        """
-        return await bitbucket.get_deployment(
-            repository, commit_id, deployment_key, environment_key, sequence_number, project
-        )
+            Bitbucket cannot list deployments: all three identifiers (deployment
+            key, environment key and sequence number) must come from the user or
+            from the CI or CD server. Do not guess them.
+
+            Args:
+                repository: Repository slug, such as my-service.
+                commit_id: Commit hash the deployment delivered.
+                deployment_key: Deployment key, as the CI or CD server reported it.
+                environment_key: Environment key, such as production.
+                sequence_number: Run number of the deployment.
+                project: Project key; leave out to use the default project.
+            """
+            return await bitbucket.get_deployment(
+                repository, commit_id, deployment_key, environment_key, sequence_number, project
+            )
 
     @server.tool(annotations=WRITE)
     @anticipated

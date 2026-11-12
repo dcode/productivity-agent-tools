@@ -1082,6 +1082,37 @@ async def test_user_slug_falls_back_to_the_username_header(
     assert unknown.username is None
 
 
+async def test_a_username_already_seen_skips_the_whoami_servlet(
+    bitbucket: FakeBitbucket, make_api: Callable[..., AtlassianClient]
+) -> None:
+    api = make_api()
+    api.username = "pat.example@corp"
+    assert await BitbucketClient(api, BitbucketSettings()).user_slug() == "pat.example_corp"
+    (lookup,) = bitbucket.requests
+    assert lookup.url.path.endswith("/users/pat.example@corp")
+
+
+async def test_ci_false_hides_build_and_deployment_tools_and_skips_build_reads(
+    bitbucket: FakeBitbucket, make_api: Callable[..., AtlassianClient]
+) -> None:
+    settings = _settings(ci=False)
+    server = build_server(settings, {"bitbucket": Connected(make_api())})
+    names = {t.name for t in await server.list_tools()}
+    assert "bitbucket_get_pull_request" in names
+    assert not names & {
+        "bitbucket_get_commit_builds",
+        "bitbucket_list_required_builds",
+        "bitbucket_get_deployment",
+    }
+    detail = await BitbucketClient(make_api(), BitbucketSettings(ci=False)).get_pull_request(
+        "uploader", 42, "OPS"
+    )
+    assert (detail.builds, detail.builds_available) == ([], False)
+    assert not any("build-status" in r.url.path for r in bitbucket.requests)
+    with pytest.raises(ConfigError, match="'ci' must be true/false"):
+        _settings(ci="no")
+
+
 async def test_activity_reads_comments_pushes_and_reviews(
     bitbucket: FakeBitbucket, client: BitbucketClient
 ) -> None:
