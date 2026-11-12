@@ -22,11 +22,10 @@ Last updated: 2026-11-12.
   - [#6](https://github.com/dcode/productivity-agent-tools/pull/6): Jira standard fields
   - [#7](https://github.com/dcode/productivity-agent-tools/pull/7): Jira and Bitbucket
     together
-- **In review:** [#8](https://github.com/dcode/productivity-agent-tools/pull/8), products
-  as entry-point plugins, `AgentToolsError`, a per-product adapter (branch
-  `claude/beautiful-hamilton-k4u2un`). Restructuring
-  only; no tool or config-format changes except that an unknown product table is now an
-  error.
+  - [#8](https://github.com/dcode/productivity-agent-tools/pull/8): products as
+    entry-point plugins, `AgentToolsError`, a per-product adapter. Run `uv sync` after
+    pulling so the entry points are installed. An unknown product table is now an error.
+- **In review:** nothing.
 - **Tests:** 281 passing, about 99.9% branch coverage. All hooks clean.
 - **In use:** Goose on the work laptop, against Jira 11.3 and Bitbucket 10.2.8.
 
