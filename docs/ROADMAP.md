@@ -28,8 +28,17 @@ Last updated: 2026-11-12.
 - **In progress:** Confluence reads, search, page creation and editing (branch
   `claude/beautiful-hamilton-k4u2un`), for a management request to publish an "About me"
   page. Not yet run against the real Confluence; see the checks below.
-- **Tests:** 307 passing, about 99.9% branch coverage. All hooks clean.
-- **In use:** Goose on the work laptop, against Jira 11.3 and Bitbucket 10.2.8.
+- **Tests:** 309 passing, about 99.9% branch coverage. All hooks clean.
+- **In use:** Goose on the work laptop, against Jira 11.3.12 and Bitbucket 10.2.8. No CI
+  server (Bamboo or other) reports builds or deployments to this Bitbucket.
+- **Last smoke run:** build `v0.1.0-9-g31880f4` (before Confluence), 2026-11-12. 30 calls
+  answered, 3 failed; all three are fixed on this branch and need a re-run:
+  - merge status of an already merged pull request was an HTTP 409 error; it is now a
+    `note` on the result
+  - `applinks/whoami` answers nothing for a bearer token, so `user_slug` was null and the
+    dry-run review failed; the server now falls back to the `X-AUSERNAME` response header
+  - the dry-run create used issue type `Task`, which the project lacks; the script now has
+    `JIRA_ISSUE_TYPE`
 
 ## Done
 
@@ -73,20 +82,22 @@ chance comes up and tick it here.
       compare the result with the browser
 - [ ] Bitbucket pull-request comments: run `call bitbucket_get_pull_request` on a pull
       request that has comments
-- [ ] Bitbucket build results, on a pull request whose commits have a CI build
+- [ ] ~~Bitbucket build results~~: cannot be checked here, no CI server reports builds
 - [ ] A moved or renamed file in `bitbucket_get_pull_request_changes`
 - [ ] `bitbucket_search_code`, once the server's search index stops returning 503
 - [ ] `call --field` colouring, viewed in a real terminal
 - [ ] The new Bitbucket reads, through `scripts/smoke-test.sh` (fill in the new placeholders):
-  - [ ] `bitbucket_get_pull_request_merge_status` on a pull request blocked by a check
-  - [ ] `bitbucket_get_pull_request_activity`: check that REVIEWED is shown for needs-work
-  - [ ] `bitbucket_list_pull_request_tasks` with `state=all` on a pull request with tasks
-  - [ ] `bitbucket_get_pull_request_issues` (needs the Bitbucket-to-Jira application link)
-  - [ ] `bitbucket_get_commit_builds`: that the deprecated `build-status` resource still
-        answers on 10.2.8, and which of the newer fields (tests, duration) it sends
-  - [ ] `bitbucket_list_required_builds`
-  - [ ] `bitbucket_get_deployment`, if the CI/CD server reports deployments; also check that
-        `updated` is a sensible date (seconds vs milliseconds, see DESIGN.md)
+  - [ ] `bitbucket_get_pull_request_merge_status` on an **open** pull request blocked by a
+        check (the smoke run used a merged one; re-run to see the new `note`)
+  - [ ] `bitbucket_get_pull_request_activity`: answers (OPENED and MERGED seen); still
+        check that REVIEWED is shown for needs-work
+  - [ ] `bitbucket_list_pull_request_tasks`: answers, but only seen empty; try a pull
+        request with tasks
+  - [ ] `bitbucket_get_pull_request_issues`: answers, but only seen empty; try a pull
+        request whose commits or title name an issue key
+  - [x] `bitbucket_list_required_builds` answers on 10.2.8 (none configured)
+  - [ ] ~~`bitbucket_get_commit_builds` and `bitbucket_get_deployment`~~: cannot be
+        checked here, no CI server reports to this Bitbucket
 - [ ] Jira log work and assign:
   - [ ] `jira_list_worklogs` on an issue with time logged, compared with the browser
   - [ ] One real `jira_log_work` with a comment and a `started` time: check the time zone
@@ -97,22 +108,25 @@ chance comes up and tick it here.
 - [ ] Jira standard fields:
   - [ ] `jira_get_issue` on an issue with links, components, fix versions and time tracking,
         compared with the browser
-  - [ ] `jira_get_edit_fields` and `jira_get_create_fields` on the projects in daily use
-        (which fields are on the screens, and whether createmeta answers on 11.3)
+  - [x] `jira_get_edit_fields` and `jira_get_create_fields` answer on 11.3.12 (createmeta
+        works), and a wrong issue type is refused with the project's own list
   - [ ] One real `jira_edit_issue` (a label and the priority) and one real
         `jira_create_issue` in a test project
   - [ ] One real `jira_link_issues` with "blocks": **confirm the direction** in the browser
         (the first issue should say "blocks", the second "is blocked by")
   - [ ] `jira_transition_issue` with a resolution, on a workflow whose Done screen has one
 - [ ] Jira and Bitbucket together:
-  - [ ] `jira_get_issue_pull_requests` on an issue with a pull request linked only by branch
-        name: both sources listed under `sources`, and the pull request found by the panel.
-        If `rest/dev-status` fails, paste the error (its shape is undocumented).
+  - [ ] `jira_get_issue_pull_requests`: both sources answer on the real servers
+        (`rest/dev-status` works), but only seen with no pull requests. Try an issue that
+        has one, ideally linked only by branch name, and check the panel finds it.
   - [ ] `bitbucket_get_pull_request_issues` shows summaries and statuses
 - [ ] Bitbucket writes:
-  - [ ] `bitbucket_status` shows your `user_slug` (the `applinks/whoami` servlet accepts a
-        bearer token and gets past the banner proxy); if not, set `user_slug` and note it
-  - [ ] The smoke test's two dry-run writes show the request they would send
+  - [ ] `bitbucket_status` shows your `user_slug`. `applinks/whoami` does **not** accept a
+        bearer token on 10.2.8; the `X-AUSERNAME` header fallback is untested on the real
+        server. If it is still null, run `call bitbucket_status --log-level debug`, look
+        for `x_ausername` in the log, and set `user_slug` under `[bitbucket]` meanwhile.
+  - [x] The dry-run comment shows the request it would send
+  - [ ] The dry-run review does too (needs `user_slug`, above)
   - [ ] One real comment and one real approve and unapprove on a test pull request, with
         `--no-dry-run`, compared in the browser
 - [ ] Confluence (fill in `CONFLUENCE_SPACE` and `CONFLUENCE_PAGE` in the smoke test first):
@@ -136,10 +150,8 @@ Rough order. Each item is one pull request. API references: the Jira 11.0.2 and 
 10.5 OpenAPI specs (`https://dac-static.atlassian.com/server/jira/platform/jira_software_dc_11002_swagger.v3.json`,
 `https://dac-static.atlassian.com/server/bitbucket/10.5.swagger.v3.json`).
 
-1. **Deployment listing** (being done by hand on the work laptop): Bitbucket's public API cannot list
-   deployments, but its commit page shows them, so the page uses some internal endpoint.
-   Find it with the browser's network tab on the work laptop and decide whether to use it
-   (as code search does) for a `bitbucket_list_deployments`.
+1. **Confirm Confluence and publish the "About me" page** (see the Confluence checks
+   above), then open the pull request for this branch.
 
 ## Later
 
@@ -167,4 +179,8 @@ Rough order. Each item is one pull request. API references: the Jira 11.0.2 and 
 
 ## Open questions
 
-- None outstanding. Add any that come up here, rather than leaving them in chat.
+- **Deployment listing is parked.** With no CI server reporting to Bitbucket there is
+  nothing to list or to find the internal endpoint with. Should the build and deployment
+  tools stay registered on a server that will never have data for them?
+- `scripts/smoke-test.sh` on `main` now holds a real issue key, project key and repository
+  slug. Fine for a private repository; if it is public, move them to an untracked file.

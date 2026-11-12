@@ -336,6 +336,11 @@ class MergeStatus(BaseModel):
         default_factory=list,
         description="Merge checks blocking the merge (approvals, builds, tasks and so on).",
     )
+    note: str | None = Field(
+        default=None,
+        description="Why there is no merge status to give, such as the pull request "
+        "already being merged or declined.",
+    )
 
 
 class Activity(BaseModel):

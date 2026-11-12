@@ -172,6 +172,7 @@ class RecordingApi:
 
     base_url = "https://other.example"
     dry_run = True
+    username: str | None = None
 
     def __init__(self) -> None:
         self.reads: list[str] = []
