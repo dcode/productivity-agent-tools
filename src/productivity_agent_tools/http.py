@@ -14,6 +14,7 @@ from collections.abc import Mapping
 from pathlib import Path
 from types import TracebackType
 from typing import Self
+from urllib.parse import unquote
 
 import httpx
 import structlog
@@ -42,6 +43,7 @@ _DIAGNOSTIC_HEADERS: tuple[str, ...] = (
     "www-authenticate",
     "x-seraph-loginreason",
     "x-arequestid",
+    "x-ausername",
 )
 
 
@@ -226,6 +228,7 @@ class AtlassianClient:
         """
         self.base_url = base_url.rstrip("/")
         self.dry_run = dry_run
+        self.username: str | None = None
         self.cookie_names: tuple[str, ...] = tuple(cookies or {})
         headers = {"Authorization": f"Bearer {token}", "Accept": "application/json"}
         if cookies:
@@ -423,6 +426,10 @@ class AtlassianClient:
         finally:
             self._http.cookies.clear()
         _log.debug("http_response", **_response_event(response, time.perf_counter() - started))
+        # Atlassian products name the signed-in user on every authenticated response.
+        signed_in = unquote(response.headers.get("x-ausername", "")).strip()
+        if signed_in and signed_in != "anonymous":
+            self.username = signed_in
         try:
             return self._interpret(response, as_text=as_text)
         except AgentToolsError as exc:

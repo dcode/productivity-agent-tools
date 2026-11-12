@@ -262,6 +262,7 @@ class FakeBitbucket:
         )
         self.issues: httpx.Response = httpx.Response(200, json=ISSUES)
         self.whoami: httpx.Response = httpx.Response(200, text="pat.example@corp\n")
+        self.merge: httpx.Response = httpx.Response(200, json=MERGE)
         self.review: httpx.Response | None = None
         self.issue_commits: httpx.Response = httpx.Response(
             200, json={"values": ISSUE_COMMITS, "isLastPage": False}
@@ -308,7 +309,7 @@ class FakeBitbucket:
                 return httpx.Response(200, json={"values": HISTORY, "isLastPage": True})
             return httpx.Response(200, json=ACTIVITIES)
         if path == f"{base}/merge":
-            return httpx.Response(200, json=MERGE)
+            return self.merge
         if path == f"{base}/blocker-comments":
             if request.method == "POST":
                 return httpx.Response(201, json={"id": 77, "severity": "BLOCKER"})
@@ -1048,6 +1049,37 @@ async def test_merge_status_lists_what_blocks_the_merge(client: BitbucketClient)
         ("Needs 2 approvals", "1 of 2 reviewers approved."),
         ("Blocked by a merge check.", None),
     ]
+
+
+async def test_merge_status_of_a_merged_pull_request_is_a_note_not_an_error(
+    bitbucket: FakeBitbucket, client: BitbucketClient
+) -> None:
+    merged = {"errors": [{"message": "This pull request has already been merged."}]}
+    bitbucket.merge = httpx.Response(409, json=merged)
+    status = await client.get_merge_status("uploader", 42, "OPS")
+    assert (status.can_merge, status.conflicted, status.vetoes) == (False, False, [])
+    assert status.note == (
+        "The server returned HTTP 409. (This pull request has already been merged.)"
+    )
+    bitbucket.merge = httpx.Response(500, json={})
+    with pytest.raises(AgentToolsError, match="HTTP 500"):
+        await client.get_merge_status("uploader", 42, "OPS")
+
+
+async def test_user_slug_falls_back_to_the_username_header(
+    bitbucket: FakeBitbucket, make_api: Callable[..., AtlassianClient]
+) -> None:
+    # The whoami servlet ignores bearer tokens on Bitbucket 10.2 and answers nothing.
+    bitbucket.whoami = httpx.Response(200, text="", headers={"X-AUSERNAME": "pat.example%40corp"})
+    api = make_api()
+    assert api.username is None
+    assert await BitbucketClient(api, BitbucketSettings()).user_slug() == "pat.example_corp"
+    assert api.username == "pat.example@corp"
+
+    bitbucket.whoami = httpx.Response(200, text="", headers={"X-AUSERNAME": "anonymous"})
+    unknown = make_api()
+    assert await BitbucketClient(unknown, BitbucketSettings()).user_slug(False) is None
+    assert unknown.username is None
 
 
 async def test_activity_reads_comments_pushes_and_reviews(

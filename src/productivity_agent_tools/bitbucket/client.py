@@ -3,6 +3,7 @@
 import html
 import re
 from datetime import UTC, datetime
+from http import HTTPStatus
 from urllib.parse import quote
 
 from pydantic import JsonValue
@@ -436,8 +437,10 @@ class BitbucketClient:
         """Find the signed-in user's slug, asking Bitbucket once per server run.
 
         Bitbucket's REST API 1.0 has no "who am I" resource, so this reads the
-        user name from the ``applinks/whoami`` servlet and looks up its slug.
-        ``user_slug`` under ``[bitbucket]`` skips both requests.
+        user name from the ``applinks/whoami`` servlet or, when that answers
+        nothing (it ignores bearer tokens on some versions), from the
+        ``X-AUSERNAME`` header Bitbucket puts on its responses. It then looks
+        up the name's slug. ``user_slug`` under ``[bitbucket]`` skips all of this.
 
         Args:
             required: Raise when the user cannot be found, instead of returning None.
@@ -454,7 +457,7 @@ class BitbucketClient:
                     await self._core.get_text(
                         f"{self._settings.path}/plugins/servlet/applinks/whoami"
                     )
-                ).strip()
+                ).strip() or self._core.username
                 if name:
                     found = await self._core.get(f"{self._api}/users/{quote(name, safe='')}")
                     self._user_slug = text(found, "slug") or name
@@ -1144,7 +1147,13 @@ class BitbucketClient:
             AgentToolsError: If a parameter is invalid or the request fails.
         """
         base = self._pull_path(project, repository, pull_request_id)
-        body = as_object(await self._core.get(f"{base}/merge"), "merge status")
+        try:
+            body = as_object(await self._core.get(f"{base}/merge"), "merge status")
+        except ApiError as exc:
+            if exc.status != HTTPStatus.CONFLICT:
+                raise
+            # Bitbucket answers 409 for a pull request that is already merged or declined.
+            return MergeStatus(can_merge=False, conflicted=False, note=str(exc))
         return MergeStatus(
             can_merge=body.get("canMerge") is True,
             conflicted=body.get("conflicted") is True,
