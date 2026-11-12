@@ -8,6 +8,7 @@ from productivity_agent_tools.bitbucket.tools import register_bitbucket_tools
 from productivity_agent_tools.config import Settings
 from productivity_agent_tools.jira.client import JiraClient
 from productivity_agent_tools.jira.tools import register_jira_tools
+from productivity_agent_tools.links import issue_describer, register_link_tools
 
 _JIRA_INSTRUCTIONS: str = (
     "The jira_ tools work with the user's self-hosted Jira. Reads are safe to call freely. "
@@ -29,6 +30,12 @@ _BITBUCKET_INSTRUCTIONS: str = (
     "bitbucket_set_default_project once and leave project out afterwards. To say what "
     "still blocks a pull request, use bitbucket_get_pull_request_merge_status. Bitbucket "
     "text uses Markdown."
+)
+
+
+_LINK_INSTRUCTIONS: str = (
+    "To go from a Jira issue to its pull requests, call jira_get_issue_pull_requests; from a "
+    "pull request to its issues, bitbucket_get_pull_request_issues."
 )
 
 
@@ -58,19 +65,33 @@ def build_server(
     """
     jira = settings.jira if jira_api is not None else None
     bitbucket = settings.bitbucket if bitbucket_api is not None else None
+    both = jira is not None and bitbucket is not None
     instructions = " ".join(
         text
-        for product, text in ((jira, _JIRA_INSTRUCTIONS), (bitbucket, _BITBUCKET_INSTRUCTIONS))
-        if product is not None
+        for wanted, text in (
+            (jira is not None, _JIRA_INSTRUCTIONS),
+            (bitbucket is not None, _BITBUCKET_INSTRUCTIONS),
+            (both, _LINK_INSTRUCTIONS),
+        )
+        if wanted
     )
     server = MCPServer("productivity-agent-tools", instructions=instructions)
-    if jira is not None and jira_api is not None:
-        register_jira_tools(server, JiraClient(jira_api, jira), settings, token_source)
-    if bitbucket is not None and bitbucket_api is not None:
+    jira_client = JiraClient(jira_api, jira) if jira is not None and jira_api is not None else None
+    bitbucket_client = (
+        BitbucketClient(bitbucket_api, bitbucket)
+        if bitbucket is not None and bitbucket_api is not None
+        else None
+    )
+    if jira_client is not None:
+        register_jira_tools(server, jira_client, settings, token_source)
+    if bitbucket_client is not None and bitbucket is not None:
         register_bitbucket_tools(
             server,
-            BitbucketClient(bitbucket_api, bitbucket),
+            bitbucket_client,
             bitbucket_token_source,
             list(settings.connection_for(bitbucket).cookies),
+            describe_issues=issue_describer(jira_client) if jira_client is not None else None,
         )
+    if jira_client is not None and bitbucket_client is not None:
+        register_link_tools(server, jira_client, bitbucket_client)
     return server

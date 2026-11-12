@@ -1017,3 +1017,38 @@ class JiraClient:
             payload["comment"] = {"body": comment}
         outcome = await self._core.write("POST", f"{self._api}/issueLink", payload)
         return f"{source} {words} {target}", outcome
+
+    async def development_pull_requests(self, key: str) -> list[JsonObject]:
+        """Fetch the pull requests Jira's Development panel shows for an issue.
+
+        This reads ``rest/dev-status``, the resource behind that panel. Atlassian
+        does not document it, so callers should treat its entries defensively.
+        It covers pull requests linked by branch name or title as well as by
+        commits, for every linked Bitbucket.
+
+        Args:
+            key: Issue key.
+
+        Returns:
+            The panel's pull request entries, as Jira sends them.
+
+        Raises:
+            AtlassianError: If the key is invalid or a request fails.
+        """
+        issue_key = normalize_issue_key(key)
+        issue = _object(
+            await self._core.get(f"{self._api}/issue/{issue_key}", params={"fields": "summary"}),
+            "issue",
+        )
+        issue_id = _text(issue, "id")
+        if issue_id is None:
+            raise AtlassianError(f"Jira did not give the internal id of {issue_key}.")
+        body = await self._core.get(
+            f"{self._settings.path}/rest/dev-status/1.0/issue/detail",
+            params={"issueId": issue_id, "applicationType": "stash", "dataType": "pullrequest"},
+        )
+        return [
+            pull
+            for detail in _objects(_value(body, "detail"))
+            for pull in _objects(detail.get("pullRequests"))
+        ]
