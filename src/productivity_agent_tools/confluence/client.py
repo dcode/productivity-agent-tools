@@ -18,13 +18,17 @@ from productivity_agent_tools.confluence.models import (
     SpaceList,
 )
 from productivity_agent_tools.confluence.settings import ConfluenceSettings
-from productivity_agent_tools.errors import AgentToolsError, NotFoundError
+from productivity_agent_tools.errors import (
+    AgentToolsError,
+    NotFoundError,
+    PermissionDeniedError,
+)
 from productivity_agent_tools.payload import JsonObject, as_object, number, objects, text, value
 
 MAX_RESULTS_LIMIT: int = 100
 DEFAULT_BODY_CHARS: int = 20_000
 MAX_BODY_CHARS: int = 500_000
-_PAGE_EXPAND: str = "body.storage,version,space,ancestors,metadata.labels"
+_PAGE_EXPAND: str = "body.storage,version,space,ancestors,metadata.labels,operations"
 _SUMMARY_EXPAND: str = "version,space"
 _PAGE_ID = re.compile(r"^[0-9]+$")
 # Global keys are letters and digits; personal ones are "~" plus a username or user key.
@@ -271,6 +275,12 @@ class ConfluenceClient:
             The page.
         """
         body = text(item, "body", "storage", "value") or ""
+        operations = item.get("operations")
+        can_edit = (
+            any(text(op, "operation") == "update" for op in objects(operations))
+            if isinstance(operations, list)
+            else None
+        )
         limit = len(body) if max_chars is None else max(1, min(max_chars, MAX_BODY_CHARS))
         return Page(
             **self._summary(item).model_dump(),
@@ -283,6 +293,7 @@ class ConfluenceClient:
                 for label in objects(value(item, "metadata", "labels", "results"))
                 if (name := text(label, "name"))
             ],
+            can_edit=can_edit,
             body=body[:limit],
             body_chars=len(body),
             truncated=len(body) > limit,
@@ -551,8 +562,8 @@ class ConfluenceClient:
             The planned edit.
 
         Raises:
-            AgentToolsError: If nothing would change, the page changed since it was read,
-                an argument is invalid, or the request fails.
+            AgentToolsError: If nothing would change, the user may not edit the page, the
+                page changed since it was read, an argument is invalid, or the request fails.
         """
         if body is None and (title is None or not title.strip()):
             raise AgentToolsError("Give a new body, a new title, or both.")
@@ -563,6 +574,11 @@ class ConfluenceClient:
             raise AgentToolsError(
                 f"Page {page.id} is longer than {MAX_BODY_CHARS} characters; edit it in the "
                 "browser."
+            )
+        if page.can_edit is False:
+            raise PermissionDeniedError(
+                f"You do not have permission to edit page {page.id} ('{page.title}'). Ask the "
+                "page's owner or a space administrator for edit access; nothing was sent."
             )
         if page.version != expected_version:
             raise AgentToolsError(

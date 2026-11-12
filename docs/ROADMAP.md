@@ -28,7 +28,7 @@ Last updated: 2026-11-12.
 - **In progress:** Confluence reads, search, page creation and editing (branch
   `claude/beautiful-hamilton-k4u2un`), for a management request to publish an "About me"
   page. Not yet run against the real Confluence; see the checks below.
-- **Tests:** 311 passing, about 99.9% branch coverage. All hooks clean.
+- **Tests:** 312 passing, about 99.9% branch coverage. All hooks clean.
 - **In use:** Goose on the work laptop, against Jira 11.3.12, Bitbucket 10.2.8 and Confluence
   10.2.19. No CI
   server (Bamboo or other) reports builds or deployments to this Bitbucket.
@@ -131,8 +131,11 @@ chance comes up and tick it here.
   - [x] Set up and `confluence_status`: 10.2.19, `rest/api/server-information` answers
   - [x] Spaces, CQL search in a space, a page by id, child pages and the dry-run create
         (Markdown converted) all answer
-  - [ ] `personal_space` came back null: either there is no personal space, or its key is
-        not `~` plus the username. Check the browser; not needed for the profile page.
+  - [x] `personal_space` null is right: there is no personal space
+  - [ ] `confluence_get_page` on the profile page shows `can_edit: false` (new; read from
+        `expand=operations`, untested on the real server). The browser shows no Edit link
+        there, so **the profile page is blocked until someone grants edit access**: ask
+        the team lead or a space administrator.
   - [ ] `contributor = currentUser()` was accepted but found nothing; confirm once you
         have edited a page
   - [ ] `confluence_get_page` with `max_chars` high enough for the whole body: the layout,
@@ -152,7 +155,8 @@ Rough order. Each item is one pull request. API references: the Jira 11.0.2 and 
 10.5 OpenAPI specs (`https://dac-static.atlassian.com/server/jira/platform/jira_software_dc_11002_swagger.v3.json`,
 `https://dac-static.atlassian.com/server/bitbucket/10.5.swagger.v3.json`).
 
-1. **Fill in the profile page** (see the Confluence checks above) before Fri Nov 20.
+1. **Get edit access to the profile page**, then fill it in (see the Confluence checks
+   above) before Fri Nov 20.
 2. Re-run the smoke test for the dry-run review, then open the pull request for this
    branch.
 3. Maybe: a find-and-replace mode for `confluence_update_page` (exact storage snippets in,
