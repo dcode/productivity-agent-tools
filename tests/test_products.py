@@ -13,6 +13,7 @@ from productivity_agent_tools.bitbucket.product import PRODUCT as BITBUCKET
 from productivity_agent_tools.bitbucket.settings import BitbucketSettings
 from productivity_agent_tools.capabilities import IssueTracker
 from productivity_agent_tools.config import ProductSettings, Settings, parse_settings
+from productivity_agent_tools.confluence.product import PRODUCT as CONFLUENCE
 from productivity_agent_tools.errors import ConfigError
 from productivity_agent_tools.http import AtlassianClient
 from productivity_agent_tools.jira.client import JiraClient
@@ -31,7 +32,11 @@ from productivity_agent_tools.server import Connected, build_server
 
 
 def test_the_built_in_products_and_integration_are_installed() -> None:
-    assert dict(installed_products()) == {"bitbucket": BITBUCKET, "jira": JIRA}
+    assert dict(installed_products()) == {
+        "bitbucket": BITBUCKET,
+        "confluence": CONFLUENCE,
+        "jira": JIRA,
+    }
     assert installed_integrations() == (INTEGRATION,)
     assert (JIRA.token, BITBUCKET.token) == ("jira", "bitbucket")
 
@@ -81,8 +86,8 @@ def test_client_of_checks_the_client_type(make_jira: Callable[..., JiraClient]) 
 
 
 def test_a_table_naming_no_installed_product_is_an_error() -> None:
-    with pytest.raises(ConfigError, match=r"'confluence' names no installed product.*jira"):
-        parse_settings({"base_url": "https://h.example", "confluence": {}})
+    with pytest.raises(ConfigError, match=r"'gitlab' names no installed product.*jira"):
+        parse_settings({"base_url": "https://h.example", "gitlab": {}})
     with pytest.raises(ConfigError, match=r"Products: none"):
         parse_settings({"base_url": "https://h.example", "jira": {}}, parsers={})
     with pytest.raises(ConfigError, match="'jira' must be a table"):

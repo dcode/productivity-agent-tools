@@ -17,6 +17,10 @@ WRITE = ToolAnnotations(
 IDEMPOTENT_WRITE = ToolAnnotations(
     read_only_hint=False, destructive_hint=False, idempotent_hint=True, open_world_hint=True
 )
+# Changes only this server's memory of a default (a project, a space), nothing on the server.
+SESSION_SETTING = ToolAnnotations(
+    read_only_hint=False, destructive_hint=False, idempotent_hint=True, open_world_hint=True
+)
 
 
 def anticipated[**P, R](tool: Callable[P, Awaitable[R]]) -> Callable[P, Awaitable[R]]:

@@ -205,10 +205,23 @@ keeps writes behind a dry-run switch that is on by default.
 56. As a developer, I want product modules to depend only on an `ApiClient` protocol, so that
     a service with different sign-in (such as Microsoft Graph) is a new adapter and the Jira
     code does not change.
-57. As a developer, I want tests to run against an in-process fake Jira, fake Bitbucket and
-    intercepting proxy, so that nothing in the suite contacts a real server.
+57. As a developer, I want tests to run against an in-process fake Jira, Bitbucket,
+    Confluence and intercepting proxy, so that nothing in the suite contacts a real server.
 58. As a developer, I want one set of checks (ruff, rumdl, taplo, ty, pytest with coverage)
     run by pre-commit, hatch and CI alike, so that a passing local run means a passing CI run.
+
+### Confluence
+
+59. As a user, I want to search Confluence with CQL and read a page by id or exact title, so
+    that the agent can find and quote team documentation.
+60. As a user, I want the agent to create a page in my personal space or a team space from
+    Markdown, so that I can ask for a page such as "About me" in plain words and review it
+    before it is published.
+61. As a user, I want the agent to edit a page, including adding a section without
+    rewriting the rest, without ever overwriting a change someone else made after it read
+    the page, so that a shared page is never silently clobbered.
+62. As a user, I want my personal space key shown by the status tool, so that the agent puts
+    pages about me in the right place without asking for my username.
 
 ## Implementation Decisions
 
@@ -415,6 +428,40 @@ keeps writes behind a dry-run switch that is on by default.
   missing key fails the whole query), the keys are returned without details and
   `details_note` says why.
 
+### Confluence specifics
+
+- REST API `rest/api` under the Confluence sub-path (default `/confluence`), checked
+  against the Confluence 10.2.20 OpenAPI spec. Token name `confluence`
+  (`CONFLUENCE_TOKEN`).
+- **Bodies are Markdown, converted here.** The 10.2 API converts only from storage format
+  (and from editor format to storage); wiki markup is no longer accepted. Markdown is what
+  agents write most reliably, so `confluence/markdown.py` renders CommonMark plus tables
+  and strikethrough with `markdown-it-py` as XHTML, which is valid storage format. Fenced
+  and indented code become the `code` macro (common language names mapped to the macro's,
+  others shown without highlighting; the code sits in CDATA, with `]]>` split). Images
+  become `ac:image` with `ri:url`. Raw HTML is escaped, not passed through, so a page
+  cannot be broken by stray markup; `body_format="storage"` sends storage format as
+  written, for macros, layouts and mentions.
+- **Pages are read in storage format**, so a page can be edited and sent back without a
+  lossy round trip. The body is cut at `max_chars` (default 20,000, at most 500,000) with
+  `truncated` and `body_chars`, and the result tells the agent never to send a truncated
+  body back in replace mode.
+- **Edits are optimistic.** `confluence_update_page` takes the version the agent read. The
+  page is fetched again before saving; if its version differs, nothing is sent and the
+  agent is told to read it again. The PUT carries version + 1, which Confluence also
+  checks. `mode` is `replace`, `append` or `prepend`; the last two splice storage format
+  onto the current body here, so adding a section never sends the whole page through the
+  model. A body left out keeps the current one, so a title change or move alone works.
+  A page over 500,000 characters is refused for editing.
+- `confluence_create_page` checks the title is free in the space first (also in dry run),
+  because Confluence refuses a second page with the same title, and the error then names
+  the existing page's id.
+- `confluence_status` reports the personal space: `space/~<username>`, or none on 404.
+  `default_space` (config) and `confluence_set_default_space` (session, checked against
+  the server) work like Bitbucket's default project.
+- Both writes go through the shared `RepeatGuard`. Labels, attachments, comments, blog
+  posts and deleting pages are not offered yet.
+
 ### Logging
 
 - structlog on stderr, always. Output is readable lines in a terminal and JSON lines
@@ -458,8 +505,8 @@ Designed for but deferred. [ROADMAP.md](ROADMAP.md) has the ordered backlog and 
 - **Writing links between the products:** for example a remote link from an issue to a
   pull request. Bitbucket and Jira link them by key automatically, so this waits for a
   need.
-- **Confluence:** a third Atlassian product module behind the same adapter. It sits on the
-  same host and sub-path pattern as Jira and Bitbucket.
+- **More Confluence:** labels, attachments (for an "About me" photo, say), page comments,
+  blog posts, and `@` mentions or user macros written from Markdown.
 - **Custom Jira fields:** reading and setting `customfield_*` values (such as story points or
   epic links), whose shapes vary by field type.
 - **More Bitbucket writes:** comments on a file or line of the diff, resolving tasks, and
@@ -506,7 +553,8 @@ Designed for but deferred. [ROADMAP.md](ROADMAP.md) has the ordered backlog and 
 - **Bitbucket merges, declines and branch changes.** These change code or end a review,
   so they are left to the user in the browser. Comment anchors and task resolution are
   deferred (see Roadmap).
-- **Confluence and Microsoft 365.** Deferred (see Roadmap).
+- **Deleting or moving Confluence pages between spaces.** Left to the browser.
+- **Microsoft 365.** Deferred (see Roadmap).
 - **Claude Code as an agent host.** Not planned: it will not be available in the work
   environment for a long time. Because the server speaks MCP, adding it later means only a
   second `configure-agent` target (see Overall shape).
