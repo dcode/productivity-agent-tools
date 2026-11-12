@@ -10,7 +10,7 @@ from mcp.server.mcpserver.exceptions import ToolError
 from pydantic import JsonValue
 
 from productivity_agent_tools.config import Settings
-from productivity_agent_tools.errors import AtlassianError
+from productivity_agent_tools.errors import AgentToolsError
 from productivity_agent_tools.http import AtlassianClient
 from productivity_agent_tools.jira.client import FieldChanges, JiraClient, normalize_project_key
 from productivity_agent_tools.jira.fields import check_label, due_date, parse_editmeta
@@ -73,20 +73,20 @@ def test_field_metadata_is_read_defensively() -> None:
 
 @pytest.mark.parametrize("bad", ["", "two words", " "])
 def test_labels_are_single_words(bad: str) -> None:
-    with pytest.raises(AtlassianError, match="single words"):
+    with pytest.raises(AgentToolsError, match="single words"):
         check_label(bad)
 
 
 def test_due_dates_are_dates_or_cleared() -> None:
     assert due_date(" 2026-11-30 ") == "2026-11-30"
     assert due_date("None") is None
-    with pytest.raises(AtlassianError, match="not a date"):
+    with pytest.raises(AgentToolsError, match="not a date"):
         due_date("next friday")
 
 
 def test_project_keys_are_validated() -> None:
     assert normalize_project_key(" abc ") == "ABC"
-    with pytest.raises(AtlassianError, match="not a valid project key"):
+    with pytest.raises(AgentToolsError, match="not a valid project key"):
         normalize_project_key("A")
 
 
@@ -168,7 +168,7 @@ async def test_edit_sets_values_and_adds_or_removes_list_items(
 async def test_bad_edits_are_refused_before_sending(
     fake: FakeJira, make_jira: Callable[..., JiraClient], changes: FieldChanges, message: str
 ) -> None:
-    with pytest.raises(AtlassianError, match=message):
+    with pytest.raises(AgentToolsError, match=message):
         await make_jira(dry_run=False).edit_issue("ABC-1", changes)
     assert fake.writes() == []
 
@@ -198,7 +198,7 @@ async def test_create_fields_list_types_then_one_types_fields(
     by_id = {f.id: f for f in task.fields}
     assert task.issue_type == "Task"
     assert (by_id["summary"].required, by_id["priority"].required) == (True, False)
-    with pytest.raises(AtlassianError, match="Available: Bug, Task, Sub-task"):
+    with pytest.raises(AgentToolsError, match="Available: Bug, Task, Sub-task"):
         await make_jira().create_fields("ABC", "Epic")
 
 
@@ -240,9 +240,9 @@ async def test_subtasks_need_a_parent_and_others_must_not_have_one(
     fake: FakeJira, make_jira: Callable[..., JiraClient]
 ) -> None:
     jira = make_jira(dry_run=False)
-    with pytest.raises(AtlassianError, match="sub-task type, so give the parent"):
+    with pytest.raises(AgentToolsError, match="sub-task type, so give the parent"):
         await jira.create_issue("ABC", "Sub-task", FieldChanges(summary="x"))
-    with pytest.raises(AtlassianError, match="not a sub-task type, so leave parent out"):
+    with pytest.raises(AgentToolsError, match="not a sub-task type, so leave parent out"):
         await jira.create_issue("ABC", "Task", FieldChanges(summary="x"), parent="ABC-1")
     await jira.create_issue("ABC", "sub-task", FieldChanges(summary="x"), parent="abc-1")
     assert _sent(fake)[0][2]["fields"]["parent"] == {"key": "ABC-1"}
@@ -252,11 +252,11 @@ async def test_create_refuses_missing_required_fields_and_unknown_ones(
     fake: FakeJira, make_jira: Callable[..., JiraClient]
 ) -> None:
     jira = make_jira(dry_run=False)
-    with pytest.raises(AtlassianError, match=r"also needs: Severity \(customfield_100\)"):
+    with pytest.raises(AgentToolsError, match=r"also needs: Severity \(customfield_100\)"):
         await jira.create_issue("ABC", "Bug", FieldChanges(summary="x"))
-    with pytest.raises(AtlassianError, match="needs a summary"):
+    with pytest.raises(AgentToolsError, match="needs a summary"):
         await jira.create_issue("ABC", "Task", FieldChanges(summary=" "))
-    with pytest.raises(AtlassianError, match="'duedate' is not on the create screen of Task"):
+    with pytest.raises(AgentToolsError, match="'duedate' is not on the create screen of Task"):
         await jira.create_issue("ABC", "Task", FieldChanges(summary="x", due_date="2026-12-01"))
     assert fake.writes() == []
 
@@ -278,9 +278,9 @@ async def test_transitions_offer_resolutions(
         "transition": {"id": "21"},
         "fields": {"resolution": {"name": "Fixed"}},
     }
-    with pytest.raises(AtlassianError, match="Allowed: Fixed, Won't Do"):
+    with pytest.raises(AgentToolsError, match="Allowed: Fixed, Won't Do"):
         await jira.transition_issue("ABC-1", "Done", "Duplicate")
-    with pytest.raises(AtlassianError, match="does not set a resolution"):
+    with pytest.raises(AgentToolsError, match="does not set a resolution"):
         await jira.transition_issue("ABC-1", "Start Progress", "Fixed")
 
 
@@ -297,7 +297,9 @@ async def test_a_required_resolution_must_be_given(
         ]
     }
     fake.overrides[f"{API}/issue/ABC-1/transitions"] = httpx.Response(200, json=required)
-    with pytest.raises(AtlassianError, match=r"needs a resolution\. Ask the user which one: Fixed"):
+    with pytest.raises(
+        AgentToolsError, match=r"needs a resolution\. Ask the user which one: Fixed"
+    ):
         await make_jira().transition_issue("ABC-1", "Done")
 
 
@@ -327,9 +329,9 @@ async def test_links_read_as_a_sentence(
 
 async def test_bad_links_are_refused(fake: FakeJira, make_jira: Callable[..., JiraClient]) -> None:
     jira = make_jira(dry_run=False)
-    with pytest.raises(AtlassianError, match="cannot be linked to itself"):
+    with pytest.raises(AgentToolsError, match="cannot be linked to itself"):
         await jira.link_issues("ABC-1", "blocks", "abc-1")
-    with pytest.raises(AtlassianError, match="Use one of: blocks / is blocked by; duplicates"):
+    with pytest.raises(AgentToolsError, match="Use one of: blocks / is blocked by; duplicates"):
         await jira.link_issues("ABC-1", "causes", "ABC-2")
     assert fake.writes() == []
     await jira.link_issues("ABC-1", "blocks", "ABC-2", "because *reasons*")

@@ -47,7 +47,7 @@ from productivity_agent_tools.bitbucket.models import (
     TestResults,
 )
 from productivity_agent_tools.bitbucket.settings import BitbucketSettings
-from productivity_agent_tools.errors import ApiError, AtlassianError, NotFoundError
+from productivity_agent_tools.errors import AgentToolsError, ApiError, NotFoundError
 from productivity_agent_tools.payload import JsonObject, as_object, number, objects, text, value
 
 ROLES: tuple[str, ...] = ("reviewer", "author", "participant")
@@ -84,11 +84,11 @@ def _choice(value: str, allowed: tuple[str, ...], what: str) -> str:
         The lower-cased value.
 
     Raises:
-        AtlassianError: If the value is not one of the choices.
+        AgentToolsError: If the value is not one of the choices.
     """
     cleaned = value.strip().lower()
     if cleaned not in allowed:
-        raise AtlassianError(f"'{value}' is not a valid {what}. Use one of: {', '.join(allowed)}.")
+        raise AgentToolsError(f"'{value}' is not a valid {what}. Use one of: {', '.join(allowed)}.")
     return cleaned
 
 
@@ -102,7 +102,7 @@ def normalize_review(review: str) -> str:
         The validated key, such as ``needs_work``.
 
     Raises:
-        AtlassianError: If it is not a known review.
+        AgentToolsError: If it is not a known review.
     """
     return _choice(re.sub(r"[\s-]+", "_", review.strip()), tuple(REVIEWS), "review")
 
@@ -118,11 +118,11 @@ def _name(value: str, what: str) -> str:
         The value with surrounding whitespace removed.
 
     Raises:
-        AtlassianError: If the value has characters a key or slug cannot.
+        AgentToolsError: If the value has characters a key or slug cannot.
     """
     cleaned = value.strip()
     if not _NAME.fullmatch(cleaned):
-        raise AtlassianError(f"'{value}' is not a valid {what}.")
+        raise AgentToolsError(f"'{value}' is not a valid {what}.")
     return cleaned
 
 
@@ -136,11 +136,11 @@ def _commit(value: str) -> str:
         The hash with surrounding whitespace removed.
 
     Raises:
-        AtlassianError: If the value is not a hexadecimal hash.
+        AgentToolsError: If the value is not a hexadecimal hash.
     """
     cleaned = value.strip()
     if not _COMMIT.fullmatch(cleaned):
-        raise AtlassianError(f"'{value}' is not a valid commit hash.")
+        raise AgentToolsError(f"'{value}' is not a valid commit hash.")
     return cleaned
 
 
@@ -317,11 +317,11 @@ class BitbucketClient:
             The validated project key.
 
         Raises:
-            AtlassianError: If no project is given and none is set as default.
+            AgentToolsError: If no project is given and none is set as default.
         """
         chosen = project.strip() if project else self._default_project
         if not chosen:
-            raise AtlassianError(
+            raise AgentToolsError(
                 "No project was given and no default project is set. Pass a project key, "
                 "call bitbucket_set_default_project, or set default_project under "
                 "[bitbucket] in the config. bitbucket_list_projects shows the keys."
@@ -350,7 +350,7 @@ class BitbucketClient:
             The project key and repository slug.
 
         Raises:
-            AtlassianError: If either is invalid or no project is known.
+            AgentToolsError: If either is invalid or no project is known.
         """
         return self._project(project), _name(repository, "repository slug")
 
@@ -366,7 +366,7 @@ class BitbucketClient:
             The path, without a trailing slash.
 
         Raises:
-            AtlassianError: If a part is invalid.
+            AgentToolsError: If a part is invalid.
         """
         key, slug, number = self.pull_request_ref(project, repository, pull_request_id)
         return f"{self._api}/projects/{key}/repos/{slug}/pull-requests/{number}"
@@ -385,7 +385,7 @@ class BitbucketClient:
             The page's items, and whether the server has more.
 
         Raises:
-            AtlassianError: If the request fails.
+            AgentToolsError: If the request fails.
         """
         body = as_object(await self._core.get(path, params=params), what)
         return objects(body.get("values")), body.get("isLastPage") is False
@@ -409,10 +409,10 @@ class BitbucketClient:
             The project key, repository slug and number.
 
         Raises:
-            AtlassianError: If a part is invalid or no project is known.
+            AgentToolsError: If a part is invalid or no project is known.
         """
         if pull_request_id < 1:
-            raise AtlassianError(f"{pull_request_id} is not a valid pull request number.")
+            raise AgentToolsError(f"{pull_request_id} is not a valid pull request number.")
         key, slug = self._repo(project, repository)
         return key, slug, pull_request_id
 
@@ -446,7 +446,7 @@ class BitbucketClient:
             The slug, or None when it is unknown and not required.
 
         Raises:
-            AtlassianError: If it is required and cannot be found.
+            AgentToolsError: If it is required and cannot be found.
         """
         if self._user_slug is None:
             try:
@@ -458,11 +458,11 @@ class BitbucketClient:
                 if name:
                     found = await self._core.get(f"{self._api}/users/{quote(name, safe='')}")
                     self._user_slug = text(found, "slug") or name
-            except AtlassianError:
+            except AgentToolsError:
                 if required:
                     raise
         if self._user_slug is None and required:
-            raise AtlassianError(
+            raise AgentToolsError(
                 "Bitbucket did not say who the access token belongs to, so the review cannot "
                 "be recorded. Set user_slug under [bitbucket] in the config to your Bitbucket "
                 "user slug (shown in your profile URL) and restart the server."
@@ -513,7 +513,7 @@ class BitbucketClient:
             The version string, or None if the server does not report one.
 
         Raises:
-            AtlassianError: If the request fails.
+            AgentToolsError: If the request fails.
         """
         return text(await self._core.get(f"{self._api}/application-properties"), "version")
 
@@ -531,7 +531,7 @@ class BitbucketClient:
             The pull requests, newest first.
 
         Raises:
-            AtlassianError: If a parameter is invalid or the request fails.
+            AgentToolsError: If a parameter is invalid or the request fails.
         """
         chosen_role = _choice(role, ROLES, "role")
         chosen_state = _choice(state, STATES, "state")
@@ -567,7 +567,7 @@ class BitbucketClient:
             The matching projects.
 
         Raises:
-            AtlassianError: If the request fails.
+            AgentToolsError: If the request fails.
         """
         params: dict[str, str | int] = {"limit": self._limit(max_results)}
         if name and name.strip():
@@ -597,7 +597,7 @@ class BitbucketClient:
             The project now used by default.
 
         Raises:
-            AtlassianError: If the key is invalid or the project cannot be read.
+            AgentToolsError: If the key is invalid or the project cannot be read.
         """
         key = _name(project, "project key")
         found = as_object(await self._core.get(f"{self._api}/projects/{key}"), "project")
@@ -624,7 +624,7 @@ class BitbucketClient:
             The repositories.
 
         Raises:
-            AtlassianError: If no project is known or the request fails.
+            AgentToolsError: If no project is known or the request fails.
         """
         key = self._project(project)
         items, more = await self._page(
@@ -667,7 +667,7 @@ class BitbucketClient:
             The pull requests, newest first.
 
         Raises:
-            AtlassianError: If a parameter is invalid or the request fails.
+            AgentToolsError: If a parameter is invalid or the request fails.
         """
         key = self._project(project)
         slug = _name(repository, "repository slug")
@@ -711,7 +711,7 @@ class BitbucketClient:
             The commits, newest first.
 
         Raises:
-            AtlassianError: If a parameter is invalid or the request fails.
+            AgentToolsError: If a parameter is invalid or the request fails.
         """
         base = self._pull_path(project, repository, pull_request_id)
         items, more = await self._page(
@@ -748,7 +748,7 @@ class BitbucketClient:
             The changed files.
 
         Raises:
-            AtlassianError: If a parameter is invalid or the request fails.
+            AgentToolsError: If a parameter is invalid or the request fails.
         """
         base = self._pull_path(project, repository, pull_request_id)
         items, more = await self._page(
@@ -785,7 +785,7 @@ class BitbucketClient:
             The diff text and whether it was cut.
 
         Raises:
-            AtlassianError: If a parameter is invalid or the request fails.
+            AgentToolsError: If a parameter is invalid or the request fails.
         """
         base = self._pull_path(project, repository, pull_request_id)
         whole = await self._core.get_text(
@@ -820,11 +820,11 @@ class BitbucketClient:
             The matching files with their matching lines.
 
         Raises:
-            AtlassianError: If the query is empty, search is unavailable, or the request fails.
+            AgentToolsError: If the query is empty, search is unavailable, or the request fails.
         """
         terms = query.strip()
         if not terms:
-            raise AtlassianError("The search query is empty.")
+            raise AgentToolsError("The search query is empty.")
         if project and project.strip():
             terms = f"{terms} project:{_name(project, 'project key')}"
         if repository and repository.strip():
@@ -837,7 +837,7 @@ class BitbucketClient:
         try:
             body = as_object(await self._core.query(self._search, payload), "search")
         except NotFoundError as exc:
-            raise AtlassianError(
+            raise AgentToolsError(
                 "This Bitbucket did not answer at its search address. Code search uses an "
                 "endpoint Atlassian does not document (rest/search/1.0/search); it may be "
                 "missing from this version or switched off."
@@ -845,7 +845,7 @@ class BitbucketClient:
         except ApiError as exc:
             if exc.status < 500:
                 raise
-            raise AtlassianError(
+            raise AgentToolsError(
                 f"Bitbucket's code search is unavailable right now (HTTP {exc.status}). Its "
                 "search index is probably down or being rebuilt, which also breaks the search "
                 "page in the browser; a Bitbucket administrator has to fix it. Tell the user. "
@@ -916,7 +916,7 @@ class BitbucketClient:
             The pull request detail.
 
         Raises:
-            AtlassianError: If a parameter is invalid or the request fails.
+            AgentToolsError: If a parameter is invalid or the request fails.
         """
         base = self._pull_path(project, repository, pull_request_id)
         pull = as_object(await self._core.get(base), "pull request")
@@ -985,7 +985,7 @@ class BitbucketClient:
             Totals by state, and the builds, newest first.
 
         Raises:
-            AtlassianError: If the hash is invalid or the request fails.
+            AgentToolsError: If the hash is invalid or the request fails.
         """
         commit = _commit(commit_id)
         stats = as_object(
@@ -1025,7 +1025,7 @@ class BitbucketClient:
             The configured checks.
 
         Raises:
-            AtlassianError: If a parameter is invalid or the request fails.
+            AgentToolsError: If a parameter is invalid or the request fails.
         """
         key, slug = self._repo(project, repository)
         try:
@@ -1035,7 +1035,7 @@ class BitbucketClient:
                 "required builds",
             )
         except NotFoundError as exc:
-            raise AtlassianError(
+            raise AgentToolsError(
                 f"Bitbucket found no required-builds settings for {key}/{slug}. Either the "
                 "repository does not exist or this Bitbucket is older than 7.14, which added "
                 "required builds."
@@ -1079,12 +1079,12 @@ class BitbucketClient:
             The deployment.
 
         Raises:
-            AtlassianError: If a parameter is invalid or the request fails.
+            AgentToolsError: If a parameter is invalid or the request fails.
         """
         key, slug = self._repo(project, repository)
         commit = _commit(commit_id)
         if not deployment_key.strip() or not environment_key.strip():
-            raise AtlassianError("A deployment needs both its key and its environment key.")
+            raise AgentToolsError("A deployment needs both its key and its environment key.")
         try:
             found = as_object(
                 await self._core.get(
@@ -1098,7 +1098,7 @@ class BitbucketClient:
                 "deployment",
             )
         except NotFoundError as exc:
-            raise AtlassianError(
+            raise AgentToolsError(
                 f"No deployment '{deployment_key}' to '{environment_key}' (run "
                 f"{sequence_number}) is recorded against commit {commit} in {key}/{slug}. "
                 "Bitbucket cannot list deployments, so check the identifiers on the CI or CD "
@@ -1141,7 +1141,7 @@ class BitbucketClient:
             Whether it can merge, conflicts, and each blocking merge check.
 
         Raises:
-            AtlassianError: If a parameter is invalid or the request fails.
+            AgentToolsError: If a parameter is invalid or the request fails.
         """
         base = self._pull_path(project, repository, pull_request_id)
         body = as_object(await self._core.get(f"{base}/merge"), "merge status")
@@ -1177,7 +1177,7 @@ class BitbucketClient:
             The events, newest first.
 
         Raises:
-            AtlassianError: If a parameter is invalid or the request fails.
+            AgentToolsError: If a parameter is invalid or the request fails.
         """
         base = self._pull_path(project, repository, pull_request_id)
         items, more = await self._page(
@@ -1207,7 +1207,7 @@ class BitbucketClient:
             The tasks.
 
         Raises:
-            AtlassianError: If a parameter is invalid or the request fails.
+            AgentToolsError: If a parameter is invalid or the request fails.
         """
         chosen = _choice(state, TASK_STATES, "task state")
         base = self._pull_path(project, repository, pull_request_id)
@@ -1217,7 +1217,7 @@ class BitbucketClient:
         try:
             items, more = await self._page(f"{base}/blocker-comments", params, "task list")
         except NotFoundError as exc:
-            raise AtlassianError(
+            raise AgentToolsError(
                 f"Bitbucket could not list tasks on pull request {pull_request_id}. Either the "
                 "pull request does not exist or this Bitbucket is older than 7.2, which moved "
                 "tasks to blocker comments."
@@ -1253,14 +1253,14 @@ class BitbucketClient:
             The linked issues.
 
         Raises:
-            AtlassianError: If a parameter is invalid or the request fails.
+            AgentToolsError: If a parameter is invalid or the request fails.
         """
         api_path = self._pull_path(project, repository, pull_request_id)
         path = f"{self._jira}{api_path.removeprefix(self._api)}/issues"
         try:
             found = await self._core.get(path)
         except NotFoundError as exc:
-            raise AtlassianError(
+            raise AgentToolsError(
                 f"Bitbucket could not list Jira issues for pull request {pull_request_id}. "
                 "Either the pull request does not exist or this Bitbucket is not linked to Jira."
             ) from exc
@@ -1294,13 +1294,13 @@ class BitbucketClient:
             The write outcome.
 
         Raises:
-            AtlassianError: If a parameter is invalid or the request fails.
+            AgentToolsError: If a parameter is invalid or the request fails.
         """
         base = self._pull_path(project, repository, pull_request_id)
         if not comment.strip():
-            raise AtlassianError("Comment text must not be empty.")
+            raise AgentToolsError("Comment text must not be empty.")
         if reply_to is not None and reply_to < 1:
-            raise AtlassianError(f"{reply_to} is not a valid comment identifier.")
+            raise AgentToolsError(f"{reply_to} is not a valid comment identifier.")
         payload: dict[str, JsonValue] = {"text": comment}
         if reply_to is not None:
             payload["parent"] = {"id": reply_to}
@@ -1330,7 +1330,7 @@ class BitbucketClient:
             Bitbucket's name for the new status, and the write outcome.
 
         Raises:
-            AtlassianError: If a parameter is invalid, the user is unknown, or the
+            AgentToolsError: If a parameter is invalid, the user is unknown, or the
                 request fails (for example on the user's own pull request).
         """
         choice = normalize_review(review)
@@ -1358,12 +1358,12 @@ class BitbucketClient:
             The commits, and whether the server has more.
 
         Raises:
-            AtlassianError: If the key is invalid, Bitbucket is not linked to Jira, or
+            AgentToolsError: If the key is invalid, Bitbucket is not linked to Jira, or
                 the request fails.
         """
         key = issue_key.strip().upper()
         if not _ISSUE_KEY.fullmatch(key):
-            raise AtlassianError(f"'{issue_key}' is not a valid issue key.")
+            raise AgentToolsError(f"'{issue_key}' is not a valid issue key.")
         try:
             items, more = await self._page(
                 f"{self._jira}/issues/{key}/commits",
@@ -1371,7 +1371,7 @@ class BitbucketClient:
                 "issue commits",
             )
         except NotFoundError as exc:
-            raise AtlassianError(
+            raise AgentToolsError(
                 "Bitbucket could not list commits for a Jira issue. It is probably not "
                 "linked to Jira."
             ) from exc
@@ -1404,7 +1404,7 @@ class BitbucketClient:
             The pull requests.
 
         Raises:
-            AtlassianError: If a part is invalid or the request fails.
+            AgentToolsError: If a part is invalid or the request fails.
         """
         key, slug = self._repo(project, repository)
         items, _ = await self._page(

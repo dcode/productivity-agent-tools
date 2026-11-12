@@ -13,7 +13,7 @@ from productivity_agent_tools.bitbucket.client import BitbucketClient
 from productivity_agent_tools.bitbucket.settings import BitbucketSettings
 from productivity_agent_tools.config import Settings, parse_settings
 from productivity_agent_tools.errors import (
-    AtlassianError,
+    AgentToolsError,
     AuthenticationError,
     ConfigError,
     TokenNotFoundError,
@@ -444,22 +444,22 @@ async def test_unreadable_builds_are_reported_as_unknown_not_as_a_failure(
 async def test_identifiers_are_validated_before_any_request(
     bitbucket: FakeBitbucket, client: BitbucketClient, project: str, repository: str, number: int
 ) -> None:
-    with pytest.raises(AtlassianError, match="not a valid"):
+    with pytest.raises(AgentToolsError, match="not a valid"):
         await client.get_pull_request(repository, number, project)
     assert bitbucket.requests == []
 
 
 async def test_bad_role_and_state_list_the_choices(client: BitbucketClient) -> None:
-    with pytest.raises(AtlassianError, match="reviewer, author, participant"):
+    with pytest.raises(AgentToolsError, match="reviewer, author, participant"):
         await client.list_pull_requests("owner")
-    with pytest.raises(AtlassianError, match="open, merged, declined, all"):
+    with pytest.raises(AgentToolsError, match="open, merged, declined, all"):
         await client.list_pull_requests(state="closed")
 
 
 async def test_bitbucket_error_messages_reach_the_user(
     make_api: Callable[..., AtlassianClient], client: BitbucketClient
 ) -> None:
-    with pytest.raises(AtlassianError, match=r"Pull request 7 does not exist in OPS/uploader"):
+    with pytest.raises(AgentToolsError, match=r"Pull request 7 does not exist in OPS/uploader"):
         await client.get_pull_request("uploader", 7, "OPS")
     expired = BitbucketClient(make_api(token="old"), BitbucketSettings())
     with pytest.raises(AuthenticationError, match="Authentication failed"):
@@ -715,9 +715,9 @@ async def test_projects_can_be_listed_and_filtered_by_name(
 
 
 async def test_calls_without_a_project_need_a_default(client: BitbucketClient) -> None:
-    with pytest.raises(AtlassianError, match="bitbucket_set_default_project"):
+    with pytest.raises(AgentToolsError, match="bitbucket_set_default_project"):
         await client.list_repositories()
-    with pytest.raises(AtlassianError, match="default_project under"):
+    with pytest.raises(AgentToolsError, match="default_project under"):
         await client.get_pull_request("uploader", 42)
 
 
@@ -729,7 +729,7 @@ async def test_default_project_comes_from_config_or_is_chosen_for_the_session(
     assert (await configured.list_repositories()).project == "OPS"
 
     chosen = BitbucketClient(make_api(), BitbucketSettings())
-    with pytest.raises(AtlassianError, match="does not exist"):
+    with pytest.raises(AgentToolsError, match="does not exist"):
         await chosen.set_default_project("NOPE")
     assert chosen.default_project is None
     await chosen.set_default_project(" OPS ")
@@ -848,22 +848,22 @@ async def test_code_search_scopes_only_when_asked_and_runs_in_dry_run(
 async def test_code_search_problems_are_explained(
     bitbucket: FakeBitbucket, client: BitbucketClient
 ) -> None:
-    with pytest.raises(AtlassianError, match="query is empty"):
+    with pytest.raises(AgentToolsError, match="query is empty"):
         await client.search_code("   ")
-    with pytest.raises(AtlassianError, match="not a valid project key"):
+    with pytest.raises(AgentToolsError, match="not a valid project key"):
         await client.search_code("retry", project="a b")
     assert bitbucket.requests == []
 
     bitbucket.search = httpx.Response(404, json={"errors": [{"message": "No such resource"}]})
-    with pytest.raises(AtlassianError, match="does not document"):
+    with pytest.raises(AgentToolsError, match="does not document"):
         await client.search_code("retry")
 
     bitbucket.search = httpx.Response(503)
-    with pytest.raises(AtlassianError, match=r"unavailable right now \(HTTP 503\).*one by one"):
+    with pytest.raises(AgentToolsError, match=r"unavailable right now \(HTTP 503\).*one by one"):
         await client.search_code("retry")
 
     bitbucket.search = httpx.Response(400, json={"errors": [{"message": "Bad query syntax"}]})
-    with pytest.raises(AtlassianError, match="Bad query syntax"):
+    with pytest.raises(AgentToolsError, match="Bad query syntax"):
         await client.search_code("retry")
 
     bitbucket.search = httpx.Response(200, json={"scope": {"type": "GLOBAL"}})
@@ -961,7 +961,7 @@ async def test_commit_builds_have_totals_and_newest_first(
 async def test_commit_hashes_are_validated_before_any_request(
     bitbucket: FakeBitbucket, client: BitbucketClient, commit: str
 ) -> None:
-    with pytest.raises(AtlassianError, match="not a valid commit hash"):
+    with pytest.raises(AgentToolsError, match="not a valid commit hash"):
         await client.get_commit_builds(commit)
     assert bitbucket.requests == []
 
@@ -982,7 +982,7 @@ async def test_required_builds_describe_their_branches(
     assert (third.id, third.build_keys, third.branches) == (None, [], None)
 
     bitbucket.required = httpx.Response(404, json={"errors": [{"message": "Not found"}]})
-    with pytest.raises(AtlassianError, match=r"older than 7\.14"):
+    with pytest.raises(AgentToolsError, match=r"older than 7\.14"):
         await client.list_required_builds("uploader", "OPS")
 
 
@@ -1033,11 +1033,11 @@ async def test_deployment_is_fetched_by_its_three_identifiers(
 async def test_deployment_problems_are_explained(
     bitbucket: FakeBitbucket, client: BitbucketClient
 ) -> None:
-    with pytest.raises(AtlassianError, match="both its key and its environment key"):
+    with pytest.raises(AgentToolsError, match="both its key and its environment key"):
         await client.get_deployment("uploader", "abc123", " ", "prod", 7, "OPS")
     assert bitbucket.requests == []
     bitbucket.deployment = httpx.Response(404, json={"errors": [{"message": "No deployment"}]})
-    with pytest.raises(AtlassianError, match="cannot list deployments"):
+    with pytest.raises(AgentToolsError, match="cannot list deployments"):
         await client.get_deployment("uploader", "abc123", "deploy-api", "prod", 7, "OPS")
 
 
@@ -1094,10 +1094,10 @@ async def test_tasks_filter_by_state(bitbucket: FakeBitbucket, client: Bitbucket
 
     await client.list_pull_request_tasks("uploader", 42, "OPS", "all")
     assert "state" not in dict(bitbucket.requests[1].url.params)
-    with pytest.raises(AtlassianError, match="open, resolved, all"):
+    with pytest.raises(AgentToolsError, match="open, resolved, all"):
         await client.list_pull_request_tasks("uploader", 42, "OPS", "closed")
     bitbucket.tasks = httpx.Response(404, json={"errors": [{"message": "Not found"}]})
-    with pytest.raises(AtlassianError, match=r"older than 7\.2,"):
+    with pytest.raises(AgentToolsError, match=r"older than 7\.2,"):
         await client.list_pull_request_tasks("uploader", 42, "OPS")
 
 
@@ -1110,7 +1110,7 @@ async def test_linked_jira_issues_skip_entries_without_a_key(
     ]
     assert result.returned == 1
     bitbucket.issues = httpx.Response(404, json={"errors": [{"message": "Not found"}]})
-    with pytest.raises(AtlassianError, match="not linked to Jira"):
+    with pytest.raises(AgentToolsError, match="not linked to Jira"):
         await client.get_pull_request_issues("uploader", 42, "OPS")
 
 
@@ -1146,13 +1146,13 @@ async def test_unknown_user_is_explained_or_tolerated(
     bitbucket.whoami = httpx.Response(200, text="  ")
     client = _live(make_api)
     assert await client.user_slug(required=False) is None
-    with pytest.raises(AtlassianError, match="Set user_slug under"):
+    with pytest.raises(AgentToolsError, match="Set user_slug under"):
         await client.user_slug()
 
     bitbucket.whoami = httpx.Response(404, json={"errors": [{"message": "No servlet"}]})
     failing = _live(make_api)
     assert await failing.user_slug(required=False) is None
-    with pytest.raises(AtlassianError, match="No servlet"):
+    with pytest.raises(AgentToolsError, match="No servlet"):
         await failing.user_slug()
 
 
@@ -1190,7 +1190,7 @@ async def test_bad_comments_are_refused_before_any_request(
     number: int,
     message: str,
 ) -> None:
-    with pytest.raises(AtlassianError, match=message):
+    with pytest.raises(AgentToolsError, match=message):
         await _live(make_api).add_comment("uploader", number, text, "OPS", reply_to=reply_to)
     assert bitbucket.requests == []
 
@@ -1210,7 +1210,7 @@ async def test_reviews_set_the_users_participant_status(
 
 
 async def test_bad_review_choices_list_the_options(client: BitbucketClient) -> None:
-    with pytest.raises(AtlassianError, match="approve, needs_work, unapprove"):
+    with pytest.raises(AgentToolsError, match="approve, needs_work, unapprove"):
         await client.set_review("uploader", 42, "decline", "OPS")
 
 

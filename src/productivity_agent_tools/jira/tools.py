@@ -3,7 +3,7 @@
 from mcp.server.mcpserver import MCPServer
 
 from productivity_agent_tools.api import WriteOutcome
-from productivity_agent_tools.errors import AtlassianError
+from productivity_agent_tools.errors import AgentToolsError
 from productivity_agent_tools.jira.client import (
     FieldChanges,
     JiraClient,
@@ -112,7 +112,7 @@ def register_jira_tools(
         jql = jira.settings.presets.get(name)
         if jql is None:
             known = ", ".join(sorted(jira.settings.presets)) or "none configured"
-            raise AtlassianError(f"Unknown preset '{name}'. Available presets: {known}.")
+            raise AgentToolsError(f"Unknown preset '{name}'. Available presets: {known}.")
         return await jira.search(jql, max_results)
 
     @server.tool(annotations=_READ)

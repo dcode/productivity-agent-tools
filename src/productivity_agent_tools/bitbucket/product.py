@@ -30,7 +30,7 @@ async def doctor(bitbucket: BitbucketClient) -> AsyncIterator[str]:
         One line per check that passed.
 
     Raises:
-        AtlassianError: When a check fails.
+        AgentToolsError: When a check fails.
     """
     yield f"Bitbucket version {await bitbucket.server_version()} at {bitbucket.base_url}"
     waiting = await bitbucket.list_pull_requests(max_results=25)

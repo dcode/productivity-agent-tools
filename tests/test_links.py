@@ -9,7 +9,7 @@ import pytest
 from productivity_agent_tools.bitbucket.client import BitbucketClient
 from productivity_agent_tools.bitbucket.settings import BitbucketSettings
 from productivity_agent_tools.config import Settings, parse_settings
-from productivity_agent_tools.errors import AtlassianError
+from productivity_agent_tools.errors import AgentToolsError
 from productivity_agent_tools.http import AtlassianClient
 from productivity_agent_tools.jira.client import JiraClient
 from productivity_agent_tools.links import MAX_COMMIT_LOOKUPS, issue_pull_requests
@@ -150,7 +150,7 @@ async def test_issue_commits_validate_the_key_and_ask_for_no_changes(
     bitbucket: FakeBitbucket, bb_api: Callable[[], AtlassianClient]
 ) -> None:
     client = BitbucketClient(bb_api(), BitbucketSettings())
-    with pytest.raises(AtlassianError, match="not a valid issue key"):
+    with pytest.raises(AgentToolsError, match="not a valid issue key"):
         await client.issue_commits("nope")
     commits, more = await client.issue_commits(" abc-1 ", 5)
     assert dict(bitbucket.requests[0].url.params) == {"limit": "5", "maxChanges": "0"}
@@ -165,7 +165,7 @@ async def test_development_panel_needs_the_issue_id(
     fake: FakeJira, make_jira: Callable[..., JiraClient]
 ) -> None:
     fake.overrides["/jira/rest/api/2/issue/ABC-1"] = httpx.Response(200, json={"key": "ABC-1"})
-    with pytest.raises(AtlassianError, match="internal id of ABC-1"):
+    with pytest.raises(AgentToolsError, match="internal id of ABC-1"):
         await make_jira().development_pull_requests("ABC-1")
 
 
