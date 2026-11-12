@@ -23,8 +23,8 @@ from pydantic import JsonValue
 from productivity_agent_tools.api import WriteOutcome
 from productivity_agent_tools.config import Connection
 from productivity_agent_tools.errors import (
+    AgentToolsError,
     ApiError,
-    AtlassianError,
     AuthenticationError,
     ConfigError,
     ConnectivityError,
@@ -307,7 +307,7 @@ class AtlassianClient:
             The decoded JSON body, or None for an empty response.
 
         Raises:
-            AtlassianError: For any connectivity, auth, or API failure.
+            AgentToolsError: For any connectivity, auth, or API failure.
         """
         return await self._request("GET", path, params=params)
 
@@ -322,7 +322,7 @@ class AtlassianClient:
             The response body as text; empty for an empty response.
 
         Raises:
-            AtlassianError: For any connectivity, auth, or API failure.
+            AgentToolsError: For any connectivity, auth, or API failure.
         """
         body = await self._request("GET", path, params=params, as_text=True)
         return body if isinstance(body, str) else ""
@@ -340,7 +340,7 @@ class AtlassianClient:
             The decoded JSON body, or None for an empty response.
 
         Raises:
-            AtlassianError: For any connectivity, auth, or API failure.
+            AgentToolsError: For any connectivity, auth, or API failure.
         """
         return await self._request("POST", path, payload=payload)
 
@@ -356,7 +356,7 @@ class AtlassianClient:
             The outcome, with ``sent=False`` when dry-run blocked the request.
 
         Raises:
-            AtlassianError: For any connectivity, auth, or API failure.
+            AgentToolsError: For any connectivity, auth, or API failure.
         """
         if self.dry_run:
             _log.info("write_blocked_by_dry_run", method=method, path=path)
@@ -386,7 +386,7 @@ class AtlassianClient:
             The decoded JSON body (or the text body), or None for an empty response.
 
         Raises:
-            AtlassianError: For any connectivity, auth, or API failure.
+            AgentToolsError: For any connectivity, auth, or API failure.
         """
         extra: dict[str, str] = {} if method == "GET" else {"X-Atlassian-Token": "no-check"}
         if as_text:
@@ -425,7 +425,7 @@ class AtlassianClient:
         _log.debug("http_response", **_response_event(response, time.perf_counter() - started))
         try:
             return self._interpret(response, as_text=as_text)
-        except AtlassianError as exc:
+        except AgentToolsError as exc:
             hint = _address_hint(response.url)
             if hint:
                 exc.args = (f"{exc} {hint}", *exc.args[1:])
@@ -442,7 +442,7 @@ class AtlassianClient:
             The decoded JSON body (or the text body), or None for an empty response.
 
         Raises:
-            AtlassianError: When the response is a web page or an error status.
+            AgentToolsError: When the response is a web page or an error status.
         """
         content_type = response.headers.get("content-type", "").lower()
         status = response.status_code

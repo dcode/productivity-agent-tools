@@ -31,7 +31,7 @@ from productivity_agent_tools.config import (
     apply_overrides,
     load_settings,
 )
-from productivity_agent_tools.errors import AtlassianError, ConfigError
+from productivity_agent_tools.errors import AgentToolsError, ConfigError
 from productivity_agent_tools.http import AtlassianClient
 from productivity_agent_tools.logs import LOG_LEVELS, configure_logging
 from productivity_agent_tools.products import Product, installed_products
@@ -150,7 +150,7 @@ async def _open_server(
         The MCP server, with its connections open until the block exits.
 
     Raises:
-        AtlassianError: If a token or CA bundle cannot be loaded.
+        AgentToolsError: If a token or CA bundle cannot be loaded.
     """
     if not settings.products:
         raise ConfigError(_no_products())
@@ -185,7 +185,7 @@ async def _serve(settings: Settings, transport: httpx.AsyncBaseTransport | None 
         transport: Replacement HTTP transport, used by tests.
 
     Raises:
-        AtlassianError: If a token or CA bundle cannot be loaded.
+        AgentToolsError: If a token or CA bundle cannot be loaded.
     """
     async with _open_server(settings, transport) as server:
         await server.run_stdio_async()
@@ -221,7 +221,7 @@ def _tool_arguments(schema: dict[str, Any], pairs: tuple[str, ...]) -> dict[str,
         The arguments by name.
 
     Raises:
-        AtlassianError: If a word is malformed, names an unknown parameter, or has a bad value.
+        AgentToolsError: If a word is malformed, names an unknown parameter, or has a bad value.
     """
     properties: dict[str, Any] = schema.get("properties") or {}
     known = ", ".join(properties) or "none"
@@ -229,16 +229,16 @@ def _tool_arguments(schema: dict[str, Any], pairs: tuple[str, ...]) -> dict[str,
     for pair in pairs:
         name, separator, raw = pair.partition("=")
         if not separator:
-            raise AtlassianError(f"Argument '{pair}' must be written as name=value.")
+            raise AgentToolsError(f"Argument '{pair}' must be written as name=value.")
         if name not in properties:
-            raise AtlassianError(f"'{name}' is not a parameter of this tool. Parameters: {known}.")
+            raise AgentToolsError(f"'{name}' is not a parameter of this tool. Parameters: {known}.")
         if _accepts_text(properties[name]):
             arguments[name] = raw
             continue
         try:
             arguments[name] = json.loads(raw)
         except ValueError as exc:
-            raise AtlassianError(
+            raise AgentToolsError(
                 f"The value of '{name}' must be a number, true/false or JSON, got '{raw}'."
             ) from exc
     return arguments
@@ -286,26 +286,26 @@ async def _call(
         The tool's result as indented JSON, the chosen field, or the tool list.
 
     Raises:
-        AtlassianError: If the tool, an argument or the field is unknown, or the tool fails.
+        AgentToolsError: If the tool, an argument or the field is unknown, or the tool fails.
     """
     async with _open_server(settings, transport) as server:
         tools = {item.name: item for item in await server.list_tools()}
         if tool is None:
             return _describe_tools(list(tools.values()))
         if tool not in tools:
-            raise AtlassianError(
+            raise AgentToolsError(
                 f"'{tool}' is not a tool. Run 'call' with no tool name to list them."
             )
         arguments = _tool_arguments(tools[tool].input_schema or {}, pairs)
         try:
             result = await server.call_tool(tool, arguments)
         except ToolError as exc:
-            raise AtlassianError(str(exc)) from exc
+            raise AgentToolsError(str(exc)) from exc
         content = getattr(result, "structured_content", None)
         if field is not None:
             if not isinstance(content, dict) or field not in content:
                 fields = ", ".join(content) if isinstance(content, dict) else "none"
-                raise AtlassianError(f"The result has no field '{field}'. Fields: {fields}.")
+                raise AgentToolsError(f"The result has no field '{field}'. Fields: {fields}.")
             content = content[field]
             if isinstance(content, str):
                 return content
@@ -360,7 +360,7 @@ async def _doctor_product(
         ) as core:
             async for line in product.activate(core, product_settings).doctor():
                 print(f"[ok]   {line}")
-    except AtlassianError as exc:
+    except AgentToolsError as exc:
         print(f"[fail] {exc}")
         return False
     return True
@@ -405,7 +405,7 @@ async def _export_ca(output: Path) -> int:
         The number of certificates written.
 
     Raises:
-        AtlassianError: If the ``security`` tool fails or finds nothing.
+        AgentToolsError: If the ``security`` tool fails or finds nothing.
     """
     process = await asyncio.create_subprocess_exec(
         "/usr/bin/security",
@@ -419,14 +419,14 @@ async def _export_ca(output: Path) -> int:
     stdout, stderr = await process.communicate()
     count = stdout.count(b"BEGIN CERTIFICATE")
     if process.returncode != 0 or count == 0:
-        raise AtlassianError(
+        raise AgentToolsError(
             f"Could not export certificates: {stderr.decode(errors='replace').strip()}"
         )
     await asyncio.to_thread(output.write_bytes, stdout)
     return count
 
 
-def _fail(exc: AtlassianError) -> None:
+def _fail(exc: AgentToolsError) -> None:
     """Print an error to stderr and exit with status 1.
 
     Args:
@@ -452,7 +452,7 @@ def serve(
 
     try:
         asyncio.run(run())
-    except AtlassianError as exc:
+    except AgentToolsError as exc:
         _fail(exc)
 
 
@@ -474,7 +474,7 @@ def doctor(
 
     try:
         passed = asyncio.run(run())
-    except AtlassianError as exc:
+    except AgentToolsError as exc:
         _fail(exc)
     else:
         sys.exit(0 if passed else 1)
@@ -513,7 +513,7 @@ def call(
 
     try:
         _show(asyncio.run(run()), field)
-    except AtlassianError as exc:
+    except AgentToolsError as exc:
         _fail(exc)
 
 
@@ -527,10 +527,10 @@ def set_token(product: str = "jira") -> None:
     product = product.strip().lower()
     known = sorted({p.token for p in installed_products().values()})
     if product not in known:
-        _fail(AtlassianError(f"'{product}' is not a product. Use one of: {', '.join(known)}."))
+        _fail(AgentToolsError(f"'{product}' is not a product. Use one of: {', '.join(known)}."))
     token = getpass.getpass(f"{product} personal access token (hidden): ").strip()
     if not token:
-        _fail(AtlassianError("No token entered; nothing was stored."))
+        _fail(AgentToolsError("No token entered; nothing was stored."))
     asyncio.run(store_token(product, token))
     print(f"Stored the {product} token in the macOS Keychain.")
 
@@ -545,7 +545,7 @@ def export_ca(output: Path = Path("~/ca-bundle.pem")) -> None:
     target = output.expanduser()
     try:
         count = asyncio.run(_export_ca(target))
-    except AtlassianError as exc:
+    except AgentToolsError as exc:
         _fail(exc)
     else:
         print(f"Wrote {count} certificates to {target}. Set ca_bundle to this path.")
@@ -586,7 +586,7 @@ def configure_agent_command(
         change = configure_agent(
             agent, find_launch(config), path=agent_config, name=name, write=not show
         )
-    except AtlassianError as exc:
+    except AgentToolsError as exc:
         _fail(exc)
     else:
         if not change.written:

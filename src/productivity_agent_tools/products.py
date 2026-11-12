@@ -93,7 +93,7 @@ class Product[S: ProductSettings, C]:
         make_client: Wraps a connected API adapter in the product's client.
         register_tools: Adds the product's tools to a server.
         doctor: Runs read-only checks against the server, yielding a line per check that
-            passed. A failure is raised as an ``AtlassianError``.
+            passed. A failure is raised as an ``AgentToolsError``.
         token_name: Name its access token is stored under; defaults to ``name``. Products
             served by one host with one token (two GitLab modules, say) share a name.
     """

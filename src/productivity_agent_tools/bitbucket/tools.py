@@ -34,7 +34,7 @@ from productivity_agent_tools.bitbucket.models import (
     RequiredBuildList,
 )
 from productivity_agent_tools.capabilities import IssueTracker
-from productivity_agent_tools.errors import AtlassianError
+from productivity_agent_tools.errors import AgentToolsError
 from productivity_agent_tools.products import ToolContext
 from productivity_agent_tools.repeats import RepeatGuard
 from productivity_agent_tools.tooling import IDEMPOTENT_WRITE, READ, WRITE, anticipated
@@ -365,7 +365,7 @@ def register_bitbucket_tools(
             return found
         try:
             details = await tracker.describe_issues([issue.key for issue in found.issues])
-        except AtlassianError as exc:
+        except AgentToolsError as exc:
             return found.model_copy(update={"details_note": f"Jira did not describe them: {exc}"})
         return found.model_copy(
             update={

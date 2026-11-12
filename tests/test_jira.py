@@ -10,7 +10,7 @@ from pydantic import JsonValue
 
 from productivity_agent_tools.api import ApiClient, WriteOutcome
 from productivity_agent_tools.config import Settings
-from productivity_agent_tools.errors import AtlassianError
+from productivity_agent_tools.errors import AgentToolsError
 from productivity_agent_tools.http import AtlassianClient
 from productivity_agent_tools.jira.client import (
     JiraClient,
@@ -25,7 +25,7 @@ from tests.conftest import FakeJira
 
 @pytest.mark.parametrize("bad", ["", "ABC", "ABC-0", "abc-1/../x", "A B-1", "ABC-1?x=1"])
 def test_issue_keys_are_validated(bad: str) -> None:
-    with pytest.raises(AtlassianError):
+    with pytest.raises(AgentToolsError):
         normalize_issue_key(bad)
 
 
@@ -75,13 +75,13 @@ async def test_live_transition_posts_resolved_id(
 async def test_unknown_transition_lists_what_is_available(
     fake: FakeJira, make_jira: Callable[..., JiraClient]
 ) -> None:
-    with pytest.raises(AtlassianError, match="'Start Progress', 'Done'"):
+    with pytest.raises(AgentToolsError, match="'Start Progress', 'Done'"):
         await make_jira(dry_run=False).transition_issue("ABC-1", "Reopen")
     assert fake.writes() == []
 
 
 async def test_empty_comment_is_rejected(make_jira: Callable[..., JiraClient]) -> None:
-    with pytest.raises(AtlassianError, match="empty"):
+    with pytest.raises(AgentToolsError, match="empty"):
         await make_jira().add_comment("ABC-1", "   ")
 
 
@@ -264,7 +264,7 @@ def test_durations_are_tidied(given: str, expected: str) -> None:
 
 @pytest.mark.parametrize("bad", ["", "90", "1x", "h1", "1h,30m", "an hour"])
 def test_bad_durations_explain_the_syntax(bad: str) -> None:
-    with pytest.raises(AtlassianError, match="'1h 30m', '2d' or '45m'"):
+    with pytest.raises(AgentToolsError, match="'1h 30m', '2d' or '45m'"):
         normalize_duration(bad)
 
 
@@ -274,9 +274,9 @@ def test_start_times_are_converted_for_jira() -> None:
     local = jira_time("2026-11-11T14:30")
     assert local.startswith("2026-11-11T14:30:00.000") and len(local) == 28
     assert jira_time("2026-11-11").startswith("2026-11-11T09:00:00.000")
-    with pytest.raises(AtlassianError, match="not an ISO 8601"):
+    with pytest.raises(AgentToolsError, match="not an ISO 8601"):
         jira_time("yesterday")
-    with pytest.raises(AtlassianError, match="not an ISO 8601"):
+    with pytest.raises(AgentToolsError, match="not an ISO 8601"):
         jira_time("2026-13-01")
 
 
@@ -339,9 +339,9 @@ async def test_assignee_is_resolved_against_assignable_users(
 async def test_ambiguous_or_unknown_assignees_are_refused(
     make_jira: Callable[..., JiraClient],
 ) -> None:
-    with pytest.raises(AtlassianError, match=r"more than one.*Jo Lee \(jlee\), Jamie Leeson"):
+    with pytest.raises(AgentToolsError, match=r"more than one.*Jo Lee \(jlee\), Jamie Leeson"):
         await make_jira().find_assignee("ABC-1", "lee")
-    with pytest.raises(AtlassianError, match="Nobody matching 'zed'"):
+    with pytest.raises(AgentToolsError, match="Nobody matching 'zed'"):
         await make_jira().find_assignee("ABC-1", "zed")
 
 
@@ -350,7 +350,7 @@ async def test_long_candidate_lists_are_cut(
 ) -> None:
     many = [{"name": f"user{n}", "displayName": f"User {n}"} for n in range(13)]
     fake.overrides["/jira/rest/api/2/user/assignable/search"] = httpx.Response(200, json=many)
-    with pytest.raises(AtlassianError, match=r"User 9 \(user9\) and 3 more"):
+    with pytest.raises(AgentToolsError, match=r"User 9 \(user9\) and 3 more"):
         await make_jira().find_assignee("ABC-1", "user")
 
 

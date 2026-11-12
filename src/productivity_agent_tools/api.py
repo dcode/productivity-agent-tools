@@ -36,7 +36,7 @@ class WriteOutcome:
 class ApiClient(Protocol):
     """An authenticated JSON API on one base URL.
 
-    Failures are raised as ``AtlassianError`` subclasses carrying a
+    Failures are raised as ``AgentToolsError`` subclasses carrying a
     plain-language message that is safe to show to the user and the agent.
 
     Attributes:

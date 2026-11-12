@@ -13,7 +13,7 @@ from datetime import date
 
 from pydantic import JsonValue
 
-from productivity_agent_tools.errors import AtlassianError
+from productivity_agent_tools.errors import AgentToolsError
 from productivity_agent_tools.jira.models import FieldInfo
 from productivity_agent_tools.payload import JsonObject, objects, text, value
 
@@ -179,11 +179,11 @@ def require(fields: dict[str, FieldMeta], field_id: str, where: str) -> FieldMet
         The field's metadata.
 
     Raises:
-        AtlassianError: If the screen does not have the field.
+        AgentToolsError: If the screen does not have the field.
     """
     meta = fields.get(field_id)
     if meta is None:
-        raise AtlassianError(
+        raise AgentToolsError(
             f"'{field_id}' is not on {where}, so Jira will not accept it there. "
             "Tell the user; a Jira administrator decides which fields a screen shows."
         )
@@ -201,7 +201,7 @@ def choose(meta: FieldMeta, wanted: str) -> JsonObject:
         A reference to send, such as ``{"id": "3"}``.
 
     Raises:
-        AtlassianError: If no allowed value matches.
+        AgentToolsError: If no allowed value matches.
     """
     folded = wanted.strip().casefold()
     for item in meta.allowed:
@@ -210,7 +210,7 @@ def choose(meta: FieldMeta, wanted: str) -> JsonObject:
             ref = text(item, "id")
             return {"id": ref} if ref else {"name": _label(item)}
     listed = ", ".join(_label(item) for item in meta.allowed[:MAX_LISTED_VALUES]) or "none"
-    raise AtlassianError(f"'{wanted}' is not a valid {meta.name}. Allowed: {listed}.")
+    raise AgentToolsError(f"'{wanted}' is not a valid {meta.name}. Allowed: {listed}.")
 
 
 def check_label(label: str) -> str:
@@ -223,11 +223,11 @@ def check_label(label: str) -> str:
         The label without surrounding whitespace.
 
     Raises:
-        AtlassianError: If it is empty or contains whitespace.
+        AgentToolsError: If it is empty or contains whitespace.
     """
     cleaned = label.strip()
     if not cleaned or any(ch.isspace() for ch in cleaned):
-        raise AtlassianError(
+        raise AgentToolsError(
             f"'{label}' is not a valid label: labels are single words without spaces, "
             "such as needs-review."
         )
@@ -244,7 +244,7 @@ def due_date(given: str) -> str | None:
         The date as ``YYYY-MM-DD``, or None.
 
     Raises:
-        AtlassianError: If it is not a date.
+        AgentToolsError: If it is not a date.
     """
     cleaned = given.strip()
     if cleaned.casefold() in _CLEAR:
@@ -252,4 +252,4 @@ def due_date(given: str) -> str | None:
     try:
         return date.fromisoformat(cleaned).isoformat()
     except ValueError:
-        raise AtlassianError(f"'{given}' is not a date such as 2026-11-30.") from None
+        raise AgentToolsError(f"'{given}' is not a date such as 2026-11-30.") from None

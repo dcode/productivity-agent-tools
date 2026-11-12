@@ -20,7 +20,7 @@ from pydantic import BaseModel, Field
 
 from productivity_agent_tools.bitbucket.client import BitbucketClient
 from productivity_agent_tools.bitbucket.models import PullRequestSummary
-from productivity_agent_tools.errors import AtlassianError
+from productivity_agent_tools.errors import AgentToolsError
 from productivity_agent_tools.jira.client import JiraClient, normalize_issue_key
 from productivity_agent_tools.payload import JsonObject, text
 from productivity_agent_tools.products import Integration, client_of
@@ -135,7 +135,7 @@ async def issue_pull_requests(
         The merged pull requests, newest sources first, and which sources answered.
 
     Raises:
-        AtlassianError: If the key is invalid.
+        AgentToolsError: If the key is invalid.
     """
     issue_key = normalize_issue_key(key)
     sources: list[str] = []
@@ -172,7 +172,7 @@ async def issue_pull_requests(
         pulls: list[IssuePullRequest] = []
         failed = 0
         for commit, page in zip(checked, pages, strict=True):
-            if isinstance(page, AtlassianError):
+            if isinstance(page, AgentToolsError):
                 failed += 1  # such as a repository the user cannot read
                 continue
             if isinstance(page, BaseException):
@@ -182,7 +182,7 @@ async def issue_pull_requests(
         return pulls, len(checked), more or len(distinct) > len(checked), failed
 
     panel_result, commit_result = await asyncio.gather(panel(), commits(), return_exceptions=True)
-    if isinstance(panel_result, AtlassianError):
+    if isinstance(panel_result, AgentToolsError):
         unavailable.append(f"{DEVELOPMENT_PANEL}: {panel_result}")
     elif isinstance(panel_result, BaseException):
         raise panel_result
@@ -191,7 +191,7 @@ async def issue_pull_requests(
         for pull in panel_result:
             add(pull)
     checked_count, more_commits = 0, False
-    if isinstance(commit_result, AtlassianError):
+    if isinstance(commit_result, AgentToolsError):
         unavailable.append(f"{BITBUCKET_COMMITS}: {commit_result}")
     elif isinstance(commit_result, BaseException):
         raise commit_result

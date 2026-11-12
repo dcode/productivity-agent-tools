@@ -6,7 +6,7 @@ from collections.abc import Awaitable, Callable
 from mcp.server.mcpserver.exceptions import ToolError
 from mcp.types import ToolAnnotations
 
-from productivity_agent_tools.errors import AtlassianError
+from productivity_agent_tools.errors import AgentToolsError
 
 READ = ToolAnnotations(read_only_hint=True, open_world_hint=True)
 LOCAL_READ = ToolAnnotations(read_only_hint=True, open_world_hint=False)
@@ -38,7 +38,7 @@ def anticipated[**P, R](tool: Callable[P, Awaitable[R]]) -> Callable[P, Awaitabl
     async def wrapper(*args: P.args, **kwargs: P.kwargs) -> R:
         try:
             return await tool(*args, **kwargs)
-        except AtlassianError as exc:
+        except AgentToolsError as exc:
             raise ToolError(str(exc)) from exc
 
     return wrapper

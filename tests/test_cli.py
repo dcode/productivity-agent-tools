@@ -10,7 +10,7 @@ from mcp.server.mcpserver import MCPServer
 
 from productivity_agent_tools import cli
 from productivity_agent_tools.config import Settings
-from productivity_agent_tools.errors import AtlassianError, ConfigError
+from productivity_agent_tools.errors import AgentToolsError, ConfigError
 from tests.conftest import FakeJira
 
 PEM = b"-----BEGIN CERTIFICATE-----\nAAAA\n-----END CERTIFICATE-----\n"
@@ -107,7 +107,7 @@ async def test_export_ca_fails_when_nothing_exported(
     process: FakeProcess, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     fake_security(monkeypatch, process)
-    with pytest.raises(AtlassianError, match="Could not export"):
+    with pytest.raises(AgentToolsError, match="Could not export"):
         await cli._export_ca(tmp_path / "roots.pem")
     assert not (tmp_path / "roots.pem").exists()
 
@@ -251,7 +251,7 @@ async def test_call_explains_what_went_wrong(
     pairs: tuple[str, ...],
     message: str,
 ) -> None:
-    with pytest.raises(AtlassianError, match=message):
+    with pytest.raises(AgentToolsError, match=message):
         await cli._call(make_settings(), tool, pairs, httpx.MockTransport(fake.handler))
 
 
@@ -265,7 +265,7 @@ def test_call_command_prints_the_result_or_exits_with_the_error(
     ) -> str:
         seen.append((tool, pairs))
         if tool == "bad":
-            raise AtlassianError("no such luck")
+            raise AgentToolsError("no such luck")
         return "RESULT"
 
     monkeypatch.setattr(cli, "_call", run)
@@ -294,7 +294,7 @@ async def test_call_can_return_one_field_with_text_as_written(
         "Pat Example"
     )
     assert json.loads(await cli._call(settings, "jira_status", (), transport, field="dry_run"))
-    with pytest.raises(AtlassianError, match=r"no field 'nope'\. Fields: base_url, jira_version"):
+    with pytest.raises(AgentToolsError, match=r"no field 'nope'\. Fields: base_url, jira_version"):
         await cli._call(settings, "jira_status", (), transport, field="nope")
 
 
