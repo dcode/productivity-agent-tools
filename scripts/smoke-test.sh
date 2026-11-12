@@ -16,7 +16,7 @@ set -u
 # ---- Edit these -------------------------------------------------------------
 
 JIRA_ISSUE="<ISSUE-123>"          # an issue you can see, e.g. PROJ-123
-JIRA_JQL="<jql-query>"            # e.g. assignee = currentUser() ORDER BY updated DESC
+JIRA_JQL="assignee = currentUser() ORDER BY updated DESC"            # e.g. assignee = currentUser() ORDER BY updated DESC
 
 BITBUCKET_PROJECT="<project-key>" # e.g. PROJ
 BITBUCKET_REPO="<repo-slug>"      # e.g. my-service
@@ -41,6 +41,19 @@ SKIPPED=()
 
 tool() {
   uv run productivity-agent-tools call "$@" ${EXTRA_ARGS[@]+"${EXTRA_ARGS[@]}"}
+}
+
+build-identifier() {
+  local previous_tag
+  local build_id
+  previous_tag="$(git describe --tags --abbrev=0 2>/dev/null || true)"
+  if [ -n "$previous_tag" ]; then
+    build_id="$(git describe --tags --always --match "$previous_tag" 2>/dev/null || true)"
+  else
+    build_id="$(git describe --tags --always 2>/dev/null || true)"
+  fi
+
+  echo -n "${build_id}"
 }
 
 # has_placeholder VALUE... -> true if any value is still a <placeholder>
@@ -102,6 +115,8 @@ fi
 offers() {
   printf '%s\n' "$TOOLS" | grep -q "^$1\( \|\$\)"
 }
+
+printf '== smoke test\n   build: %s\n' "$(build-identifier)" | tee "$OUT_DIR/00-build.txt"
 
 # ---- Jira (only if [jira] is in your config) --------------------------------
 
@@ -201,5 +216,9 @@ for name in ${FAILED[@]+"${FAILED[@]}"}; do printf '     - %s\n' "$name"; done
 printf '   skipped: %s\n' "${#SKIPPED[@]}"
 for name in ${SKIPPED[@]+"${SKIPPED[@]}"}; do printf '     - %s\n' "$name"; done
 printf '   full output: %s\n' "$OUT_DIR"
+
+zip_name="$(basename $(pwd))-$(build-identifier).zip"
+zip -j -r "${zip_name}" "$OUT_DIR" >/dev/null 2>&1
+printf '   full output zip: %s.zip\n' "${zip_name%.zip}"
 
 [ "${#FAILED[@]}" -eq 0 ]
