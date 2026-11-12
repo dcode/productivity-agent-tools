@@ -263,6 +263,8 @@ class FakeBitbucket:
         self.issues: httpx.Response = httpx.Response(200, json=ISSUES)
         self.whoami: httpx.Response = httpx.Response(200, text="pat.example@corp\n")
         self.merge: httpx.Response = httpx.Response(200, json=MERGE)
+        # The X-AUSERNAME header real servers put on REST answers; None sends none.
+        self.rest_username: str | None = None
         self.review: httpx.Response | None = None
         self.issue_commits: httpx.Response = httpx.Response(
             200, json={"values": ISSUE_COMMITS, "isLastPage": False}
@@ -282,7 +284,8 @@ class FakeBitbucket:
                 200, json={"name": "pat.example@corp", "slug": "pat.example_corp"}
             )
         if path == f"{API}/application-properties":
-            return httpx.Response(200, json={"version": "9.4.2"})
+            named = {"X-AUSERNAME": self.rest_username} if self.rest_username else {}
+            return httpx.Response(200, json={"version": "9.4.2"}, headers=named)
         if path == f"{API}/dashboard/pull-requests":
             return httpx.Response(200, json={"values": [PULL], "isLastPage": self.last_page})
         if path == "/bitbucket/rest/search/1.0/search" and request.method == "POST":
@@ -1066,17 +1069,21 @@ async def test_merge_status_of_a_merged_pull_request_is_a_note_not_an_error(
         await client.get_merge_status("uploader", 42, "OPS")
 
 
-async def test_user_slug_falls_back_to_the_username_header(
+async def test_user_slug_comes_from_the_username_header_of_a_rest_answer(
     bitbucket: FakeBitbucket, make_api: Callable[..., AtlassianClient]
 ) -> None:
-    # The whoami servlet ignores bearer tokens on Bitbucket 10.2 and answers nothing.
-    bitbucket.whoami = httpx.Response(200, text="", headers={"X-AUSERNAME": "pat.example%40corp"})
+    # As on Bitbucket 10.2.8: REST answers name the user, the whoami servlet does not.
+    bitbucket.whoami = httpx.Response(200, text="")
+    bitbucket.rest_username = "pat.example%40corp"
     api = make_api()
     assert api.username is None
     assert await BitbucketClient(api, BitbucketSettings()).user_slug() == "pat.example_corp"
     assert api.username == "pat.example@corp"
+    properties, lookup = bitbucket.requests
+    assert properties.url.path.endswith("/application-properties")
+    assert lookup.url.path.endswith("/users/pat.example@corp")
 
-    bitbucket.whoami = httpx.Response(200, text="", headers={"X-AUSERNAME": "anonymous"})
+    bitbucket.rest_username = "anonymous"
     unknown = make_api()
     assert await BitbucketClient(unknown, BitbucketSettings()).user_slug(False) is None
     assert unknown.username is None
@@ -1191,7 +1198,7 @@ async def test_user_slug_comes_from_whoami_and_is_asked_for_once(
     client = _live(make_api)
     assert await client.user_slug() == "pat.example_corp"
     assert await client.user_slug() == "pat.example_corp"
-    whoami, lookup = bitbucket.requests
+    _properties, whoami, lookup = bitbucket.requests
     assert whoami.headers["accept"] == "text/plain"
     assert lookup.url.raw_path.endswith(b"/users/pat.example%40corp")
 
