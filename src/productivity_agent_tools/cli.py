@@ -32,7 +32,6 @@ from productivity_agent_tools.config import (
     load_settings,
 )
 from productivity_agent_tools.errors import AgentToolsError, ConfigError
-from productivity_agent_tools.http import AtlassianClient
 from productivity_agent_tools.logs import LOG_LEVELS, configure_logging
 from productivity_agent_tools.products import Product, installed_products
 from productivity_agent_tools.server import Connected, build_server
@@ -164,9 +163,10 @@ async def _open_server(
     async with contextlib.AsyncExitStack() as stack:
         connected: dict[str, Connected] = {}
         for name, product_settings in settings.products.items():
-            token = await resolve_token(products[name].token, settings.token_env_file)
+            product = products[name]
+            token = await resolve_token(product.token, settings.token_env_file)
             client = await stack.enter_async_context(
-                AtlassianClient.from_connection(
+                product.adapter(
                     settings.connection_for(product_settings),
                     token.value,
                     dry_run=settings.dry_run,
@@ -355,7 +355,7 @@ async def _doctor_product(
     try:
         token = await resolve_token(product.token, settings.token_env_file)
         print(f"[ok]   {product.name} token found in {token.source}")
-        async with AtlassianClient.from_connection(
+        async with product.adapter(
             connection, token.value, dry_run=settings.dry_run, transport=transport
         ) as core:
             async for line in product.activate(core, product_settings).doctor():

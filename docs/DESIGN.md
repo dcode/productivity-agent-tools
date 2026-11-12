@@ -257,6 +257,9 @@ keeps writes behind a dry-run switch that is on by default.
   `base_url` and `dry_run`. Product modules never make HTTP calls themselves.
 - `AtlassianClient` in `http.py` is the Atlassian Data Center adapter: bearer token, TLS
   trust, extra cookies, logging and plain-language errors. One adapter is built per product.
+- Each `Product` names its adapter (`Product.adapter`, matching the `Adapter` protocol in
+  `api.py`); Jira and Bitbucket use `AtlassianClient.from_connection`. A GitLab product
+  would bring its own adapter, since its errors and authentication differ.
 - Every adapter must honor `dry_run` in `write`. `get_text` and `query` are reads and are
   never blocked.
 - HTTP is async `httpx`, with TLS trust from `truststore` (the operating system's store) unless

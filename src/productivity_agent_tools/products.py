@@ -26,7 +26,7 @@ from typing import Any
 
 from mcp.server.mcpserver import MCPServer
 
-from productivity_agent_tools.api import ApiClient
+from productivity_agent_tools.api import Adapter, ApiClient
 from productivity_agent_tools.config import ProductSettings
 
 PRODUCT_GROUP: str = "productivity_agent_tools.products"
@@ -89,6 +89,8 @@ class Product[S: ProductSettings, C]:
         title: The product's name as people write it, such as ``"Jira"``.
         instructions: Text added to the MCP server's instructions when the product is on.
         settings_type: The product's settings class.
+        adapter: Opens the API adapter for the product's kind of server, such as
+            ``AtlassianClient.from_connection``.
         parse_settings: Builds the settings from the product's config table.
         make_client: Wraps a connected API adapter in the product's client.
         register_tools: Adds the product's tools to a server.
@@ -102,6 +104,7 @@ class Product[S: ProductSettings, C]:
     title: str
     instructions: str
     settings_type: type[S]
+    adapter: Adapter
     parse_settings: Callable[[dict[str, Any]], S]
     make_client: Callable[[ApiClient, S], C]
     register_tools: Callable[[MCPServer, C, ToolContext], None]
