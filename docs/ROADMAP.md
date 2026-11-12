@@ -132,10 +132,9 @@ chance comes up and tick it here.
   - [x] Spaces, CQL search in a space, a page by id, child pages and the dry-run create
         (Markdown converted) all answer
   - [x] `personal_space` null is right: there is no personal space
-  - [ ] `confluence_get_page` on the profile page shows `can_edit: false` (new; read from
-        `expand=operations`, untested on the real server). The browser shows no Edit link
-        there, so **the profile page is blocked until someone grants edit access**: ask
-        the team lead or a space administrator.
+  - [x] `confluence_get_page` on the profile page shows `can_edit: false`, matching the
+        browser (no Edit link). **The profile page is blocked until someone grants edit
+        access**: ask the team lead or a space administrator.
   - [ ] `contributor = currentUser()` was accepted but found nothing; confirm once you
         have edited a page
   - [ ] `confluence_get_page` with `max_chars` high enough for the whole body: the layout,
