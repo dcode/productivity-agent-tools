@@ -442,10 +442,11 @@ class BitbucketClient:
         """Find the signed-in user's slug, asking Bitbucket once per server run.
 
         Bitbucket's REST API 1.0 has no "who am I" resource. The user name
-        comes from the ``X-AUSERNAME`` header Bitbucket puts on its responses,
-        when an earlier response carried one; otherwise from the
-        ``applinks/whoami`` servlet (which ignores bearer tokens on 10.2.8) and
-        the header on that servlet's own response. It then looks up the name's slug.
+        comes from the ``X-AUSERNAME`` header Bitbucket puts on its REST
+        responses; if none has been seen yet, one cheap REST request is made
+        to get it. Failing that, the ``applinks/whoami`` servlet is asked
+        (it ignores bearer tokens on 10.2.8 and sends no such header). The
+        name's slug is then looked up.
         ``user_slug`` under ``[bitbucket]`` skips all of this.
 
         Args:
@@ -459,6 +460,9 @@ class BitbucketClient:
         """
         if self._user_slug is None:
             try:
+                if self._core.username is None:
+                    # Any REST answer names the signed-in user in its headers.
+                    await self._core.get(f"{self._api}/application-properties")
                 name = (
                     self._core.username
                     or (
@@ -466,7 +470,6 @@ class BitbucketClient:
                             f"{self._settings.path}/plugins/servlet/applinks/whoami"
                         )
                     ).strip()
-                    or self._core.username
                 )
                 if name:
                     found = await self._core.get(f"{self._api}/users/{quote(name, safe='')}")
