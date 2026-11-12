@@ -51,7 +51,8 @@ def _no_products() -> str:
     Returns:
         The message.
     """
-    tables = " or ".join(f"[{name}]" for name in installed_products())
+    names = [f"[{name}]" for name in installed_products()]
+    tables = ", ".join(names[:-1]) + f" or {names[-1]}" if len(names) > 1 else "".join(names)
     return (
         f"No product is configured. Add a {tables} table to the config; an empty "
         "table is enough to turn a product on with its defaults."

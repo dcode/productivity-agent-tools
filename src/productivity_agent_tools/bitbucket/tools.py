@@ -5,7 +5,6 @@ anything in Bitbucket, and dry-run blocks both.
 """
 
 from mcp.server.mcpserver import MCPServer
-from mcp.types import ToolAnnotations
 
 from productivity_agent_tools.bitbucket.client import (
     DEFAULT_DIFF_CHARS,
@@ -37,13 +36,15 @@ from productivity_agent_tools.capabilities import IssueTracker
 from productivity_agent_tools.errors import AgentToolsError
 from productivity_agent_tools.products import ToolContext
 from productivity_agent_tools.repeats import RepeatGuard
-from productivity_agent_tools.tooling import IDEMPOTENT_WRITE, READ, WRITE, anticipated
+from productivity_agent_tools.tooling import (
+    IDEMPOTENT_WRITE,
+    READ,
+    SESSION_SETTING,
+    WRITE,
+    anticipated,
+)
 from productivity_agent_tools.writes import once, report
 
-# Changes only this server's memory of which project to assume, nothing in Bitbucket.
-_SESSION_SETTING = ToolAnnotations(
-    read_only_hint=False, destructive_hint=False, idempotent_hint=True, open_world_hint=True
-)
 _REVIEW_WORDS: dict[str, str] = {
     "APPROVED": "approved",
     "NEEDS_WORK": "marked as needing work",
@@ -126,7 +127,7 @@ def register_bitbucket_tools(
         """
         return await bitbucket.list_projects(name, max_results)
 
-    @server.tool(annotations=_SESSION_SETTING)
+    @server.tool(annotations=SESSION_SETTING)
     @anticipated
     async def bitbucket_set_default_project(project: str) -> DefaultProject:
         """Choose the project other Bitbucket tools use when a call names no project.

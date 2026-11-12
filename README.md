@@ -3,7 +3,8 @@
 An MCP server that gives an AI agent (Goose first, Claude Code later) tools for
 daily work against a **self-hosted Atlassian Data Center** deployment. It covers
 Jira (read and write) and, when configured, Bitbucket (reads, plus pull-request
-comments and reviews).
+comments and reviews) and Confluence (reads and search, plus creating and editing
+pages).
 
 ## Quickstart
 
@@ -153,8 +154,8 @@ Checked in this order; the first one found wins:
    (for example `.env` or `~/.secrets/jira_token.env`)
 3. macOS Keychain (written by `set-token`)
 
-Bitbucket uses its own token, found the same way under the name
-`BITBUCKET_TOKEN`.
+Bitbucket and Confluence use their own tokens, found the same way under the
+names `BITBUCKET_TOKEN` and `CONFLUENCE_TOKEN`.
 
 ### Bitbucket
 
@@ -177,6 +178,29 @@ Bitbucket is off until the config has a `[bitbucket]` table. To turn it on:
    ```
 
 3. Run `doctor` again; it now checks Bitbucket too. Restart your agent to load
+   the new tools.
+
+### Confluence
+
+Confluence is off until the config has a `[confluence]` table. To turn it on:
+
+1. Add the table, with the sub-path Confluence is served under (or its own
+   `base_url` if it is on a different host):
+
+   ```toml
+   [confluence]
+   path = "/confluence"
+   default_space = "~jdoe"  # optional: your personal space, or a team space key
+   ```
+
+2. Create a personal access token in Confluence (your profile, Settings,
+   Personal Access Tokens) and store it:
+
+   ```bash
+   uv run productivity-agent-tools set-token confluence
+   ```
+
+3. Run `doctor` again; it now checks Confluence too. Restart your agent to load
    the new tools.
 
 ## Run a tool without an agent
@@ -322,6 +346,14 @@ tool approval on so you see each comment or transition before it is sent.
 | `bitbucket_get_deployment` | read | One deployment's state, by key, environment and run number |
 | `bitbucket_add_pull_request_comment` | write | Comment on a pull request, reply to a comment, or add a task (Markdown) |
 | `bitbucket_review_pull_request` | write | Approve, mark as needing work, or withdraw your review |
+| `confluence_status` | read | Confluence version, who is signed in, your personal space, dry-run |
+| `confluence_list_spaces` | read | Spaces you can see, global or personal |
+| `confluence_set_default_space` | session | The space other tools use when none is named, until restart |
+| `confluence_search` | read | Pages and blog posts matching a CQL query |
+| `confluence_get_page` | read | A page by id or exact title: body (storage format), version, ancestors, labels |
+| `confluence_list_child_pages` | read | Pages directly under a page |
+| `confluence_create_page` | write | Create a page from Markdown or storage format, optionally under a parent |
+| `confluence_update_page` | write | Replace, append to or prepend to a page's body, or retitle or move it |
 
 The `bitbucket_` tools appear only when Bitbucket is configured. Only the two
 write tools change anything in Bitbucket, and `dry_run` blocks them just as it
@@ -349,6 +381,21 @@ still shows the other.
 Bitbucket has no way to list deployments. `bitbucket_get_deployment` needs
 the deployment key, environment key and sequence number that your CI or CD
 server reported, so the agent asks you for them rather than guessing.
+
+The `confluence_` tools appear only when Confluence is configured. Only
+`confluence_create_page` and `confluence_update_page` change anything, and
+`dry_run` blocks both. Page bodies are written in Markdown and converted to
+Confluence's storage format here, because Confluence 10 no longer converts wiki
+markup through its API. Code blocks become Confluence code macros and images
+become Confluence images. For macros, layouts or mentions, the agent can send
+storage format directly (`body_format="storage"`).
+
+An edit must name the version the agent read. If anyone changed the page since,
+nothing is saved and the agent is told to read it again, so it cannot overwrite
+someone else's change. To add a section, the agent can append to the page
+(`mode="append"`) without sending the whole page back. `confluence_status`
+shows your personal space key (`~` and your username), which is where pages
+about you, such as an "About me" page, usually go.
 
 Most other Bitbucket tools need a project key. Set `default_project` under
 `[bitbucket]` to the project you usually work in and the agent can leave it out.

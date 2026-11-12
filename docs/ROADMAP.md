@@ -25,8 +25,10 @@ Last updated: 2026-11-12.
   - [#8](https://github.com/dcode/productivity-agent-tools/pull/8): products as
     entry-point plugins, `AgentToolsError`, a per-product adapter. Run `uv sync` after
     pulling so the entry points are installed. An unknown product table is now an error.
-- **In review:** nothing.
-- **Tests:** 281 passing, about 99.9% branch coverage. All hooks clean.
+- **In progress:** Confluence reads, search, page creation and editing (branch
+  `claude/beautiful-hamilton-k4u2un`), for a management request to publish an "About me"
+  page. Not yet run against the real Confluence; see the checks below.
+- **Tests:** 307 passing, about 99.9% branch coverage. All hooks clean.
 - **In use:** Goose on the work laptop, against Jira 11.3 and Bitbucket 10.2.8.
 
 ## Done
@@ -57,6 +59,10 @@ Last updated: 2026-11-12.
 - [x] Products as plugins: `Product` objects found through the
       `productivity_agent_tools.products` entry points, integrations between products,
       capability protocols for optional cross-product data (see DESIGN.md, Overall shape)
+- [x] Confluence: status (with personal space), spaces, default space, CQL search, page by
+      id or title (storage format), child pages; create and edit pages from Markdown or
+      storage format, with version checks and append/prepend (see DESIGN.md, Confluence
+      specifics)
 
 ## Confirm against the real servers
 
@@ -109,6 +115,20 @@ chance comes up and tick it here.
   - [ ] The smoke test's two dry-run writes show the request they would send
   - [ ] One real comment and one real approve and unapprove on a test pull request, with
         `--no-dry-run`, compared in the browser
+- [ ] Confluence (fill in `CONFLUENCE_SPACE` and `CONFLUENCE_PAGE` in the smoke test first):
+  - [ ] Set up: `[confluence]` with the right `path`, `set-token confluence`, then `doctor`
+  - [ ] `confluence_status` shows `personal_space`; if it is null but you have one, the
+        key is probably `~` plus your user key rather than your username: note it here
+  - [ ] Whether `rest/api/server-information` answers (the version shows), and whether
+        `doctor`'s search (`contributor = currentUser()`) is accepted
+  - [ ] `confluence_get_page` on a page with macros and a table: the body round-trips
+  - [ ] The dry-run create shows the converted body; then one real `confluence_create_page`
+        in your personal space, viewed in the browser (headings, list, table, code block,
+        an image by URL)
+  - [ ] One real `confluence_update_page` with `mode=append`, then one with a stale
+        `version` to see it refused
+  - [ ] **The "About me" page**: draft it with the agent in Markdown, review the dry run,
+        then publish with `--no-dry-run` to the space management named
 
 ## Next up
 
@@ -128,8 +148,9 @@ Rough order. Each item is one pull request. API references: the Jira 11.0.2 and 
   Jira–GitLab integration if issues are tracked in Jira. Not started; the plugin structure
   was built for it. Open question: does `jira_get_issue_pull_requests` become an
   integration per code host, or a capability (`CodeHost`) that every code host offers?
-- **Confluence** product module (read and search first) on the same adapter. The 10.2.20
-  OpenAPI spec is at
+- **More Confluence:** labels (`content/{id}/label`), attachments (a photo for "About
+  me", then `ac:image` with `ri:attachment`), page comments, blog posts, and `@` mentions
+  from Markdown. The 10.2.20 OpenAPI spec is at
   `https://dac-static.atlassian.com/server/confluence/10.2.20.swagger.v3.json`.
 - **OpenTelemetry** traces of httpx requests and responses, alongside structlog.
 - **Microsoft Graph adapter** (Microsoft 365 calendar and mail): a new `ApiClient` with its

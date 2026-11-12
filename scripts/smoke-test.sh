@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 #
 # Smoke test: run every tool once against your real servers with `call`,
-# no agent and no model credits. Nothing here changes Jira or Bitbucket:
+# no agent and no model credits. Nothing here changes Jira, Bitbucket or Confluence:
 # every write tool it runs is forced into dry-run.
 #
 # 1. Replace the <placeholder> values below.
@@ -27,6 +27,9 @@ BITBUCKET_COMMIT="<commit-hash>"  # a commit with CI builds, e.g. the PR's lates
 BITBUCKET_DEPLOY_KEY="<deployment-key>"
 BITBUCKET_DEPLOY_ENV="<environment-key>"
 BITBUCKET_DEPLOY_RUN="<sequence-number>"
+
+CONFLUENCE_SPACE="<space-key>"    # e.g. OPS, or ~yourname for your personal space
+CONFLUENCE_PAGE="<page-id>"       # a page you can see (the number in its pageId URL)
 
 # ---- No need to edit below --------------------------------------------------
 
@@ -184,6 +187,28 @@ if offers bitbucket_status; then
 else
   printf '\n== bitbucket\n   skipped: no [bitbucket] table in the config\n'
   SKIPPED+=("bitbucket (not configured)")
+fi
+
+# ---- Confluence (only if [confluence] is in your config) ----------------------
+
+if offers confluence_status; then
+  check "confluence status" -- confluence_status
+  check "confluence spaces" -- confluence_list_spaces max_results=5
+  check "confluence my pages" -- \
+    confluence_search "cql=contributor = currentUser() ORDER BY lastmodified DESC" max_results=3
+  check "confluence space search" "$CONFLUENCE_SPACE" -- \
+    confluence_search "cql=space = \"$CONFLUENCE_SPACE\" AND type = page" max_results=3
+  check "confluence page" "$CONFLUENCE_PAGE" -- \
+    confluence_get_page "page_id=$CONFLUENCE_PAGE" max_chars=2000
+  check "confluence child pages" "$CONFLUENCE_PAGE" -- \
+    confluence_list_child_pages "page_id=$CONFLUENCE_PAGE" max_results=5
+  # Forced into dry-run: checks the title is free and shows the converted body.
+  check "confluence create (dry run)" "$CONFLUENCE_SPACE" -- \
+    confluence_create_page "space=$CONFLUENCE_SPACE" "title=Smoke test, not sent" \
+    "body="$'## Not sent\n\n- converted from **Markdown**' --dry-run
+else
+  printf '\n== confluence\n   skipped: no [confluence] table in the config\n'
+  SKIPPED+=("confluence (not configured)")
 fi
 
 # ---- Jira and Bitbucket together (only if both are configured) ---------------

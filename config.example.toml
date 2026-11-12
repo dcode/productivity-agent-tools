@@ -86,3 +86,19 @@ current-sprint = "assignee = currentUser() AND sprint in openSprints() ORDER BY 
 # Like [jira], this table can set its own base_url, ca_bundle, timeout_seconds
 # and a [bitbucket.cookies] table.
 # base_url = "https://bitbucket.example.com"
+
+# Optional: Confluence tools (reads, plus creating and editing pages, which
+# dry_run blocks like the other writes). They are off until this table exists.
+# Confluence needs its own token: run
+# `productivity-agent-tools set-token confluence`.
+# [confluence]
+# Sub-path Confluence is served under. Use "" when it is at the root of its host.
+# path = "/confluence"
+# default_max_results = 25
+# Space key used when the agent names no space, such as your personal space
+# (~ followed by your username). The agent can also choose one for a session
+# with the confluence_set_default_space tool.
+# default_space = "~jdoe"
+# Like [jira], this table can set its own base_url, ca_bundle, timeout_seconds
+# and a [confluence.cookies] table.
+# base_url = "https://confluence.example.com"
