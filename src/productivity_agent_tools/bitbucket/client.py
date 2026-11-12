@@ -46,7 +46,7 @@ from productivity_agent_tools.bitbucket.models import (
     Reviewer,
     TestResults,
 )
-from productivity_agent_tools.config import BitbucketSettings
+from productivity_agent_tools.bitbucket.settings import BitbucketSettings
 from productivity_agent_tools.errors import ApiError, AtlassianError, NotFoundError
 from productivity_agent_tools.payload import JsonObject, as_object, number, objects, text, value
 

@@ -24,11 +24,8 @@ from productivity_agent_tools.agents import (
     configure_agent,
     find_launch,
 )
-from productivity_agent_tools.bitbucket.client import BitbucketClient
 from productivity_agent_tools.config import (
     DEFAULT_CONFIG_PATH,
-    BitbucketSettings,
-    JiraSettings,
     ProductSettings,
     Settings,
     apply_overrides,
@@ -36,9 +33,9 @@ from productivity_agent_tools.config import (
 )
 from productivity_agent_tools.errors import AtlassianError, ConfigError
 from productivity_agent_tools.http import AtlassianClient
-from productivity_agent_tools.jira.client import JiraClient
 from productivity_agent_tools.logs import LOG_LEVELS, configure_logging
-from productivity_agent_tools.server import build_server
+from productivity_agent_tools.products import Product, installed_products
+from productivity_agent_tools.server import Connected, build_server
 from productivity_agent_tools.tokens import resolve_token, store_token
 
 _KEYCHAINS: tuple[str, ...] = (
@@ -48,11 +45,19 @@ _KEYCHAINS: tuple[str, ...] = (
 
 _log = structlog.get_logger(__name__)
 
-PRODUCTS: tuple[str, ...] = ("jira", "bitbucket")
-_NO_PRODUCTS: str = (
-    "No product is configured. Add a [jira] or [bitbucket] table to the config; an empty "
-    "table is enough to turn a product on with its defaults."
-)
+
+def _no_products() -> str:
+    """Explain that no product is configured, naming the installed ones.
+
+    Returns:
+        The message.
+    """
+    tables = " or ".join(f"[{name}]" for name in installed_products())
+    return (
+        f"No product is configured. Add a {tables} table to the config; an empty "
+        "table is enough to turn a product on with its defaults."
+    )
+
 
 app = App(
     name="productivity-agent-tools",
@@ -84,7 +89,7 @@ TokenEnvFileOption = Annotated[
     Path | None,
     Parameter(
         name="--token-env-file",
-        help="Env file defining JIRA_TOKEN. Overrides the config file.",
+        help="Env file defining <PRODUCT>_TOKEN, such as JIRA_TOKEN. Overrides the config file.",
     ),
 ]
 LogLevelOption = Annotated[
@@ -148,42 +153,28 @@ async def _open_server(
         AtlassianError: If a token or CA bundle cannot be loaded.
     """
     if not settings.products:
-        raise ConfigError(_NO_PRODUCTS)
+        raise ConfigError(_no_products())
     _log.info(
         "server_starting",
         products=list(settings.products),
         dry_run=settings.dry_run,
         log_level=settings.log_level,
     )
+    products = installed_products()
     async with contextlib.AsyncExitStack() as stack:
-
-        async def connect(name: str, product: ProductSettings) -> tuple[AtlassianClient, str]:
-            token = await resolve_token(name, settings.token_env_file)
+        connected: dict[str, Connected] = {}
+        for name, product_settings in settings.products.items():
+            token = await resolve_token(products[name].token, settings.token_env_file)
             client = await stack.enter_async_context(
                 AtlassianClient.from_connection(
-                    settings.connection_for(product),
+                    settings.connection_for(product_settings),
                     token.value,
                     dry_run=settings.dry_run,
                     transport=transport,
                 )
             )
-            return client, token.source
-
-        jira_api, jira_source = (
-            await connect("jira", settings.jira) if settings.jira is not None else (None, "")
-        )
-        bitbucket_api, bitbucket_source = (
-            await connect("bitbucket", settings.bitbucket)
-            if settings.bitbucket is not None
-            else (None, "")
-        )
-        yield build_server(
-            settings,
-            jira_api,
-            jira_source,
-            bitbucket_api=bitbucket_api,
-            bitbucket_token_source=bitbucket_source,
-        )
+            connected[name] = Connected(client, token.source)
+        yield build_server(settings, connected)
 
 
 async def _serve(settings: Settings, transport: httpx.AsyncBaseTransport | None = None) -> None:
@@ -342,68 +333,33 @@ def _show(text: str, field: str | None) -> None:
         print(text)
 
 
-async def _doctor_jira(
-    settings: Settings, jira_settings: JiraSettings, transport: httpx.AsyncBaseTransport | None
+async def _doctor_product(
+    settings: Settings,
+    product: Product[Any, Any],
+    product_settings: ProductSettings,
+    transport: httpx.AsyncBaseTransport | None,
 ) -> bool:
-    """Check the Jira token, connection and search, printing one line per check.
+    """Check one product's token, connection and its own reads, printing one line per check.
 
     Args:
         settings: The resolved settings.
-        jira_settings: The Jira module settings.
+        product: The product.
+        product_settings: The product's settings.
         transport: Replacement HTTP transport, used by tests.
 
     Returns:
         True if every check passed.
     """
-    connection = settings.connection_for(jira_settings)
-    print(f"[info] jira extra_cookies={','.join(connection.cookies) or 'none'}")
+    connection = settings.connection_for(product_settings)
+    print(f"[info] {product.name} extra_cookies={','.join(connection.cookies) or 'none'}")
     try:
-        token = await resolve_token("jira", settings.token_env_file)
-        print(f"[ok]   jira token found in {token.source}")
+        token = await resolve_token(product.token, settings.token_env_file)
+        print(f"[ok]   {product.name} token found in {token.source}")
         async with AtlassianClient.from_connection(
             connection, token.value, dry_run=settings.dry_run, transport=transport
         ) as core:
-            jira = JiraClient(core, jira_settings)
-            profile = await jira.myself()
-            print(f"[ok]   authenticated to {jira.base_url} as {profile.get('displayName')}")
-            print(f"[ok]   Jira version {await jira.server_version()}")
-            result = await jira.search(jira_settings.presets.get("mine-open", ""), 1)
-            print(f"[ok]   search works ({result.total} open issue(s) assigned to you)")
-    except AtlassianError as exc:
-        print(f"[fail] {exc}")
-        return False
-    return True
-
-
-async def _doctor_bitbucket(
-    settings: Settings, bitbucket: BitbucketSettings, transport: httpx.AsyncBaseTransport | None
-) -> bool:
-    """Check the Bitbucket token, connection and pull-request listing.
-
-    Args:
-        settings: The resolved settings.
-        bitbucket: The Bitbucket module settings.
-        transport: Replacement HTTP transport, used by tests.
-
-    Returns:
-        True if every check passed.
-    """
-    connection = settings.connection_for(bitbucket)
-    print(f"[info] bitbucket extra_cookies={','.join(connection.cookies) or 'none'}")
-    try:
-        token = await resolve_token("bitbucket", settings.token_env_file)
-        print(f"[ok]   bitbucket token found in {token.source}")
-        async with AtlassianClient.from_connection(
-            connection, token.value, dry_run=settings.dry_run, transport=transport
-        ) as core:
-            client = BitbucketClient(core, bitbucket)
-            print(f"[ok]   Bitbucket version {await client.server_version()} at {client.base_url}")
-            waiting = await client.list_pull_requests(max_results=25)
-            more = "+" if waiting.more_available else ""
-            print(
-                f"[ok]   pull requests readable ({waiting.returned}{more} open with you as "
-                "reviewer)"
-            )
+            async for line in product.activate(core, product_settings).doctor():
+                print(f"[ok]   {line}")
     except AtlassianError as exc:
         print(f"[fail] {exc}")
         return False
@@ -427,17 +383,15 @@ async def _doctor(
     print(f"[info] dry_run={settings.dry_run}")
     print(f"[info] ca_bundle={settings.ca_bundle or 'system trust store'}")
     if not settings.products:
-        print(f"[fail] {_NO_PRODUCTS}")
+        print(f"[fail] {_no_products()}")
         return False
     passed = True
-    if settings.jira is None:
-        print("[info] jira is not configured (add a [jira] table to turn it on)")
-    elif not await _doctor_jira(settings, settings.jira, transport):
-        passed = False
-    if settings.bitbucket is None:
-        print("[info] bitbucket is not configured (add a [bitbucket] table to turn it on)")
-    elif not await _doctor_bitbucket(settings, settings.bitbucket, transport):
-        passed = False
+    for name, product in installed_products().items():
+        product_settings = settings.products.get(name)
+        if product_settings is None:
+            print(f"[info] {name} is not configured (add a [{name}] table to turn it on)")
+        elif not await _doctor_product(settings, product, product_settings, transport):
+            passed = False
     return passed
 
 
@@ -568,11 +522,12 @@ def set_token(product: str = "jira") -> None:
     """Store a personal access token in the macOS Keychain (hidden prompt).
 
     Args:
-        product: Which product the token is for: jira or bitbucket.
+        product: Which product the token is for, such as jira or bitbucket.
     """
     product = product.strip().lower()
-    if product not in PRODUCTS:
-        _fail(AtlassianError(f"'{product}' is not a product. Use one of: {', '.join(PRODUCTS)}."))
+    known = sorted({p.token for p in installed_products().values()})
+    if product not in known:
+        _fail(AtlassianError(f"'{product}' is not a product. Use one of: {', '.join(known)}."))
     token = getpass.getpass(f"{product} personal access token (hidden): ").strip()
     if not token:
         _fail(AtlassianError("No token entered; nothing was stored."))

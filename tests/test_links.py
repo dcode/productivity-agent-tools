@@ -7,12 +7,13 @@ import httpx
 import pytest
 
 from productivity_agent_tools.bitbucket.client import BitbucketClient
-from productivity_agent_tools.config import BitbucketSettings, Settings, parse_settings
+from productivity_agent_tools.bitbucket.settings import BitbucketSettings
+from productivity_agent_tools.config import Settings, parse_settings
 from productivity_agent_tools.errors import AtlassianError
 from productivity_agent_tools.http import AtlassianClient
 from productivity_agent_tools.jira.client import JiraClient
-from productivity_agent_tools.links import MAX_COMMIT_LOOKUPS, issue_describer, issue_pull_requests
-from productivity_agent_tools.server import build_server
+from productivity_agent_tools.links import MAX_COMMIT_LOOKUPS, issue_pull_requests
+from productivity_agent_tools.server import Connected, build_server
 from tests.conftest import FakeJira
 from tests.test_bitbucket import FakeBitbucket
 
@@ -168,10 +169,10 @@ async def test_development_panel_needs_the_issue_id(
         await make_jira().development_pull_requests("ABC-1")
 
 
-async def test_issue_describer_uses_one_search_and_skips_bad_keys(
+async def test_describe_issues_uses_one_search_and_skips_bad_keys(
     fake: FakeJira, make_jira: Callable[..., JiraClient]
 ) -> None:
-    describe = issue_describer(make_jira())
+    describe = make_jira().describe_issues
     assert await describe(["bad key", "abc-1"]) == {}
     assert fake.requests == []
     details = await describe(["ABC-1", "XYZ-2", "ABC-1"])
@@ -185,12 +186,14 @@ async def test_tools_join_up_only_when_both_products_are_configured(
     make_core: Callable[..., AtlassianClient],
     bb_api: Callable[[], AtlassianClient],
 ) -> None:
-    jira_only = build_server(_both(), make_core(), "jira")
+    jira_only = build_server(_both(), {"jira": Connected(make_core(), "jira")})
     names = {t.name for t in await jira_only.list_tools()}
     assert "jira_get_issue_pull_requests" not in names
     assert "jira_get_issue_pull_requests" not in (jira_only.instructions or "")
 
-    server = build_server(_both(), make_core(), "jira", bitbucket_api=bb_api())
+    server = build_server(
+        _both(), {"jira": Connected(make_core(), "jira"), "bitbucket": Connected(bb_api())}
+    )
     assert "jira_get_issue_pull_requests" in (server.instructions or "")
     linked = _structured(await server.call_tool("jira_get_issue_pull_requests", {"key": "ABC-1"}))
     assert linked["returned"] == 4
@@ -222,7 +225,9 @@ async def test_issues_jira_does_not_return_stay_as_keys(
     bb_api: Callable[[], AtlassianClient],
 ) -> None:
     bitbucket.issues = httpx.Response(200, json=[{"key": "XYZ-2"}])
-    server = build_server(_both(), make_core(), "jira", bitbucket_api=bb_api())
+    server = build_server(
+        _both(), {"jira": Connected(make_core(), "jira"), "bitbucket": Connected(bb_api())}
+    )
     pull = {"project": "OPS", "repository": "uploader", "pull_request_id": 42}
     issues = _structured(await server.call_tool("bitbucket_get_pull_request_issues", pull))
     assert issues["issues"] == [

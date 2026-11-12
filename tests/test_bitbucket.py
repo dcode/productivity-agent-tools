@@ -10,7 +10,8 @@ from mcp.server.mcpserver.exceptions import ToolError
 
 from productivity_agent_tools import cli
 from productivity_agent_tools.bitbucket.client import BitbucketClient
-from productivity_agent_tools.config import BitbucketSettings, Settings, parse_settings
+from productivity_agent_tools.bitbucket.settings import BitbucketSettings
+from productivity_agent_tools.config import Settings, parse_settings
 from productivity_agent_tools.errors import (
     AtlassianError,
     AuthenticationError,
@@ -18,7 +19,7 @@ from productivity_agent_tools.errors import (
     TokenNotFoundError,
 )
 from productivity_agent_tools.http import AtlassianClient
-from productivity_agent_tools.server import build_server
+from productivity_agent_tools.server import Connected, build_server
 from tests.conftest import FakeJira
 
 API = "/bitbucket/rest/api/1.0"
@@ -477,17 +478,20 @@ def _settings(**bitbucket: Any) -> Settings:
 
 
 def test_bitbucket_is_off_until_its_table_exists() -> None:
-    assert parse_settings({"base_url": "https://host.example"}).bitbucket is None
+    assert "bitbucket" not in parse_settings({"base_url": "https://host.example"}).products
     settings = _settings()
-    assert settings.bitbucket == BitbucketSettings()
-    assert settings.connection_for(settings.bitbucket).base_url == "https://host.example"
+    assert settings.products["bitbucket"] == BitbucketSettings()
+    assert (
+        settings.connection_for(settings.products["bitbucket"]).base_url == "https://host.example"
+    )
 
 
 def test_bitbucket_table_overrides_and_is_validated() -> None:
     settings = _settings(base_url="https://git.example", path="", default_max_results=5, cookies={})
-    assert settings.bitbucket is not None
-    assert (settings.bitbucket.path, settings.bitbucket.default_max_results) == ("", 5)
-    connection = settings.connection_for(settings.bitbucket)
+    bitbucket = settings.product("bitbucket", BitbucketSettings)
+    assert bitbucket is not None
+    assert (bitbucket.path, bitbucket.default_max_results) == ("", 5)
+    connection = settings.connection_for(settings.products["bitbucket"])
     assert (connection.base_url, connection.cookies) == ("https://git.example", {})
     for bad in ({"default_max_results": 0}, {"base_url": "http://git.example"}):
         with pytest.raises(ConfigError, match="bitbucket"):
@@ -507,16 +511,16 @@ async def test_tools_are_registered_only_when_bitbucket_is_connected(
     make_api: Callable[..., AtlassianClient],
 ) -> None:
     settings = _settings()
-    without = build_server(settings, make_core(), "jira source")
+    without = build_server(settings, {"jira": Connected(make_core(), "jira source")})
     assert not [t.name for t in await without.list_tools() if t.name.startswith("bitbucket_")]
     assert "bitbucket_" not in (without.instructions or "")
 
     server = build_server(
         settings,
-        make_core(),
-        "jira source",
-        bitbucket_api=make_api(),
-        bitbucket_token_source="bb source",
+        {
+            "jira": Connected(make_core(), "jira source"),
+            "bitbucket": Connected(make_api(), "bb source"),
+        },
     )
     tools = {t.name: t for t in await server.list_tools() if t.name.startswith("bitbucket_")}
     assert sorted(tools) == [
@@ -691,7 +695,7 @@ def test_set_token_rejects_unknown_products(capsys: pytest.CaptureFixture[str]) 
     with pytest.raises(SystemExit) as info:
         cli.set_token("confluence")
     assert info.value.code == 1
-    assert "Use one of: jira, bitbucket" in capsys.readouterr().err
+    assert "Use one of: bitbucket, jira" in capsys.readouterr().err
 
 
 async def test_projects_can_be_listed_and_filtered_by_name(
@@ -739,8 +743,9 @@ async def test_default_project_comes_from_config_or_is_chosen_for_the_session(
 
 def test_default_project_is_read_from_config() -> None:
     settings = _settings(default_project=" PROJ ")
-    assert settings.bitbucket is not None and settings.bitbucket.default_project == "PROJ"
-    assert _settings().bitbucket == BitbucketSettings()
+    bitbucket = settings.product("bitbucket", BitbucketSettings)
+    assert bitbucket is not None and bitbucket.default_project == "PROJ"
+    assert _settings().products["bitbucket"] == BitbucketSettings()
 
 
 async def test_repository_pull_requests_filter_by_state_and_text(
@@ -888,7 +893,7 @@ async def test_bitbucket_alone_offers_no_jira_tools_and_needs_no_jira_token(
     assert "bitbucket_status" in listing
     assert "jira_" not in listing
 
-    server = build_server(_bitbucket_only(), bitbucket_api=make_api())
+    server = build_server(_bitbucket_only(), {"bitbucket": Connected(make_api())})
     assert "jira_" not in (server.instructions or "")
     assert (server.instructions or "").startswith("The bitbucket_ tools")
 
@@ -901,7 +906,7 @@ async def test_bitbucket_alone_offers_no_jira_tools_and_needs_no_jira_token(
 async def test_jira_adapter_without_a_jira_table_registers_nothing(
     make_core: Callable[..., AtlassianClient],
 ) -> None:
-    server = build_server(_bitbucket_only(), make_core(), "jira source")
+    server = build_server(_bitbucket_only(), {"jira": Connected(make_core(), "jira source")})
     assert await server.list_tools() == []
 
 
@@ -1213,7 +1218,7 @@ async def test_tools_write_once_and_honour_dry_run(
     bitbucket: FakeBitbucket, make_api: Callable[..., AtlassianClient]
 ) -> None:
     settings = _settings(default_project="OPS")
-    dry = build_server(settings, bitbucket_api=make_api())
+    dry = build_server(settings, {"bitbucket": Connected(make_api())})
     pull = {"repository": "uploader", "pull_request_id": 42}
 
     blocked = _structured(
@@ -1233,7 +1238,7 @@ async def test_tools_write_once_and_honour_dry_run(
     assert dry_review["request"]["path"].endswith("/participants/pat.example_corp")
     assert _writes(bitbucket) == []
 
-    live = build_server(settings, bitbucket_api=make_api(dry_run=False))
+    live = build_server(settings, {"bitbucket": Connected(make_api(dry_run=False))})
     arguments = {**pull, "text": "Ship it", "reply_to": 3}
     first = _structured(await live.call_tool("bitbucket_add_pull_request_comment", arguments))
     again = _structured(await live.call_tool("bitbucket_add_pull_request_comment", arguments))
@@ -1270,7 +1275,7 @@ async def test_bitbucket_refusals_reach_the_agent(
     bitbucket.review = httpx.Response(
         409, json={"errors": [{"message": "You cannot review your own pull request."}]}
     )
-    server = build_server(_settings(), bitbucket_api=make_api(dry_run=False))
+    server = build_server(_settings(), {"bitbucket": Connected(make_api(dry_run=False))})
     with pytest.raises(ToolError, match=r"HTTP 409\. \(You cannot review your own pull request"):
         await server.call_tool(
             "bitbucket_review_pull_request",

@@ -3,7 +3,6 @@
 from mcp.server.mcpserver import MCPServer
 
 from productivity_agent_tools.api import WriteOutcome
-from productivity_agent_tools.config import Settings
 from productivity_agent_tools.errors import AtlassianError
 from productivity_agent_tools.jira.client import (
     FieldChanges,
@@ -24,6 +23,7 @@ from productivity_agent_tools.jira.models import (
     WorklogList,
     WriteResult,
 )
+from productivity_agent_tools.products import ToolContext
 from productivity_agent_tools.repeats import RepeatGuard
 from productivity_agent_tools.tooling import IDEMPOTENT_WRITE as _IDEMPOTENT_WRITE
 from productivity_agent_tools.tooling import LOCAL_READ as _LOCAL_READ
@@ -59,8 +59,7 @@ def _write_result(action: str, issue_key: str, outcome: WriteOutcome, done: str)
 def register_jira_tools(
     server: MCPServer,
     jira: JiraClient,
-    settings: Settings,
-    token_source: str,
+    context: ToolContext,
     repeats: RepeatGuard[WriteResult] | None = None,
 ) -> None:
     """Register every Jira tool on an MCP server.
@@ -68,8 +67,7 @@ def register_jira_tools(
     Args:
         server: The MCP server to add tools to.
         jira: Jira client the tools call.
-        settings: Resolved settings (presets and safety switches).
-        token_source: Description of where the access token came from.
+        context: Dry-run, token source and extra cookie names for the status tool.
         repeats: Guard against identical repeated writes; a default one is made when None.
     """
     guard = repeats if repeats is not None else RepeatGuard[WriteResult]()
@@ -89,9 +87,9 @@ def register_jira_tools(
             jira_version=await jira.server_version(),
             username=name if isinstance(name, str) else None,
             display_name=display if isinstance(display, str) else None,
-            token_source=token_source,
-            dry_run=settings.dry_run,
-            extra_cookies=list(settings.connection_for(jira.settings).cookies),
+            token_source=context.token_source,
+            dry_run=context.dry_run,
+            extra_cookies=list(context.cookie_names),
         )
 
     @server.tool(annotations=_LOCAL_READ)

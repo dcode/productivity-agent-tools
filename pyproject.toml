@@ -21,6 +21,15 @@ dependencies = [
 [project.scripts]
 productivity-agent-tools = "productivity_agent_tools.cli:main"
 
+# Product modules and the integrations between them; see products.py. A separately
+# installed package can add its own under the same groups.
+[project.entry-points."productivity_agent_tools.products"]
+bitbucket = "productivity_agent_tools.bitbucket.product:PRODUCT"
+jira = "productivity_agent_tools.jira.product:PRODUCT"
+
+[project.entry-points."productivity_agent_tools.integrations"]
+jira_bitbucket = "productivity_agent_tools.links:INTEGRATION"
+
 [dependency-groups]
 dev = [
     "pre-commit>=4.7.0",
