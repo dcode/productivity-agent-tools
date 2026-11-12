@@ -83,6 +83,9 @@ current-sprint = "assignee = currentUser() AND sprint in openSprints() ORDER BY 
 # Your Bitbucket user slug. Leave unset: the server asks Bitbucket who the token
 # belongs to. Set it only if bitbucket_status shows no user.
 # user_slug = "jdoe"
+# Set to false when no CI or CD server reports builds or deployments to this
+# Bitbucket: the build and deployment tools are then not offered to the agent.
+# ci = false
 # Like [jira], this table can set its own base_url, ca_bundle, timeout_seconds
 # and a [bitbucket.cookies] table.
 # base_url = "https://bitbucket.example.com"

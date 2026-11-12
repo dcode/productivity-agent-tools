@@ -404,6 +404,14 @@ keeps writes behind a dry-run switch that is on by default.
 - One deployment timestamp (`lastUpdated`) is documented with a value in seconds, while
   every other Bitbucket timestamp is in milliseconds. Values below 10^11 are read as
   seconds.
+- `ci = false` under `[bitbucket]` is for a server no CI or CD system reports to. It
+  leaves `bitbucket_get_commit_builds`, `bitbucket_list_required_builds` and
+  `bitbucket_get_deployment` unregistered, so an agent does not spend calls on them, and
+  `bitbucket_get_pull_request` skips its build request (`builds_available` is false).
+- The user's slug: `applinks/whoami` answers nothing for a bearer token on 10.2.8, but
+  every authenticated response carries `X-AUSERNAME`. The adapter keeps it as
+  `ApiClient.username`; the Bitbucket client uses it first and asks the servlet only when
+  no response has been seen yet. Confirmed on the real server.
 
 ### Jira and Bitbucket together
 

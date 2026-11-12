@@ -28,7 +28,7 @@ Last updated: 2026-11-12.
 - **In progress:** Confluence reads, search, page creation and editing (branch
   `claude/beautiful-hamilton-k4u2un`), for a management request to publish an "About me"
   page. Not yet run against the real Confluence; see the checks below.
-- **Tests:** 309 passing, about 99.9% branch coverage. All hooks clean.
+- **Tests:** 311 passing, about 99.9% branch coverage. All hooks clean.
 - **In use:** Goose on the work laptop, against Jira 11.3.12 and Bitbucket 10.2.8. No CI
   server (Bamboo or other) reports builds or deployments to this Bitbucket.
 - **Last smoke run:** build `v0.1.0-9-g31880f4` (before Confluence), 2026-11-12. 30 calls
@@ -121,10 +121,8 @@ chance comes up and tick it here.
         has one, ideally linked only by branch name, and check the panel finds it.
   - [ ] `bitbucket_get_pull_request_issues` shows summaries and statuses
 - [ ] Bitbucket writes:
-  - [ ] `bitbucket_status` shows your `user_slug`. `applinks/whoami` does **not** accept a
-        bearer token on 10.2.8; the `X-AUSERNAME` header fallback is untested on the real
-        server. If it is still null, run `call bitbucket_status --log-level debug`, look
-        for `x_ausername` in the log, and set `user_slug` under `[bitbucket]` meanwhile.
+  - [x] `bitbucket_status` shows your `user_slug`, from the `X-AUSERNAME` header
+        (`applinks/whoami` does not accept a bearer token on 10.2.8)
   - [x] The dry-run comment shows the request it would send
   - [ ] The dry-run review does too (needs `user_slug`, above)
   - [ ] One real comment and one real approve and unapprove on a test pull request, with
@@ -150,7 +148,8 @@ Rough order. Each item is one pull request. API references: the Jira 11.0.2 and 
 10.5 OpenAPI specs (`https://dac-static.atlassian.com/server/jira/platform/jira_software_dc_11002_swagger.v3.json`,
 `https://dac-static.atlassian.com/server/bitbucket/10.5.swagger.v3.json`).
 
-1. **Confirm Confluence and publish the "About me" page** (see the Confluence checks
+1. **Set `ci = false`** under `[bitbucket]` on the work laptop and re-run the smoke test.
+2. **Confirm Confluence and publish the "About me" page** (see the Confluence checks
    above), then open the pull request for this branch.
 
 ## Later
@@ -180,7 +179,7 @@ Rough order. Each item is one pull request. API references: the Jira 11.0.2 and 
 ## Open questions
 
 - **Deployment listing is parked.** With no CI server reporting to Bitbucket there is
-  nothing to list or to find the internal endpoint with. Should the build and deployment
-  tools stay registered on a server that will never have data for them?
+  nothing to list. `ci = false` under `[bitbucket]` now hides the build and deployment
+  tools; set it in the work laptop's config.
 - `scripts/smoke-test.sh` on `main` now holds a real issue key, project key and repository
   slug. Fine for a private repository; if it is public, move them to an untracked file.
