@@ -17,6 +17,7 @@ set -u
 
 JIRA_ISSUE="<ISSUE-123>"          # an issue you can see, e.g. PROJ-123
 JIRA_JQL="assignee = currentUser() ORDER BY updated DESC"            # e.g. assignee = currentUser() ORDER BY updated DESC
+JIRA_ISSUE_TYPE="Task"        # an issue type the issue's project lets you create
 
 BITBUCKET_PROJECT="<project-key>" # e.g. PROJ
 BITBUCKET_REPO="<repo-slug>"      # e.g. my-service
@@ -146,7 +147,7 @@ if offers jira_status; then
   check "jira edit (dry run)" "$JIRA_ISSUE" -- \
     jira_edit_issue "key=$JIRA_ISSUE" 'add_labels=["smoke-test"]' --dry-run
   check "jira create (dry run)" "$JIRA_ISSUE" -- \
-    jira_create_issue "project=${JIRA_ISSUE%%-*}" issue_type=Task "summary=smoke test, not sent" \
+    jira_create_issue "project=${JIRA_ISSUE%%-*}" "issue_type=$JIRA_ISSUE_TYPE" "summary=smoke test, not sent" \
     --dry-run
 else
   printf '\n== jira\n   skipped: no [jira] table in the config\n'

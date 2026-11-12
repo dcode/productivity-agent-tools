@@ -46,10 +46,13 @@ class ApiClient(Protocol):
     Attributes:
         base_url: Address every request path is relative to, with no trailing slash.
         dry_run: When True, ``write`` describes the request but sends nothing.
+        username: Who the service says is signed in, once a response has said so; None
+            until then, or when the service never says.
     """
 
     base_url: str
     dry_run: bool
+    username: str | None
 
     async def get(self, path: str, params: dict[str, str | int] | None = None) -> JsonValue:
         """Send a read request and return the parsed JSON body.
