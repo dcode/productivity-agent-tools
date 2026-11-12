@@ -20,9 +20,13 @@ Last updated: 2026-11-12.
   - [#5](https://github.com/dcode/productivity-agent-tools/pull/5): Jira log work, worklogs,
     assign
   - [#6](https://github.com/dcode/productivity-agent-tools/pull/6): Jira standard fields
-- **In review:** Jira and Bitbucket together: an issue's pull requests, and Jira details on
-  a pull request's issues (branch `claude/beautiful-hamilton-k4u2un`)
-- **Tests:** 271 passing, about 99.9% branch coverage. All hooks clean.
+  - [#7](https://github.com/dcode/productivity-agent-tools/pull/7): Jira and Bitbucket
+    together
+- **In progress:** products as entry-point plugins, then neutral names for the shared
+  error and adapter classes (branch `claude/beautiful-hamilton-k4u2un`). Restructuring
+  only; no tool or config-format changes except that an unknown product table is now an
+  error.
+- **Tests:** 281 passing, about 99.9% branch coverage. All hooks clean.
 - **In use:** Goose on the work laptop, against Jira 11.3 and Bitbucket 10.2.8.
 
 ## Done
@@ -50,6 +54,9 @@ Last updated: 2026-11-12.
       `configure-agent` (Goose)
 - [x] Project: hatch, uv, ruff, ty, rumdl, taplo, pre-commit, CI on Linux and macOS, tag
       releases, Dependabot, `scripts/smoke-test.sh`
+- [x] Products as plugins: `Product` objects found through the
+      `productivity_agent_tools.products` entry points, integrations between products,
+      capability protocols for optional cross-product data (see DESIGN.md, Overall shape)
 
 ## Confirm against the real servers
 
@@ -109,13 +116,18 @@ Rough order. Each item is one pull request. API references: the Jira 11.0.2 and 
 10.5 OpenAPI specs (`https://dac-static.atlassian.com/server/jira/platform/jira_software_dc_11002_swagger.v3.json`,
 `https://dac-static.atlassian.com/server/bitbucket/10.5.swagger.v3.json`).
 
-1. **Deployment listing:** Bitbucket's public API cannot list deployments, but its commit
-   page shows them, so the page uses some internal endpoint. Find it with the browser's
-   network tab on the work laptop and decide whether to use it (as code search does) for a
-   `bitbucket_list_deployments`.
+1. **Deployment listing** (being done by hand on the work laptop): Bitbucket's public API cannot list
+   deployments, but its commit page shows them, so the page uses some internal endpoint.
+   Find it with the browser's network tab on the work laptop and decide whether to use it
+   (as code search does) for a `bitbucket_list_deployments`.
 
 ## Later
 
+- **GitLab (self-managed)**: `gitlab_wiki` and `gitlab_scm` products sharing a `gitlab`
+  token, a GitLab `ApiClient` adapter (error format differs from Atlassian's), and a
+  Jira–GitLab integration if issues are tracked in Jira. Not started; the plugin structure
+  was built for it. Open question: does `jira_get_issue_pull_requests` become an
+  integration per code host, or a capability (`CodeHost`) that every code host offers?
 - **Confluence** product module (read and search first) on the same adapter. The 10.2.20
   OpenAPI spec is at
   `https://dac-static.atlassian.com/server/confluence/10.2.20.swagger.v3.json`.

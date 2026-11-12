@@ -8,6 +8,7 @@ Command-line flags, when given, win over the file.
 import asyncio
 import re
 import tomllib
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Any
@@ -19,16 +20,8 @@ DEFAULT_CONFIG_PATH: Path = Path("~/.config/productivity-agent-tools/config.toml
 
 _COOKIE_NAME = re.compile(r"[!#$%&'*+\-.^_`|~0-9A-Za-z]+")
 _COOKIE_VALUE = re.compile(r"[\x21\x23-\x2B\x2D-\x3A\x3C-\x5B\x5D-\x7E]*")
-
-DEFAULT_PRESETS: dict[str, str] = {
-    "mine-open": ("assignee = currentUser() AND resolution = Unresolved ORDER BY updated DESC"),
-    "updated-since-yesterday": (
-        "assignee = currentUser() AND updated >= startOfDay(-1d) ORDER BY updated DESC"
-    ),
-    "current-sprint": (
-        "assignee = currentUser() AND sprint in openSprints() ORDER BY status ASC, updated DESC"
-    ),
-}
+# Tables at the top of the config that are not products.
+_TOP_LEVEL_TABLES: frozenset[str] = frozenset({"cookies"})
 
 
 @dataclass(frozen=True, slots=True)
@@ -68,37 +61,8 @@ class ProductSettings:
     timeout_seconds: float | None = None
 
 
-@dataclass(frozen=True, slots=True, kw_only=True)
-class JiraSettings(ProductSettings):
-    """Settings for the Jira module, which is on only when ``[jira]`` is configured.
-
-    Attributes:
-        path: Sub-path Jira is served under, or an empty string when it is at the site root.
-        default_max_results: Row cap for searches when the caller gives none.
-        presets: Named JQL queries the agent can run by name.
-    """
-
-    path: str = "/jira"
-    default_max_results: int = 25
-    presets: dict[str, str] = field(default_factory=lambda: dict(DEFAULT_PRESETS))
-
-
-@dataclass(frozen=True, slots=True, kw_only=True)
-class BitbucketSettings(ProductSettings):
-    """Settings for the Bitbucket module, which is on only when ``[bitbucket]`` is configured.
-
-    Attributes:
-        path: Sub-path Bitbucket is served under, or an empty string when it is at the site root.
-        default_max_results: Row cap for lists when the caller gives none.
-        default_project: Project key used when a tool call names no project, or None.
-        user_slug: The signed-in user's Bitbucket slug, or None to ask the server. Only
-            needed when the server cannot say who the token belongs to.
-    """
-
-    path: str = "/bitbucket"
-    default_max_results: int = 25
-    default_project: str | None = None
-    user_slug: str | None = None
+type ProductParser = Callable[[dict[str, Any]], ProductSettings]
+"""Builds one product's settings from its config table."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -118,8 +82,8 @@ class Settings:
         token_env_file: Optional env file holding ``<PRODUCT>_TOKEN=...``.
         timeout_seconds: Per-request timeout.
         log_level: Least severe log level written to stderr.
-        jira: Jira module settings, or None when Jira is not configured.
-        bitbucket: Bitbucket module settings, or None when Bitbucket is not configured.
+        products: Settings of each configured product, and so each one switched on, by name,
+            in the order of their tables in the config file.
     """
 
     base_url: str | None = None
@@ -129,14 +93,27 @@ class Settings:
     token_env_file: Path | None = None
     timeout_seconds: float = 30.0
     log_level: str = DEFAULT_LOG_LEVEL
-    jira: JiraSettings | None = None
-    bitbucket: BitbucketSettings | None = None
+    products: Mapping[str, ProductSettings] = field(default_factory=dict)
 
-    @property
-    def products(self) -> tuple[str, ...]:
-        """Names of the products that are configured, and so switched on."""
-        configured = {"jira": self.jira, "bitbucket": self.bitbucket}
-        return tuple(name for name, product in configured.items() if product is not None)
+    def product[S: ProductSettings](self, name: str, kind: type[S]) -> S | None:
+        """Get one product's settings, typed as its own settings class.
+
+        Args:
+            name: The product's name.
+            kind: The product's settings class.
+
+        Returns:
+            The settings, or None when the product is not configured.
+
+        Raises:
+            ConfigError: If the product's settings are of another class.
+        """
+        found = self.products.get(name)
+        if found is None:
+            return None
+        if not isinstance(found, kind):
+            raise ConfigError(f"The settings of '{name}' are not {kind.__name__}.")
+        return found
 
     def connection_for(self, product: ProductSettings) -> Connection:
         """Resolve one product's connection: its own values over the defaults.
@@ -190,7 +167,7 @@ def _as_bool(raw: dict[str, Any], key: str, default: bool) -> bool:
     raise ConfigError(f"Config key '{key}' must be true/false or 1/0, got {value!r}.")
 
 
-def _as_str(raw: dict[str, Any], key: str, default: str | None) -> str | None:
+def as_str(raw: dict[str, Any], key: str, default: str | None) -> str | None:
     """Read an optional string value.
 
     Args:
@@ -220,7 +197,7 @@ def _as_path(raw: dict[str, Any], key: str) -> Path | None:
     Returns:
         The expanded path, or None when absent.
     """
-    value = _as_str(raw, key, None)
+    value = as_str(raw, key, None)
     return Path(value).expanduser() if value else None
 
 
@@ -313,7 +290,7 @@ def _base_url(raw: dict[str, Any], label: str) -> str | None:
         ConfigError: If the value is not a string or is not an https URL.
     """
     try:
-        value = _as_str(raw, "base_url", None)
+        value = as_str(raw, "base_url", None)
     except ConfigError as exc:
         raise ConfigError(f"Config key '{label}' must be a string.") from exc
     if not value:
@@ -344,7 +321,7 @@ def _timeout(raw: dict[str, Any], label: str) -> float | None:
     return float(value)
 
 
-def _sub_path(raw: dict[str, Any], default: str) -> str:
+def sub_path(raw: dict[str, Any], default: str) -> str:
     """Read the sub-path a product is served under.
 
     Args:
@@ -354,12 +331,12 @@ def _sub_path(raw: dict[str, Any], default: str) -> str:
     Returns:
         The path with one leading slash and no trailing one, or an empty string for the root.
     """
-    path = _as_str(raw, "path", default)
+    path = as_str(raw, "path", default)
     segment = default.strip("/") if path is None else path.strip("/")
     return f"/{segment}" if segment else ""
 
 
-def _max_results(raw: dict[str, Any], table: str, default: int) -> int:
+def max_results(raw: dict[str, Any], table: str, default: int) -> int:
     """Read a product's default row cap.
 
     Args:
@@ -379,7 +356,7 @@ def _max_results(raw: dict[str, Any], table: str, default: int) -> int:
     return value
 
 
-def _product_overrides(raw: dict[str, Any], table: str) -> dict[str, Any]:
+def product_overrides(raw: dict[str, Any], table: str) -> dict[str, Any]:
     """Read the connection values a product's table sets for itself.
 
     Args:
@@ -402,75 +379,44 @@ def _product_overrides(raw: dict[str, Any], table: str) -> dict[str, Any]:
     }
 
 
-def _parse_jira(raw: dict[str, Any]) -> JiraSettings:
-    """Build Jira settings from the ``[jira]`` table.
-
-    Args:
-        raw: Parsed ``[jira]`` table (possibly empty).
-
-    Returns:
-        The Jira settings.
-
-    Raises:
-        ConfigError: If a value has the wrong type.
-    """
-    defaults = JiraSettings()
-    presets_raw = raw.get("presets")
-    if presets_raw is None:
-        presets = dict(DEFAULT_PRESETS)
-    elif isinstance(presets_raw, dict) and all(isinstance(v, str) for v in presets_raw.values()):
-        presets = {str(name): str(jql) for name, jql in presets_raw.items()}
-    else:
-        raise ConfigError("Config table 'jira.presets' must map preset names to JQL strings.")
-    return JiraSettings(
-        path=_sub_path(raw, defaults.path),
-        default_max_results=_max_results(raw, "jira", defaults.default_max_results),
-        presets=presets,
-        **_product_overrides(raw, "jira"),
-    )
-
-
-def _parse_bitbucket(raw: dict[str, Any]) -> BitbucketSettings:
-    """Build Bitbucket settings from the ``[bitbucket]`` table.
-
-    Args:
-        raw: Parsed ``[bitbucket]`` table (possibly empty).
-
-    Returns:
-        The Bitbucket settings.
-
-    Raises:
-        ConfigError: If a value has the wrong type.
-    """
-    defaults = BitbucketSettings()
-    return BitbucketSettings(
-        path=_sub_path(raw, defaults.path),
-        default_max_results=_max_results(raw, "bitbucket", defaults.default_max_results),
-        default_project=(_as_str(raw, "default_project", None) or "").strip() or None,
-        user_slug=(_as_str(raw, "user_slug", None) or "").strip() or None,
-        **_product_overrides(raw, "bitbucket"),
-    )
-
-
-def parse_settings(raw: dict[str, Any]) -> Settings:
+def parse_settings(
+    raw: dict[str, Any], parsers: Mapping[str, ProductParser] | None = None
+) -> Settings:
     """Build settings from a parsed TOML document.
+
+    Every table other than ``[cookies]`` configures a product, and so switches
+    it on; the product's own parser reads it.
 
     Args:
         raw: The parsed configuration document.
+        parsers: Settings parser of each known product, by name. None uses the
+            installed products.
 
     Returns:
         The settings described by the document.
 
     Raises:
-        ConfigError: If a required key is missing or a value is invalid.
+        ConfigError: If a required key is missing, a value is invalid, or a
+            table names no installed product.
     """
+    if parsers is None:
+        from productivity_agent_tools.products import installed_products
+
+        parsers = {name: p.parse_settings for name, p in installed_products().items()}
     timeout = _timeout(raw, "timeout_seconds")
-    jira_raw = raw.get("jira")
-    if jira_raw is not None and not isinstance(jira_raw, dict):
-        raise ConfigError("Config key 'jira' must be a table.")
-    bitbucket_raw = raw.get("bitbucket")
-    if bitbucket_raw is not None and not isinstance(bitbucket_raw, dict):
-        raise ConfigError("Config key 'bitbucket' must be a table.")
+    products: dict[str, ProductSettings] = {}
+    for name, table in raw.items():
+        if name in _TOP_LEVEL_TABLES:
+            continue
+        if name in parsers:
+            if not isinstance(table, dict):
+                raise ConfigError(f"Config key '{name}' must be a table.")
+            products[name] = parsers[name](table)
+        elif isinstance(table, dict):
+            known = ", ".join(sorted(parsers)) or "none"
+            raise ConfigError(
+                f"Config table '{name}' names no installed product. Products: {known}."
+            )
     settings = Settings(
         base_url=_base_url(raw, "base_url"),
         ca_bundle=_as_path(raw, "ca_bundle"),
@@ -478,13 +424,11 @@ def parse_settings(raw: dict[str, Any]) -> Settings:
         cookies=_parse_cookies(raw.get("cookies", {})),
         token_env_file=_as_path(raw, "token_env_file"),
         timeout_seconds=30.0 if timeout is None else timeout,
-        log_level=log_level_name(_as_str(raw, "log_level", None) or DEFAULT_LOG_LEVEL),
-        jira=None if jira_raw is None else _parse_jira(jira_raw),
-        bitbucket=None if bitbucket_raw is None else _parse_bitbucket(bitbucket_raw),
+        log_level=log_level_name(as_str(raw, "log_level", None) or DEFAULT_LOG_LEVEL),
+        products=products,
     )
-    for product in (settings.jira, settings.bitbucket):
-        if product is not None:
-            settings.connection_for(product)
+    for product in products.values():
+        settings.connection_for(product)
     return settings
 
 
@@ -556,8 +500,7 @@ def apply_overrides(
         settings,
         dry_run=settings.dry_run if dry_run is None else dry_run,
         cookies={**settings.cookies, **extra},
-        jira=None if settings.jira is None else with_extra(settings.jira),
-        bitbucket=None if settings.bitbucket is None else with_extra(settings.bitbucket),
+        products={name: with_extra(product) for name, product in settings.products.items()},
         log_level=settings.log_level if log_level is None else log_level_name(log_level),
         token_env_file=(
             settings.token_env_file if token_env_file is None else token_env_file.expanduser()

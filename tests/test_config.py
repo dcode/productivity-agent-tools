@@ -3,20 +3,20 @@ from pathlib import Path
 import pytest
 
 from productivity_agent_tools.config import (
-    DEFAULT_PRESETS,
     Connection,
-    JiraSettings,
     Settings,
     apply_overrides,
     load_settings,
     parse_settings,
 )
 from productivity_agent_tools.errors import ConfigError
+from productivity_agent_tools.jira.settings import DEFAULT_PRESETS, JiraSettings
 
 
 def _jira(settings: Settings) -> JiraSettings:
-    assert settings.jira is not None
-    return settings.jira
+    found = settings.product("jira", JiraSettings)
+    assert found is not None
+    return found
 
 
 def test_safe_defaults() -> None:
@@ -181,10 +181,11 @@ def test_empty_product_cookie_table_sends_none_and_flag_cookies_still_apply() ->
 
 def test_a_product_is_on_only_when_its_table_is_in_the_config() -> None:
     neither = parse_settings({"base_url": "https://host.example"})
-    assert (neither.jira, neither.bitbucket, neither.products) == (None, None, ())
+    assert neither.products == {}
+    assert neither.product("jira", JiraSettings) is None
     jira_only = parse_settings({"base_url": "https://host.example", "jira": {}})
-    assert jira_only.products == ("jira",)
+    assert list(jira_only.products) == ["jira"]
     both = parse_settings({"base_url": "https://host.example", "bitbucket": {}, "jira": {}})
-    assert both.products == ("jira", "bitbucket")
+    assert list(both.products) == ["bitbucket", "jira"]
     untouched = apply_overrides(neither, cookies=["route=a1"])
-    assert (untouched.jira, untouched.cookies) == (None, {"route": "a1"})
+    assert (untouched.products, untouched.cookies) == ({}, {"route": "a1"})

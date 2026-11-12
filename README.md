@@ -470,5 +470,12 @@ manage their own environments:
 sits at 100%. Tool settings live in `pyproject.toml`, except taplo's, which it
 only reads from `.taplo.toml`.
 
-Layout: `http.py`, `config.py` and `tokens.py` are the shared core; each product
-is a sub-package (`jira/`) that registers its own tools in `server.py`.
+Layout: `http.py`, `config.py`, `tokens.py` and `products.py` are the shared
+core. Each product is a sub-package (`jira/`, `bitbucket/`) whose `product.py`
+exposes a `Product` object, listed under the `productivity_agent_tools.products`
+entry-point group in `pyproject.toml`. Nothing in the shared core names a
+product: `server.py`, `config.py` and the CLI find them through the entry
+points. Tools that need two products at once are an `Integration` (`links.py`),
+listed under `productivity_agent_tools.integrations`. To add a product, write
+the sub-package, add its entry point, and run `uv sync` so the entry point is
+installed.

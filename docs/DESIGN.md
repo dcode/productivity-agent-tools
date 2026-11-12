@@ -219,10 +219,34 @@ keeps writes behind a dry-run switch that is on by default.
   Claude Code later is registration work, not a rewrite.
 - Goose is the only supported agent host. Claude Code is off the roadmap because it will
   not be available in the work environment for a long time (see Out of Scope).
-- One server with one module per product (`jira/`, `bitbucket/`), each with `client.py`,
-  `models.py` and `tools.py`. `server.py` registers the tools of each configured product. A
-  shared core (`http.py`, `config.py`, `tokens.py`, `logs.py`, `payload.py`, `tooling.py`,
-  `repeats.py`) holds everything that is not specific to a product.
+- One server with one sub-package per product (`jira/`, `bitbucket/`), each with
+  `client.py`, `models.py`, `tools.py`, `settings.py` and `product.py`. A shared core
+  (`http.py`, `config.py`, `tokens.py`, `logs.py`, `payload.py`, `tooling.py`,
+  `repeats.py`, `products.py`, `capabilities.py`) holds everything that is not specific to
+  a product, and never names one.
+- **Products are plugins, found through entry points.** Each `product.py` exposes a
+  `Product` (a frozen, generic dataclass over the product's settings and client classes)
+  holding its name, title, server-instructions paragraph, settings class and parser,
+  client factory, tool registration and `doctor` checks. It is listed under the
+  `productivity_agent_tools.products` entry-point group in `pyproject.toml`.
+  `config.py`, `server.py` and the CLI loop over the installed products, so a new product
+  (`gitlab_wiki` and `gitlab_scm` are expected) is a new sub-package plus one entry-point
+  line. A product may also come from a separately installed package.
+- Chosen over pluggy: discovery is all that is needed, `importlib.metadata` is in the
+  standard library, and a dataclass of typed callables keeps the boundary visible to `ty`.
+  pluggy's fan-out hook calls return untyped lists and would add a dependency.
+- `Product.token_name` lets products on one host share a token (two GitLab products
+  would both use `gitlab`); it defaults to the product's name.
+- Products never import each other. Two ways to combine them:
+  - **Integrations** (`Integration` under `productivity_agent_tools.integrations`) are
+    tools that need several named products, registered only when all are on. `links.py`
+    is the Jira and Bitbucket one.
+  - **Capabilities** (`capabilities.py`) are runtime-checkable protocols that a client may
+    implement. A product's tools get a `ToolContext` with the other products' clients as
+    `peers` and ask for one with `context.peer(IssueTracker)`, not caring which product
+    answers. This is for data one product can use but does not need.
+- A config table that names no installed product is an error, so a typo does not
+  silently switch a product off.
 - Development happens on a separate machine. Code reaches the work laptop through GitHub, and
   facts about the live servers come back as pasted probe or smoke-test output.
 
@@ -367,8 +391,9 @@ keeps writes behind a dry-run switch that is on by default.
 
 ### Jira and Bitbucket together
 
-- `links.py` holds what needs both products. It is registered only when both are
-  configured, as is its paragraph of the server instructions.
+- `links.py` holds what needs both products, as the `jira_bitbucket` integration. It is
+  registered only when both are configured, as is its paragraph of the server
+  instructions.
 - `jira_get_issue_pull_requests` merges two sources, run concurrently. The first is Jira's
   Development panel: `rest/dev-status/1.0/issue/detail` with the issue's numeric id,
   `applicationType=stash` and `dataType=pullrequest`. It is undocumented and read
@@ -381,8 +406,8 @@ keeps writes behind a dry-run switch that is on by default.
   repository the user cannot read, is counted rather than failing the source. Any other
   exception is raised, so a bug is not hidden. `more_commits` tells the agent the list may
   be incomplete, and not to check the rest one by one, because of the model credit budget.
-- `bitbucket_get_pull_request_issues` takes an optional `describe_issues` function, which
-  `server.py` supplies when Jira is configured. It runs one JQL search,
+- `bitbucket_get_pull_request_issues` adds details when a peer offers the `IssueTracker`
+  capability, which `JiraClient.describe_issues` implements. It runs one JQL search,
   `key in (...)`, over keys validated as issue keys. If Jira refuses the search (one
   missing key fails the whole query), the keys are returned without details and
   `details_note` says why.

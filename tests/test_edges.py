@@ -12,7 +12,7 @@ import pytest
 import truststore
 
 from productivity_agent_tools import http
-from productivity_agent_tools.config import JiraSettings, Settings, load_settings, parse_settings
+from productivity_agent_tools.config import Settings, load_settings, parse_settings
 from productivity_agent_tools.errors import (
     ApiError,
     ConfigError,
@@ -21,7 +21,8 @@ from productivity_agent_tools.errors import (
 )
 from productivity_agent_tools.http import AtlassianClient
 from productivity_agent_tools.jira.client import JiraClient
-from productivity_agent_tools.server import build_server
+from productivity_agent_tools.jira.settings import JiraSettings
+from productivity_agent_tools.server import Connected, build_server
 from productivity_agent_tools.tokens import resolve_token, store_token
 from tests.conftest import FakeJira
 
@@ -164,7 +165,7 @@ async def test_remaining_tools_through_mcp(
     make_settings: Callable[..., Settings],
 ) -> None:
     settings = make_settings(dry_run=False)
-    server = build_server(settings, make_core(dry_run=False), "test")
+    server = build_server(settings, {"jira": Connected(make_core(dry_run=False), "test")})
 
     async def call(name: str, **arguments: str) -> object:
         result = await server.call_tool(name, dict(arguments))
