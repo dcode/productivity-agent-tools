@@ -148,7 +148,8 @@ chance comes up and tick it here.
   - [x] One real `confluence_update_page` (2026-11-13): the profile page, filled in with
         `replacements` built from the live page's exact text. First real Confluence write
         and first real use of `replacements`.
-  - [ ] An edit with a stale `version`, to see it refused on the real server
+  - [x] An edit with a stale `version` is refused on the real server, naming the current
+        version and saying to read the page again
   - [x] **The profile page** is done, ahead of the Fri Nov 20 deadline.
 - [ ] Agile issues and branches (the smoke test has dry-run checks for both):
   - [x] The dry-run Epic create finds the Epic Name field on 11.3.12
