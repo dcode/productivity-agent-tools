@@ -9,6 +9,13 @@ from mcp.server.mcpserver import MCPServer
 from mcp.server.mcpserver.exceptions import ToolError
 
 from productivity_agent_tools import cli
+from productivity_agent_tools.bitbucket.branches import (
+    DEFAULT_PREFIXES,
+    branch_name,
+    check_ref_name,
+    issue_key_of,
+    summary_slug,
+)
 from productivity_agent_tools.bitbucket.client import BitbucketClient
 from productivity_agent_tools.bitbucket.settings import BitbucketSettings
 from productivity_agent_tools.config import Settings, parse_settings
@@ -241,6 +248,18 @@ OTHER_PULL: dict[str, Any] = {
 }
 
 
+BRANCH_MODEL: dict[str, Any] = {
+    "development": {"refId": "refs/heads/develop", "useDefault": False},
+    "production": {"refId": "refs/heads/main", "useDefault": False},
+    "types": [
+        {"id": "BUGFIX", "displayName": "Bugfix", "prefix": "bugfix/"},
+        {"id": "FEATURE", "displayName": "Feature", "prefix": "feat/"},
+        {"id": "HOTFIX", "displayName": "Hotfix", "prefix": "hotfix/"},
+        {"id": "RELEASE", "displayName": "Release"},
+    ],
+}
+
+
 class FakeBitbucket:
     """Answers the Bitbucket endpoints the client uses."""
 
@@ -265,6 +284,11 @@ class FakeBitbucket:
         self.merge: httpx.Response = httpx.Response(200, json=MERGE)
         # The X-AUSERNAME header real servers put on REST answers; None sends none.
         self.rest_username: str | None = None
+        self.branch_model: httpx.Response = httpx.Response(200, json=BRANCH_MODEL)
+        self.branches: list[str] = ["main", "feature/ABC-1-fix-the-thing-old"]
+        self.default_branch: httpx.Response = httpx.Response(
+            200, json={"id": "refs/heads/main", "displayId": "main"}
+        )
         self.review: httpx.Response | None = None
         self.issue_commits: httpx.Response = httpx.Response(
             200, json={"values": ISSUE_COMMITS, "isLastPage": False}
@@ -296,6 +320,22 @@ class FakeBitbucket:
             return httpx.Response(200, json=PROJECT)
         if path == f"{API}/projects/OPS/repos":
             return httpx.Response(200, json={"values": [REPOSITORY], "isLastPage": False})
+        if path == "/bitbucket/rest/branch-utils/latest/projects/OPS/repos/uploader/branchmodel":
+            return self.branch_model
+        if path == f"{API}/projects/OPS/repos/uploader/default-branch":
+            return httpx.Response(404, json={"errors": [{"message": "No such resource"}]})
+        if path == f"{API}/projects/OPS/repos/uploader/branches/default":
+            return self.default_branch
+        if path == f"{API}/projects/OPS/repos/uploader/branches":
+            if request.method == "POST":
+                created = json.loads(request.content)
+                self.branches.append(created["name"])
+                return httpx.Response(
+                    200, json={"id": f"refs/heads/{created['name']}", "displayId": created["name"]}
+                )
+            wanted = request.url.params["filterText"]
+            found = [{"displayId": b} for b in self.branches if wanted in b]
+            return httpx.Response(200, json={"values": found, "isLastPage": True})
         if path == f"{API}/projects/OPS/repos/uploader/pull-requests":
             return httpx.Response(200, json={"values": [PULL], "isLastPage": True})
         base = f"{API}/projects/OPS/repos/uploader/pull-requests/42"
@@ -529,6 +569,7 @@ async def test_tools_are_registered_only_when_bitbucket_is_connected(
     tools = {t.name: t for t in await server.list_tools() if t.name.startswith("bitbucket_")}
     assert sorted(tools) == [
         "bitbucket_add_pull_request_comment",
+        "bitbucket_create_branch",
         "bitbucket_get_commit_builds",
         "bitbucket_get_deployment",
         "bitbucket_get_pull_request",
@@ -556,6 +597,7 @@ async def test_tools_are_registered_only_when_bitbucket_is_connected(
     )
     assert not_read_only == [
         "bitbucket_add_pull_request_comment",
+        "bitbucket_create_branch",
         "bitbucket_review_pull_request",
         "bitbucket_set_default_project",
     ]
@@ -1356,3 +1398,138 @@ async def test_bitbucket_refusals_reach_the_agent(
                 "review": "approve",
             },
         )
+
+
+def test_branch_names_follow_the_branching_model() -> None:
+    prefixes = DEFAULT_PREFIXES
+    long = "The Installer and Updater code need to account for /var/lib getting full"
+    assert (
+        branch_name("feature", prefixes, issue_key="ABC-763", summary="Update Reflector's deploy")
+        == "feature/ABC-763-update-reflectors-deploy"
+    )
+    assert (
+        branch_name("Bugfix", prefixes, issue_key="ABC-763", summary=long)
+        == "bugfix/ABC-763-the-installer-and-updater-code-need-to"
+    )
+    assert summary_slug("x" * 60) == "x" * 40
+    assert (
+        branch_name("feature", prefixes, issue_key="ABC-763", summary=" ?! ") == "feature/ABC-763"
+    )
+    assert branch_name("release", prefixes, name="1.2.0") == "release/1.2.0"
+    assert branch_name("hotfix", prefixes, name="hotfix/ABC-9 dns", issue_key="ABC-9") == (
+        "hotfix/ABC-9-dns"
+    )
+    assert branch_name("feature", prefixes, name="retry uploads", issue_key="ABC-9") == (
+        "feature/ABC-9-retry-uploads"
+    )
+    assert branch_name("custom", prefixes, name="spike/try it", issue_key="ABC-1") == "spike/try-it"
+    assert branch_name("custom", prefixes, issue_key="ABC-1", summary="Go") == "ABC-1-go"
+    assert issue_key_of(" abc-7 ") == "ABC-7"
+    with pytest.raises(AgentToolsError, match="not a valid issue key"):
+        issue_key_of("seven")
+    with pytest.raises(
+        AgentToolsError, match="Use one of: feature, bugfix, hotfix, release, custom"
+    ):
+        branch_name("epic", prefixes, name="x")
+    with pytest.raises(AgentToolsError, match="Give an issue_key, a name, or both"):
+        branch_name("feature", prefixes)
+    for bad in ("a..b", "x.lock", "/x", "a//b", "y" * 101):
+        with pytest.raises(AgentToolsError, match="not a valid branch name"):
+            check_ref_name(bad)
+
+
+async def test_create_branch_uses_the_repositorys_model_and_start_points(
+    bitbucket: FakeBitbucket, make_api: Callable[..., AtlassianClient]
+) -> None:
+    live = _live(make_api, default_project="OPS")
+    branch, start, note, outcome = await live.create_branch(
+        "uploader", "feature", issue_key="ABC-1", summary="Fix the thing"
+    )
+    assert (branch, start, note) == ("feat/ABC-1-fix-the-thing", "refs/heads/develop", None)
+    (sent,) = _writes(bitbucket)
+    assert outcome.sent and json.loads(sent.content) == {
+        "name": "feat/ABC-1-fix-the-thing",
+        "startPoint": "refs/heads/develop",
+    }
+    assert live.branch_url("OPS", "uploader", branch).endswith(
+        "/projects/OPS/repos/uploader/browse?at=refs%2Fheads%2Ffeat%2FABC-1-fix-the-thing"
+    )
+
+    _, hotfix_start, _, _ = await live.create_branch("uploader", "hotfix", name="dns")
+    assert hotfix_start == "refs/heads/main"
+    _, given_start, _, _ = await live.create_branch(
+        "uploader", "bugfix", name="x", start_point=" v1.2 "
+    )
+    assert given_start == "v1.2"
+    with pytest.raises(AgentToolsError, match="'release' is not a branch type this repository"):
+        await live.create_branch("uploader", "release", name="1.0")
+    with pytest.raises(
+        AgentToolsError, match="already has a branch named feat/ABC-1-fix-the-thing"
+    ):
+        await live.create_branch("uploader", "feature", issue_key="ABC-1", summary="Fix the thing")
+    assert len(_writes(bitbucket)) == 3
+
+
+async def test_create_branch_without_a_model_uses_default_prefixes_and_branch(
+    bitbucket: FakeBitbucket, make_api: Callable[..., AtlassianClient]
+) -> None:
+    bitbucket.branch_model = httpx.Response(404, json={"errors": [{"message": "No model"}]})
+    live = _live(make_api, default_project="OPS")
+    branch, start, note, _ = await live.create_branch("uploader", "release", name="1.4.0")
+    assert (branch, start) == ("release/1.4.0", "refs/heads/main")
+    assert note is not None and "default prefixes" in note
+    assert await live.default_branch("uploader") == "refs/heads/main"
+    assert live.repository_ref(None, " uploader ") == ("OPS", "uploader")
+    bitbucket.default_branch = httpx.Response(204)
+    with pytest.raises(AgentToolsError, match="has no default branch"):
+        await live.create_branch("uploader", "feature", name="first")
+
+
+async def test_create_branch_tool_names_the_branch_after_the_jira_issue(
+    fake: FakeJira,
+    bitbucket: FakeBitbucket,
+    make_core: Callable[..., AtlassianClient],
+    make_api: Callable[..., AtlassianClient],
+) -> None:
+    settings = _settings(default_project="OPS")
+    both = {"jira": Connected(make_core()), "bitbucket": Connected(make_api())}
+    dry = build_server(settings, both)
+    ask = {"repository": "uploader", "issue_key": "abc-1"}
+    planned = _structured(await dry.call_tool("bitbucket_create_branch", ask))
+    assert (planned["sent"], planned["branch"], planned["url"]) == (
+        False,
+        "feat/ABC-1-fix-the-thing",
+        None,
+    )
+    assert planned["request"]["body"]["startPoint"] == "refs/heads/develop"
+    assert (planned["branch_type"], planned["issue_key"]) == ("feature", "ABC-1")
+    assert _writes(bitbucket) == []
+
+    fake.overrides["/jira/rest/api/2/search"] = httpx.Response(200, json={"total": 0, "issues": []})
+    with pytest.raises(ToolError, match="Jira has no issue ABC-1 that you can see"):
+        await dry.call_tool("bitbucket_create_branch", ask)
+    fake.overrides["/jira/rest/api/2/search"] = httpx.Response(500, json={})
+    noted = _structured(await dry.call_tool("bitbucket_create_branch", ask))
+    assert noted["branch"] == "feat/ABC-1"
+    assert "Jira did not give the issue's summary" in noted["note"]
+
+
+async def test_create_branch_tool_works_without_jira_and_suppresses_repeats(
+    bitbucket: FakeBitbucket, make_api: Callable[..., AtlassianClient]
+) -> None:
+    live = build_server(
+        parse_settings(
+            {"base_url": "https://host.example", "bitbucket": {"default_project": "OPS"}}
+        ),
+        {"bitbucket": Connected(make_api(dry_run=False))},
+    )
+    ask = {"repository": "uploader", "issue_key": "ABC-9", "branch_type": "bugfix"}
+    made = _structured(await live.call_tool("bitbucket_create_branch", ask))
+    assert (made["sent"], made["branch"]) == (True, "bugfix/ABC-9")
+    assert made["message"] == (
+        "Created branch bugfix/ABC-9 in OPS/uploader from refs/heads/develop."
+    )
+    assert made["url"].endswith("browse?at=refs%2Fheads%2Fbugfix%2FABC-9")
+    again = _structured(await live.call_tool("bitbucket_create_branch", ask))
+    assert again["repeat_suppressed"] is True
+    assert len(_writes(bitbucket)) == 1

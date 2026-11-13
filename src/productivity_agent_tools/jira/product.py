@@ -16,7 +16,8 @@ INSTRUCTIONS: str = (
     "DRY RUN, nothing was changed; tell the user so and do not claim the update was made. "
     "Make each write call exactly once; if a script calls a tool, do not run the script's "
     "body twice. "
-    "Jira text uses wiki markup, not Markdown."
+    "Jira text uses wiki markup, not Markdown. An Epic is created with epic_name; other "
+    "issues join an epic with epic (the epic's key)."
 )
 
 
