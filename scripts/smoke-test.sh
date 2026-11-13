@@ -17,7 +17,7 @@ set -u
 
 JIRA_ISSUE="ELK-763"          # an issue you can see, e.g. PROJ-123
 JIRA_JQL="assignee = currentUser() ORDER BY updated DESC"            # e.g. assignee = currentUser() ORDER BY updated DESC
-JIRA_ISSUE_TYPE="Task"        # an issue type the issue's project lets you create
+JIRA_ISSUE_TYPE="Elastic Engineering Task"        # an issue type the issue's project lets you create
 
 BITBUCKET_PROJECT="CO" # e.g. PROJ
 BITBUCKET_REPO="il5-ansible"      # e.g. my-service
@@ -29,8 +29,8 @@ BITBUCKET_DEPLOY_KEY="<deployment-key>"
 BITBUCKET_DEPLOY_ENV="<environment-key>"
 BITBUCKET_DEPLOY_RUN="<sequence-number>"
 
-CONFLUENCE_SPACE="<space-key>"    # e.g. OPS, or ~yourname for your personal space
-CONFLUENCE_PAGE="<page-id>"       # a page you can see (the number in its pageId URL)
+CONFLUENCE_SPACE="CCS"    # e.g. OPS, or ~yourname for your personal space
+CONFLUENCE_PAGE="281182960"       # a page you can see (the number in its pageId URL)
 
 # ---- No need to edit below --------------------------------------------------
 
@@ -249,7 +249,7 @@ for name in ${SKIPPED[@]+"${SKIPPED[@]}"}; do printf '     - %s\n' "$name"; done
 printf '   full output: %s\n' "$OUT_DIR"
 
 zip_name="$(basename $(pwd))-$(build-identifier).zip"
-zip -j -r "${zip_name}" "$OUT_DIR" >/dev/null 2>&1
-printf '   full output zip: %s.zip\n' "${zip_name%.zip}"
+zip -j -r "dist/${zip_name}" "$OUT_DIR" >/dev/null 2>&1
+printf '   full output zip: dist/%s.zip\n' "${zip_name%.zip}"
 
 [ "${#FAILED[@]}" -eq 0 ]
