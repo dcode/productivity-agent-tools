@@ -40,15 +40,8 @@ Last updated: 2026-11-12.
 - **In use:** Goose on the work laptop, against Jira 11.3.12, Bitbucket 10.2.8 and Confluence
   10.2.19. No CI
   server (Bamboo or other) reports builds or deployments to this Bitbucket.
-- **Last smoke run:** build `v0.2.0-2-g278dd18`, 2026-11-12: 30 calls answered, 1 failed.
-  - The dry-run branch create failed in `call` itself, before reaching Bitbucket:
-    `branch_type=feature` was refused as "must be a number, true/false or JSON". `call`
-    did not recognise a parameter that is a named choice of words. Fixed on the agile
-    branch (it also affected `mode`, `body_format` and `space_type` on the Confluence
-    tools); needs a re-run.
-  - The dry-run Epic create worked: the Epic Name field was found by its type.
-  - The ten checks that need a pull request did not run, so `BITBUCKET_PR` is probably
-    missing from `.env`.
+- **Last smoke run:** build `v0.2.0-3-g721e8b3`, 2026-11-12: all 41 calls answered, none
+  failed. The dry-run branch create and the dry-run Epic create both work.
 
 ## Done
 
@@ -170,8 +163,8 @@ chance comes up and tick it here.
   - [ ] `jira_get_issue` on an issue that is in an epic shows `epic`; on an epic shows
         `epic_name`
   - [ ] One real epic, and one real story in it with story points, in a test project
-  - [ ] The dry-run branch shows your repository's prefixes with no `note`. A note about
-        default prefixes means `branch-utils/.../branchmodel` did not answer on 10.2.8.
+  - [x] The dry-run branch shows the repository's prefix and start point with no `note`:
+        `branch-utils/.../branchmodel` answers on 10.2.8
   - [ ] One real `bitbucket_create_branch` from an issue, seen in the browser and on the
         issue's Development panel
 
