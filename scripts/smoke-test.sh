@@ -148,6 +148,10 @@ if offers jira_status; then
   # Checked against the edit and create screens even in dry-run.
   check "jira edit (dry run)" "$JIRA_ISSUE" -- \
     jira_edit_issue "key=$JIRA_ISSUE" 'add_labels=["smoke-test"]' --dry-run
+  # Needs an Epic type in the project; a project without one fails this check.
+  check "jira create epic (dry run)" "$JIRA_ISSUE" -- \
+    jira_create_issue "project=${JIRA_ISSUE%%-*}" issue_type=Epic \
+    "summary=smoke test, not sent" "epic_name=smoke test" --dry-run
   check "jira create (dry run)" "$JIRA_ISSUE" -- \
     jira_create_issue "project=${JIRA_ISSUE%%-*}" "issue_type=$JIRA_ISSUE_TYPE" "summary=smoke test, not sent" \
     --dry-run
@@ -201,6 +205,9 @@ if offers bitbucket_status; then
   fi
   # Write tools, forced into dry-run: they show the request and send nothing.
   # The review also checks that the server can tell who you are (user_slug).
+  check "bitbucket branch (dry run)" "${B_REPO[@]}" "$JIRA_ISSUE" -- \
+    bitbucket_create_branch "repository=$BITBUCKET_REPO" "project=$BITBUCKET_PROJECT" \
+    "issue_key=$JIRA_ISSUE" branch_type=feature --dry-run
   check "bitbucket comment (dry run)" "${B_PR[@]}" -- \
     bitbucket_add_pull_request_comment "${pr_args[@]}" "text=smoke test, not sent" --dry-run
   check "bitbucket review (dry run)" "${B_PR[@]}" -- \

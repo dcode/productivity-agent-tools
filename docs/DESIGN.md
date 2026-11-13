@@ -223,6 +223,14 @@ keeps writes behind a dry-run switch that is on by default.
 62. As a user, I want my personal space key shown by the status tool, so that the agent puts
     pages about me in the right place without asking for my username.
 
+### Agile issues and branches
+
+63. As a user, I want to create epics, put stories and tasks into an epic, and set story
+    points, so that the agent can lay out a piece of work the way the board expects.
+64. As a user, I want to create a branch for a Jira issue with a standard branch type
+    (feature, bugfix, hotfix, release or custom), named the way Bitbucket names it, so that
+    starting work is one request and the branch shows up on the issue.
+
 ## Implementation Decisions
 
 ### Overall shape
@@ -364,6 +372,16 @@ keeps writes behind a dry-run switch that is on by default.
   default (the user). A required field without a default that the tool cannot fill, such as
   a custom field, refuses the create with the field names listed. A sub-task type needs a
   parent and any other type must not have one.
+- **Jira Software's fields** (Epic Name, Epic Link, Story Points) are custom fields whose
+  ids differ on every server. They are recognised by the custom type key in the screen
+  metadata (`...:gh-epic-label`, `...:gh-epic-link`); Story Points is a plain number
+  field, so it is recognised by name ("Story Points" or "Story Point Estimate") on a custom
+  field. The tools take `epic_name`, `epic` (an issue key; "none" clears it) and
+  `story_points` (a negative number clears it) and check each against the screen like any
+  other field. A create that lacks only these says which parameter to pass. For reading,
+  the ids come from `rest/api/2/field`, asked once per server run; a server without them
+  reads issues as before. Sprints are not set here: that needs the board API to turn a
+  sprint name into an id.
 - Links read as a sentence: (key, relation, other key). The relation may be a link type's
   name, its outward wording or its inward wording. An inward wording swaps the ends. The
   request puts the sentence's first issue in `inwardIssue`, because Jira treats
@@ -404,6 +422,18 @@ keeps writes behind a dry-run switch that is on by default.
 - One deployment timestamp (`lastUpdated`) is documented with a value in seconds, while
   every other Bitbucket timestamp is in milliseconds. Values below 10^11 are read as
   seconds.
+- `bitbucket_create_branch` (`bitbucket/branches.py`) builds the name Bitbucket's own
+  dialog proposes: prefix, issue key, and the summary lower-cased with dashes (apostrophes
+  dropped, cut at a word within 40 characters). Prefixes and the development and
+  production branches come from `rest/branch-utils/latest/.../branchmodel`, which is not
+  in the published OpenAPI spec; if it does not answer, Bitbucket's default prefixes are
+  used and the result says so. A type the model has switched off is refused. `custom` has
+  no prefix and uses the given name as written. The summary comes from an `IssueTracker`
+  peer; with Jira on, an issue Jira does not return refuses the branch (a likely typo),
+  while a Jira error only drops the summary. The start point defaults to the model's
+  development branch (production for a hotfix), then the repository's default branch.
+  The name is validated against git's ref rules and checked not to exist, in dry run too.
+  The branch is created with `POST .../branches` (`name`, `startPoint`).
 - `ci = false` under `[bitbucket]` is for a server no CI or CD system reports to. It
   leaves `bitbucket_get_commit_builds`, `bitbucket_list_required_builds` and
   `bitbucket_get_deployment` unregistered, so an agent does not spend calls on them, and
@@ -570,9 +600,10 @@ Designed for but deferred. [ROADMAP.md](ROADMAP.md) has the ordered backlog and 
   supplies the cookie deliberately (see Authentication).
 - **Moving an issue to another project, deleting issues or links, and editing or deleting
   worklogs.** Moving needs Jira's bulk-move wizard; deletes are left to the browser.
-  Custom fields are deferred (see Roadmap).
-- **Bitbucket merges, declines and branch changes.** These change code or end a review,
-  so they are left to the user in the browser. Comment anchors and task resolution are
+  Custom fields other than Jira Software's own are deferred (see Roadmap).
+- **Bitbucket merges, declines, and deleting or moving branches.** These change code or
+  end a review, so they are left to the user in the browser. Creating a branch is offered,
+  because it changes nothing that exists. Comment anchors and task resolution are
   deferred (see Roadmap).
 - **Deleting or moving Confluence pages between spaces.** Left to the browser.
 - **Microsoft 365.** Deferred (see Roadmap).

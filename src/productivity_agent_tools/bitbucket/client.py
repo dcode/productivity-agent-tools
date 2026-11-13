@@ -9,6 +9,11 @@ from urllib.parse import quote
 from pydantic import JsonValue
 
 from productivity_agent_tools.api import ApiClient, WriteOutcome
+from productivity_agent_tools.bitbucket.branches import (
+    DEFAULT_PREFIXES,
+    branch_name,
+    check_ref_name,
+)
 from productivity_agent_tools.bitbucket.models import (
     Activity,
     BuildCounts,
@@ -300,6 +305,7 @@ class BitbucketClient:
         self._required = f"{settings.path}/rest/required-builds/latest"
         self._jira = f"{settings.path}/rest/jira/latest"
         self._search = f"{settings.path}/rest/search/1.0/search"
+        self._branch_utils = f"{settings.path}/rest/branch-utils/latest"
         self._default_project = settings.default_project
         self._user_slug = settings.user_slug
 
@@ -359,6 +365,21 @@ class BitbucketClient:
             AgentToolsError: If either is invalid or no project is known.
         """
         return self._project(project), _name(repository, "repository slug")
+
+    def repository_ref(self, project: str | None, repository: str) -> tuple[str, str]:
+        """Resolve and validate what names one repository.
+
+        Args:
+            project: Project key, or None for the default project.
+            repository: Repository slug.
+
+        Returns:
+            The project key and repository slug.
+
+        Raises:
+            AgentToolsError: If either is invalid or no project is known.
+        """
+        return self._repo(project, repository)
 
     def _pull_path(self, project: str | None, repository: str, pull_request_id: int) -> str:
         """Build the API path of one pull request.
@@ -1292,6 +1313,160 @@ class BitbucketClient:
             if text(item, "key")
         ]
         return PullRequestIssues(returned=len(issues), issues=issues)
+
+    async def branch_model(
+        self, repository: str, project: str | None = None
+    ) -> tuple[dict[str, str], str | None, str | None]:
+        """Read a repository's branching model: its branch types and main branches.
+
+        Args:
+            repository: Repository slug.
+            project: Project key, or None for the default project.
+
+        Returns:
+            The prefix of each enabled branch type by lower-case type name, the
+            development branch and the production branch (each a ref id or None). The
+            prefixes are empty when the server has no model to give.
+
+        Raises:
+            AgentToolsError: If a parameter is invalid.
+        """
+        key, slug = self._repo(project, repository)
+        try:
+            model = await self._core.get(
+                f"{self._branch_utils}/projects/{key}/repos/{slug}/branchmodel"
+            )
+        except NotFoundError, ApiError:
+            return {}, None, None
+        prefixes = {
+            kind.casefold(): prefix
+            for item in objects(value(model, "types"))
+            if (kind := text(item, "id")) and (prefix := text(item, "prefix"))
+        }
+        return prefixes, text(model, "development", "refId"), text(model, "production", "refId")
+
+    async def default_branch(self, repository: str, project: str | None = None) -> str:
+        """Find a repository's default branch.
+
+        Args:
+            repository: Repository slug.
+            project: Project key, or None for the default project.
+
+        Returns:
+            The branch's ref id, such as ``refs/heads/main``.
+
+        Raises:
+            AgentToolsError: If the repository has no default branch or the request fails.
+        """
+        key, slug = self._repo(project, repository)
+        base = f"{self._api}/projects/{key}/repos/{slug}"
+        try:
+            found = await self._core.get(f"{base}/default-branch")
+        except NotFoundError:
+            found = await self._core.get(f"{base}/branches/default")
+        ref = text(found, "id")
+        if not ref:
+            raise AgentToolsError(
+                f"{key}/{slug} has no default branch (is it empty?). Pass start_point."
+            )
+        return ref
+
+    async def branch_exists(self, repository: str, name: str, project: str | None = None) -> bool:
+        """Tell whether a repository already has a branch of this exact name.
+
+        Args:
+            repository: Repository slug.
+            name: Full branch name.
+            project: Project key, or None for the default project.
+
+        Returns:
+            True if the branch exists.
+
+        Raises:
+            AgentToolsError: If a parameter is invalid or the request fails.
+        """
+        key, slug = self._repo(project, repository)
+        body = await self._core.get(
+            f"{self._api}/projects/{key}/repos/{slug}/branches",
+            {"filterText": name, "limit": MAX_RESULTS_LIMIT},
+        )
+        return any(text(item, "displayId") == name for item in objects(value(body, "values")))
+
+    async def create_branch(
+        self,
+        repository: str,
+        branch_type: str,
+        *,
+        project: str | None = None,
+        issue_key: str | None = None,
+        name: str | None = None,
+        summary: str | None = None,
+        start_point: str | None = None,
+    ) -> tuple[str, str, str | None, WriteOutcome]:
+        """Create a branch named after the branching model (blocked when dry-run is on).
+
+        The name is worked out and checked first, even in dry-run: the branch
+        type must be one the repository's model allows, and the name must be
+        valid and not taken.
+
+        Args:
+            repository: Repository slug.
+            branch_type: ``feature``, ``bugfix``, ``hotfix``, ``release`` or ``custom``.
+            project: Project key, or None for the default project.
+            issue_key: Validated issue key to name the branch after.
+            name: The name after the prefix, or for ``custom`` the whole name.
+            summary: The issue's summary, used when ``name`` is left out.
+            start_point: Branch, tag or commit to start from. None uses the model's
+                production branch for a hotfix and its development branch otherwise,
+                or the repository's default branch when the model names neither.
+
+        Returns:
+            The branch name, the start point, a note on anything assumed, and the write
+            outcome.
+
+        Raises:
+            AgentToolsError: If the type or name is not allowed, the branch exists, or a
+                request fails.
+        """
+        key, slug = self._repo(project, repository)
+        prefixes, development, production = await self.branch_model(slug, key)
+        note = None
+        if not prefixes:
+            prefixes = dict(DEFAULT_PREFIXES)
+            note = (
+                "The repository's branching model could not be read, so Bitbucket's default "
+                "prefixes were used."
+            )
+        branch = branch_name(branch_type, prefixes, issue_key=issue_key, name=name, summary=summary)
+        if start_point and start_point.strip():
+            start = check_ref_name(start_point.strip())
+        else:
+            preferred = production if branch_type.strip().casefold() == "hotfix" else development
+            start = preferred or development or await self.default_branch(slug, key)
+        if await self.branch_exists(slug, branch, key):
+            raise AgentToolsError(
+                f"{key}/{slug} already has a branch named {branch}. Use it, or give another name."
+            )
+        outcome = await self._core.write(
+            "POST",
+            f"{self._api}/projects/{key}/repos/{slug}/branches",
+            {"name": branch, "startPoint": start},
+        )
+        return branch, start, note, outcome
+
+    def branch_url(self, project: str, repository: str, branch: str) -> str:
+        """Build the browser URL of a branch's files.
+
+        Args:
+            project: Project key.
+            repository: Repository slug.
+            branch: Full branch name.
+
+        Returns:
+            The address of the repository's source view at that branch.
+        """
+        at = quote(f"refs/heads/{branch}", safe="")
+        return f"{self.base_url}/projects/{project}/repos/{repository}/browse?at={at}"
 
     async def add_comment(
         self,

@@ -436,6 +436,21 @@ class IssueCommit(BaseModel):
     message: str = Field(default="", description="Commit message.")
 
 
+class BranchWriteResult(WriteReport):
+    """Outcome of creating a branch."""
+
+    project: str = Field(description="Project key of the repository.")
+    repository: str = Field(description="Repository slug.")
+    branch: str = Field(description="Full name of the branch, with its prefix.")
+    branch_type: str = Field(description="feature, bugfix, hotfix, release or custom.")
+    start_point: str = Field(description="The branch, tag or commit it was created from.")
+    issue_key: str | None = Field(default=None, description="The Jira issue it was named after.")
+    note: str | None = Field(
+        default=None, description="Anything that was assumed, such as default prefixes."
+    )
+    url: str | None = Field(default=None, description="Browser URL of the branch.")
+
+
 class PullRequestWriteResult(WriteReport):
     """Outcome of a Bitbucket write tool."""
 

@@ -68,6 +68,13 @@ class IssueDetail(IssueSummary):
         default=None, description="Time logged in seconds (timespent)."
     )
     links: list[IssueLink] = Field(default_factory=list, description="Links to other issues.")
+    epic: str | None = Field(
+        default=None, description="Key of the epic this issue belongs to (Epic Link), if any."
+    )
+    epic_name: str | None = Field(
+        default=None, description="For an epic, its short name (Epic Name)."
+    )
+    story_points: float | None = Field(default=None, description="Estimate in story points.")
     comments: list[Comment] = Field(
         default_factory=list, description="Most recent comments, oldest first."
     )

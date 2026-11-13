@@ -11,6 +11,10 @@ from productivity_agent_tools.api import ApiClient, WriteOutcome
 from productivity_agent_tools.capabilities import IssueDetails
 from productivity_agent_tools.errors import AgentToolsError
 from productivity_agent_tools.jira.fields import (
+    AGILE_FIELDS,
+    EPIC_LINK,
+    EPIC_NAME,
+    STORY_POINTS,
     FieldMeta,
     check_label,
     choose,
@@ -20,6 +24,7 @@ from productivity_agent_tools.jira.fields import (
     parse_createmeta,
     parse_editmeta,
     require,
+    require_agile,
 )
 from productivity_agent_tools.jira.models import (
     Assignee,
@@ -82,6 +87,9 @@ class FieldChanges:
         remove_fix_versions: Fix version names to remove.
         add_affects_versions: Affects version names to add (on create: the versions).
         remove_affects_versions: Affects version names to remove.
+        epic_name: Short name of an epic, shown on its issues (Epic Name).
+        epic: Key of the epic the issue belongs to (Epic Link), or "none" to take it out.
+        story_points: Estimate in story points; a negative number clears it.
     """
 
     summary: str | None = None
@@ -100,6 +108,9 @@ class FieldChanges:
     remove_fix_versions: list[str] | None = None
     add_affects_versions: list[str] | None = None
     remove_affects_versions: list[str] | None = None
+    epic_name: str | None = None
+    epic: str | None = None
+    story_points: float | None = None
 
 
 def normalize_project_key(project: str) -> str:
@@ -265,6 +276,7 @@ class JiraClient:
         self._core = core
         self._settings = settings
         self._api = f"{settings.path}/rest/api/2"
+        self._agile_ids: dict[str, str] | None = None
 
     @property
     def settings(self) -> JiraSettings:
@@ -350,6 +362,32 @@ class JiraClient:
             issues=issues,
         )
 
+    async def agile_field_ids(self) -> dict[str, str]:
+        """Find the ids of Jira Software's fields, which differ on every server.
+
+        Asked once per server run. A server without Jira Software, or one that
+        will not list its fields, simply has none.
+
+        Returns:
+            Field ids by tool parameter name: ``epic_name``, ``epic``, ``story_points``.
+        """
+        if self._agile_ids is None:
+            try:
+                listed = _objects(await self._core.get(f"{self._api}/field"))
+            except AgentToolsError:
+                listed = []
+            found: dict[str, str] = {}
+            for item in listed:
+                field_id = _text(item, "id")
+                for kind in AGILE_FIELDS:
+                    matches = kind.matches(
+                        _text(item, "name") or "", _text(item, "schema", "custom")
+                    )
+                    if field_id and matches:
+                        found.setdefault(kind.parameter, field_id)
+            self._agile_ids = found
+        return self._agile_ids
+
     async def get_issue(self, key: str, max_comments: int = 10) -> IssueDetail:
         """Fetch one issue with its description and most recent comments.
 
@@ -364,10 +402,10 @@ class JiraClient:
             AgentToolsError: If the key is invalid or the request fails.
         """
         issue_key = normalize_issue_key(key)
+        agile = await self.agile_field_ids()
+        wanted = ",".join([_DETAIL_FIELDS, *agile.values()])
         body = _object(
-            await self._core.get(
-                f"{self._api}/issue/{issue_key}", params={"fields": _DETAIL_FIELDS}
-            ),
+            await self._core.get(f"{self._api}/issue/{issue_key}", params={"fields": wanted}),
             "issue",
         )
         fields = body.get("fields")
@@ -378,6 +416,7 @@ class JiraClient:
         )
         newest = all_comments[-max_comments:] if max_comments > 0 else []
         labels = fields.get("labels")
+        points = fields.get(agile.get("story_points", ""))
         return IssueDetail(
             **self._summary(body).model_dump(),
             project=_text(fields, "project", "key"),
@@ -396,6 +435,9 @@ class JiraClient:
             original_estimate_seconds=_number(fields, "timeoriginalestimate"),
             time_spent_seconds=_number(fields, "timespent"),
             links=[_link(item) for item in _objects(fields.get("issuelinks"))],
+            epic=_text(fields, agile.get("epic", "")),
+            epic_name=_text(fields, agile.get("epic_name", "")),
+            story_points=points if isinstance(points, int | float) else None,
             comments=[
                 Comment(
                     id=_text(c, "id") or "",
@@ -748,6 +790,18 @@ class JiraClient:
         if estimates:
             require(fields, "timetracking", where)
             out["timetracking"] = estimates
+        if changes.epic_name is not None:
+            meta = require_agile(fields, EPIC_NAME, where)
+            if not changes.epic_name.strip():
+                raise AgentToolsError("The epic name must not be empty.")
+            out[meta.id] = changes.epic_name.strip()
+        if changes.epic is not None:
+            meta = require_agile(fields, EPIC_LINK, where)
+            wanted = changes.epic.strip()
+            out[meta.id] = None if wanted.casefold() in _NOBODY else normalize_issue_key(wanted)
+        if changes.story_points is not None:
+            meta = require_agile(fields, STORY_POINTS, where)
+            out[meta.id] = None if changes.story_points < 0 else changes.story_points
         return out
 
     async def edit_issue(self, key: str, changes: FieldChanges) -> tuple[list[str], WriteOutcome]:
@@ -945,6 +999,16 @@ class JiraClient:
             values["parent"] = {"key": normalize_issue_key(parent)}
         missing = missing_required(fields, set(values))
         if missing:
+            ours = [
+                f"{kind.parameter} ({kind.title})"
+                for kind in AGILE_FIELDS
+                if any(kind.matches(m.name, m.custom) for m in missing)
+            ]
+            if len(ours) == len(missing):
+                raise AgentToolsError(
+                    f"Creating a {chosen.name} in {key} also needs: {', '.join(ours)}. "
+                    "Ask the user for the value and pass it."
+                )
             listed = ", ".join(f"{m.name} ({m.id})" for m in missing)
             raise AgentToolsError(
                 f"Creating a {chosen.name} in {key} also needs: {listed}. This tool cannot "
