@@ -139,8 +139,8 @@ chance comes up and tick it here.
         (Markdown converted) all answer
   - [x] `personal_space` null is right: there is no personal space
   - [x] `confluence_get_page` on the profile page shows `can_edit: false`, matching the
-        browser (no Edit link). **The profile page is blocked until someone grants edit
-        access**: ask the team lead or a space administrator.
+        browser (no Edit link). Edit access was granted on 2026-11-13; it should now
+        read `true`.
   - [ ] `contributor = currentUser()` was accepted but found nothing; confirm once you
         have edited a page
   - [ ] `confluence_get_page` with `max_chars` high enough for the whole body: the layout,
@@ -161,7 +161,9 @@ chance comes up and tick it here.
         the fields are recognised by their custom type key)
   - [ ] `jira_get_issue` on an issue that is in an epic shows `epic`; on an epic shows
         `epic_name`
-  - [ ] One real epic, and one real story in it with story points, in a test project
+  - [x] One real epic created (2026-11-13)
+  - [ ] One real story in that epic with story points, then `jira_get_issue` on it shows
+        `epic` and `story_points`
   - [x] The dry-run branch shows the repository's prefix and start point with no `note`:
         `branch-utils/.../branchmodel` answers on 10.2.8
   - [ ] One real `bitbucket_create_branch` from an issue, seen in the browser and on the
@@ -173,8 +175,8 @@ Rough order. Each item is one pull request. API references: the Jira 11.0.2 and 
 10.5 OpenAPI specs (`https://dac-static.atlassian.com/server/jira/platform/jira_software_dc_11002_swagger.v3.json`,
 `https://dac-static.atlassian.com/server/bitbucket/10.5.swagger.v3.json`).
 
-1. **Get edit access to the profile page**, then fill it in (see the Confluence checks
-   above) before Fri Nov 20.
+1. **Fill in the profile page** before Fri Nov 20 (edit access granted; see the Confluence
+   checks above). This will be the first real Confluence write.
 2. Tag and push `v0.3.0` from `main` (#11 is merged; the tag publishes the release).
 
 ## Later
