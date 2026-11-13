@@ -10,9 +10,11 @@ from productivity_agent_tools.products import Product
 
 INSTRUCTIONS: str = (
     "The bitbucket_ tools work with the user's self-hosted Bitbucket. Reads are safe to "
-    "call freely. bitbucket_add_pull_request_comment and bitbucket_review_pull_request "
-    "change team-visible data: confirm the exact comment text or review with the user "
-    "before calling them, and treat a DRY RUN result as nothing changed. Most take a "
+    "call freely. bitbucket_create_branch, bitbucket_add_pull_request_comment and "
+    "bitbucket_review_pull_request change team-visible data: confirm the exact branch "
+    "name, comment text or review with the user before calling them, and treat a DRY RUN "
+    "result as nothing changed. To start work on a Jira issue, call bitbucket_create_branch "
+    "with its issue_key and a branch_type. Most take a "
     "project key and a "
     "repository slug; when the user names the project they work in, call "
     "bitbucket_set_default_project once and leave project out afterwards. To say what "

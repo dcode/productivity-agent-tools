@@ -30,8 +30,13 @@ Last updated: 2026-11-12.
   - [#9](https://github.com/dcode/productivity-agent-tools/pull/9): Confluence (reads,
     search, create, edit, find-and-replace, `can_edit`), `ci = false`, the smoke-run fixes
     and version 0.2.0
+  - [#10](https://github.com/dcode/productivity-agent-tools/pull/10): the smoke test reads
+    its values from an untracked `.env` (copy `.env.example`)
 - **In review:** nothing.
-- **Tests:** 316 passing, about 99.9% branch coverage. All hooks clean.
+- **Tests:** 328 passing, about 99.9% branch coverage. All hooks clean.
+- **In progress:** agile issues (Epic Name, Epic Link, Story Points on create, edit and
+  read) and `bitbucket_create_branch`, on branch `claude/agile-issues-and-branches`.
+  Nothing in it has run against the real servers yet.
 - **In use:** Goose on the work laptop, against Jira 11.3.12, Bitbucket 10.2.8 and Confluence
   10.2.19. No CI
   server (Bamboo or other) reports builds or deployments to this Bitbucket.
@@ -67,6 +72,10 @@ Last updated: 2026-11-12.
 - [x] Products as plugins: `Product` objects found through the
       `productivity_agent_tools.products` entry points, integrations between products,
       capability protocols for optional cross-product data (see DESIGN.md, Overall shape)
+- [x] Agile issues: epics (`epic_name`), issues in an epic (`epic`), `story_points`, on
+      `jira_create_issue`, `jira_edit_issue` and `jira_get_issue`
+- [x] `bitbucket_create_branch`: feature, bugfix, hotfix, release or custom, named after a
+      Jira issue, following the repository's branching model
 - [x] Confluence: status (with personal space), spaces, default space, CQL search, page by
       id or title (storage format), child pages; create and edit pages from Markdown or
       storage format, with version checks and append/prepend (see DESIGN.md, Confluence
@@ -147,6 +156,17 @@ chance comes up and tick it here.
         (`max_chars=5000`), then one `confluence_update_page` with `replacements`, one per
         hint plus one that removes the note macro; review the dry run, then publish with
         `--no-dry-run`. This will be the first real use of `replacements`.
+- [ ] Agile issues and branches (the smoke test has dry-run checks for both):
+  - [ ] `jira_get_create_fields project=<KEY> issue_type=Epic` lists an Epic Name field,
+        and for a story type an Epic Link and Story Points field (if not, paste the output:
+        the fields are recognised by their custom type key)
+  - [ ] `jira_get_issue` on an issue that is in an epic shows `epic`; on an epic shows
+        `epic_name`
+  - [ ] One real epic, and one real story in it with story points, in a test project
+  - [ ] The dry-run branch shows your repository's prefixes with no `note`. A note about
+        default prefixes means `branch-utils/.../branchmodel` did not answer on 10.2.8.
+  - [ ] One real `bitbucket_create_branch` from an issue, seen in the browser and on the
+        issue's Development panel
 
 ## Next up
 
@@ -173,8 +193,10 @@ Rough order. Each item is one pull request. API references: the Jira 11.0.2 and 
 - **Microsoft Graph adapter** (Microsoft 365 calendar and mail): a new `ApiClient` with its
   own sign-in, plus a product module. Needs its own design interview first, covering
   authentication and data handling.
-- **Custom Jira fields** (`customfield_*`, such as story points and epic links), read and
-  set through the same screen metadata.
+- **Sprints:** put an issue in a sprint by name (needs the board API to find the sprint's
+  id), and list a board's sprints.
+- **Other custom Jira fields** (`customfield_*`), read and set through the same screen
+  metadata.
 - **More Bitbucket writes:** comments on a file or line of the diff (needs the anchor's
   path, line, line type and file type), resolving and reopening tasks, editing or deleting
   the user's own comments.

@@ -333,6 +333,9 @@ def register_jira_tools(
         remove_fix_versions: list[str] | None = None,
         add_affects_versions: list[str] | None = None,
         remove_affects_versions: list[str] | None = None,
+        epic_name: str | None = None,
+        epic: str | None = None,
+        story_points: float | None = None,
     ) -> WriteResult:
         """Change an issue's fields. Visible to the whole team; give only what should change.
 
@@ -364,6 +367,9 @@ def register_jira_tools(
             remove_fix_versions: Fix version names to remove.
             add_affects_versions: Affects version names to add.
             remove_affects_versions: Affects version names to remove.
+            epic_name: New short name of an epic (Epic Name).
+            epic: Key of the epic to put the issue in (Epic Link), or "none" to take it out.
+            story_points: Estimate in story points; a negative number clears it.
         """
         issue_key = normalize_issue_key(key)
         changes = FieldChanges(
@@ -383,6 +389,9 @@ def register_jira_tools(
             remove_fix_versions=remove_fix_versions,
             add_affects_versions=add_affects_versions,
             remove_affects_versions=remove_affects_versions,
+            epic_name=epic_name,
+            epic=epic,
+            story_points=story_points,
         )
 
         async def send() -> WriteResult:
@@ -424,12 +433,21 @@ def register_jira_tools(
         fix_versions: list[str] | None = None,
         affects_versions: list[str] | None = None,
         parent: str | None = None,
+        epic_name: str | None = None,
+        epic: str | None = None,
+        story_points: float | None = None,
     ) -> WriteResult:
         """Create a new issue. Visible to the whole team; confirm the details with the user first.
 
         Fields are checked against the project's create screen for that issue
         type. If the screen requires a field this tool cannot fill (such as a
         custom field), it says so and nothing is created.
+
+        For agile work: an Epic needs epic_name (a short name, often the same
+        as the summary). A Story, Task or Bug goes into an epic with epic (the
+        epic's issue key). A sub-task type needs parent. story_points sets the
+        estimate where the screen has that field. jira_get_create_fields shows
+        a project's issue types and which of these fields a type has.
 
         In dry-run mode nothing is sent and the result shows the request that
         would have been made. An identical create within 30 seconds is not sent again.
@@ -449,6 +467,9 @@ def register_jira_tools(
             fix_versions: Fix version names.
             affects_versions: Affects version names.
             parent: Parent issue key, required for a sub-task type.
+            epic_name: Short name of the epic, required when creating an Epic.
+            epic: Key of the epic this issue belongs to, such as ABC-100.
+            story_points: Estimate in story points.
         """
         project_key = normalize_project_key(project)
         changes = FieldChanges(
@@ -462,6 +483,9 @@ def register_jira_tools(
             add_components=components,
             add_fix_versions=fix_versions,
             add_affects_versions=affects_versions,
+            epic_name=epic_name,
+            epic=epic,
+            story_points=story_points,
         )
 
         async def send() -> WriteResult:

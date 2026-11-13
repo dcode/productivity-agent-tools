@@ -36,6 +36,8 @@ class FieldMeta:
         items: For an array, the type of its items.
         allowed: The values the field accepts, if it lists them.
         operations: How the field can be changed, such as ``set``, ``add`` or ``remove``.
+        custom: For a custom field, the key of its type, such as
+            ``com.pyxis.greenhopper.jira:gh-epic-link``.
     """
 
     id: str
@@ -46,6 +48,7 @@ class FieldMeta:
     items: str | None
     allowed: tuple[JsonObject, ...]
     operations: tuple[str, ...]
+    custom: str | None = None
 
     def info(self) -> FieldInfo:
         """Describe the field for the agent.
@@ -101,6 +104,7 @@ def _field(field_id: str, raw: JsonObject) -> FieldMeta:
         operations=tuple(op for op in operations if isinstance(op, str))
         if isinstance(operations, list)
         else (),
+        custom=text(raw, "schema", "custom"),
     )
 
 
@@ -145,6 +149,82 @@ def parse_createmeta(body: JsonValue) -> dict[str, FieldMeta]:
         for raw in page_values(body)
         if (fid := text(raw, "fieldId")) is not None
     }
+
+
+@dataclass(frozen=True, slots=True)
+class AgileField:
+    """One of Jira Software's own custom fields, whose id differs on every server.
+
+    Attributes:
+        title: The field's usual name, for messages.
+        parameter: The tool parameter that sets it.
+        custom_suffix: End of the custom type key that identifies it, or None.
+        names: Lower-cased field names that identify it when there is no type key of its own.
+    """
+
+    title: str
+    parameter: str
+    custom_suffix: str | None = None
+    names: frozenset[str] = frozenset()
+
+    def matches(self, name: str, custom: str | None) -> bool:
+        """Tell whether a field is this one.
+
+        Args:
+            name: The field's name.
+            custom: The field's custom type key, if any.
+
+        Returns:
+            True if the type key or, failing that, the name identifies it.
+        """
+        if self.custom_suffix is not None:
+            return bool(custom) and str(custom).endswith(self.custom_suffix)
+        return bool(custom) and name.strip().casefold() in self.names
+
+
+EPIC_NAME = AgileField("Epic Name", "epic_name", custom_suffix=":gh-epic-label")
+EPIC_LINK = AgileField("Epic Link", "epic", custom_suffix=":gh-epic-link")
+# Story points are a plain number field that Jira Software creates under this name.
+STORY_POINTS = AgileField(
+    "Story Points", "story_points", names=frozenset({"story points", "story point estimate"})
+)
+AGILE_FIELDS: tuple[AgileField, ...] = (EPIC_NAME, EPIC_LINK, STORY_POINTS)
+
+
+def find_agile(fields: dict[str, FieldMeta], kind: AgileField) -> FieldMeta | None:
+    """Find one of Jira Software's fields on a screen.
+
+    Args:
+        fields: The screen's fields.
+        kind: The field wanted.
+
+    Returns:
+        The field's metadata, or None if the screen does not have it.
+    """
+    return next((m for m in fields.values() if kind.matches(m.name, m.custom)), None)
+
+
+def require_agile(fields: dict[str, FieldMeta], kind: AgileField, where: str) -> FieldMeta:
+    """Get one of Jira Software's fields, refusing a screen that does not have it.
+
+    Args:
+        fields: The screen's fields.
+        kind: The field wanted.
+        where: The screen, for the message.
+
+    Returns:
+        The field's metadata.
+
+    Raises:
+        AgentToolsError: If the screen does not have the field.
+    """
+    meta = find_agile(fields, kind)
+    if meta is None:
+        raise AgentToolsError(
+            f"There is no {kind.title} field on {where}, so {kind.parameter} cannot be set "
+            "there. Tell the user; a Jira administrator decides which fields a screen shows."
+        )
+    return meta
 
 
 def missing_required(fields: dict[str, FieldMeta], given: set[str]) -> list[FieldMeta]:

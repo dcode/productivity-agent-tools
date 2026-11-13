@@ -320,9 +320,9 @@ tool approval on so you see each comment or transition before it is sent.
 | `jira_log_work` | write | Log time (`1h 30m`, `2d`) with an optional comment and start time |
 | `jira_assign_issue` | write | Assign to `me`, `none`, or a person found by name or username |
 | `jira_get_edit_fields` | read | Fields an issue's edit screen allows, with their allowed values |
-| `jira_edit_issue` | write | Summary, description, type, priority, reporter, due date, estimates; add or remove labels, components, versions |
+| `jira_edit_issue` | write | Summary, description, type, priority, reporter, due date, estimates, epic, epic name, story points; add or remove labels, components, versions |
 | `jira_get_create_fields` | read | Issue types a project offers, and one type's fields |
-| `jira_create_issue` | write | Create an issue or sub-task with the standard fields |
+| `jira_create_issue` | write | Create an issue, epic, story in an epic, or sub-task, with the standard fields and story points |
 | `jira_list_link_types` | read | Kinds of issue links, with both wordings |
 | `jira_link_issues` | write | Link two issues, read as a sentence: "ABC-1 blocks ABC-2" |
 | `jira_get_issue_pull_requests` | read | Pull requests linked to an issue (needs Jira and Bitbucket both configured) |
@@ -344,6 +344,7 @@ tool approval on so you see each comment or transition before it is sent.
 | `bitbucket_get_commit_builds` | read | CI build results for any commit, with totals and test counts |
 | `bitbucket_list_required_builds` | read | Builds that must pass before a repository's pull requests can merge |
 | `bitbucket_get_deployment` | read | One deployment's state, by key, environment and run number |
+| `bitbucket_create_branch` | write | Create a feature, bugfix, hotfix, release or custom branch, named after a Jira issue |
 | `bitbucket_add_pull_request_comment` | write | Comment on a pull request, reply to a comment, or add a task (Markdown) |
 | `bitbucket_review_pull_request` | write | Approve, mark as needing work, or withdraw your review |
 | `confluence_status` | read | Confluence version, who is signed in, your personal space, dry-run |
@@ -355,9 +356,25 @@ tool approval on so you see each comment or transition before it is sent.
 | `confluence_create_page` | write | Create a page from Markdown or storage format, optionally under a parent |
 | `confluence_update_page` | write | Replace, append to, prepend to or find-and-replace in a page's body, or retitle or move it |
 
-The `bitbucket_` tools appear only when Bitbucket is configured. Only the two
+The `bitbucket_` tools appear only when Bitbucket is configured. Only the three
 write tools change anything in Bitbucket, and `dry_run` blocks them just as it
 blocks Jira's writes.
+
+`bitbucket_create_branch` names a branch the way Bitbucket's own "Create branch"
+dialog does: the branch type's prefix, the issue key, and the issue's summary in
+lower case with dashes, such as `feature/ABC-123-retry-failed-uploads`. The
+prefixes come from the repository's branching model, so a repository that uses
+`feat/` or has switched a type off is respected; `custom` has no prefix. The
+summary is looked up when Jira is configured. The branch starts from the model's
+development branch (its production branch for a hotfix) unless you name a start
+point. Because the name carries the issue key, the branch shows up on the issue
+in Jira.
+
+Agile issue types work through `jira_create_issue`: an Epic takes `epic_name`,
+any other issue joins an epic with `epic` (the epic's key), a sub-task takes
+`parent`, and `story_points` sets the estimate. These are custom fields whose
+ids differ on every server; they are found by their type, so nothing needs
+configuring. `jira_get_issue` shows them too.
 
 A review is recorded as the token's owner, so the server needs your Bitbucket
 user slug. It asks Bitbucket once per run (`bitbucket_status` shows the

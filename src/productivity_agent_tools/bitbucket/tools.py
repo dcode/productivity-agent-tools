@@ -1,11 +1,13 @@
 """MCP tool definitions for Bitbucket.
 
-Only bitbucket_add_pull_request_comment and bitbucket_review_pull_request change
-anything in Bitbucket, and dry-run blocks both.
+Only bitbucket_create_branch, bitbucket_add_pull_request_comment and
+bitbucket_review_pull_request change anything in Bitbucket, and dry-run blocks
+all three.
 """
 
 from mcp.server.mcpserver import MCPServer
 
+from productivity_agent_tools.bitbucket.branches import BranchType, issue_key_of
 from productivity_agent_tools.bitbucket.client import (
     DEFAULT_DIFF_CHARS,
     BitbucketClient,
@@ -13,6 +15,7 @@ from productivity_agent_tools.bitbucket.client import (
 )
 from productivity_agent_tools.bitbucket.models import (
     BitbucketStatus,
+    BranchWriteResult,
     CodeSearchResult,
     CommitBuilds,
     DefaultProject,
@@ -68,6 +71,7 @@ def register_bitbucket_tools(
         repeats: Guard against identical repeated writes; a default one is made when None.
     """
     guard = repeats if repeats is not None else RepeatGuard[PullRequestWriteResult]()
+    branch_guard = RepeatGuard[BranchWriteResult]()
     tracker = context.peer(IssueTracker)
 
     @server.tool(annotations=READ)
@@ -446,6 +450,95 @@ def register_bitbucket_tools(
             return await bitbucket.get_deployment(
                 repository, commit_id, deployment_key, environment_key, sequence_number, project
             )
+
+    @server.tool(annotations=WRITE)
+    @anticipated
+    async def bitbucket_create_branch(
+        repository: str,
+        branch_type: BranchType = "feature",
+        issue_key: str | None = None,
+        name: str | None = None,
+        project: str | None = None,
+        start_point: str | None = None,
+    ) -> BranchWriteResult:
+        """Create a branch, named the way Bitbucket's branching model names it.
+
+        Visible to everyone with access to the repository; confirm the name
+        with the user first. Give an issue_key to start work on a Jira issue:
+        the branch is then named <prefix><KEY>-<summary>, such as
+        feature/ABC-123-retry-failed-uploads, and shows up on the issue in
+        Jira. The summary is looked up when Jira is configured; without it the
+        name is <prefix><KEY>. Give name to choose the words yourself.
+
+        branch_type picks the prefix: feature, bugfix, hotfix or release use
+        the repository's own prefixes (usually feature/, bugfix/, hotfix/,
+        release/); custom has no prefix and uses name exactly as given. A
+        release is usually named for its version, such as name="1.4.0".
+
+        In dry-run mode nothing is created and the result shows the name and
+        the request that would have been made; the name is still checked, and
+        a branch that already exists is refused. An identical request within
+        30 seconds is not sent again.
+
+        Args:
+            repository: Repository slug, such as my-service.
+            branch_type: feature (default), bugfix, hotfix, release or custom.
+            issue_key: Jira issue key to name the branch after, such as ABC-123.
+            name: Words after the prefix (spaces become dashes); for custom, the whole
+                branch name. Leave out to use the issue's summary.
+            project: Project key; leave out to use the default project.
+            start_point: Branch, tag or commit to start from. Leave out for the
+                repository's development branch (its production branch for a hotfix).
+        """
+        key, slug = bitbucket.repository_ref(project, repository)
+        issue = issue_key_of(issue_key) if issue_key and issue_key.strip() else None
+        summary: str | None = None
+        lookup_note: str | None = None
+        if issue and tracker is not None and not (name and name.strip()):
+            try:
+                found = await tracker.describe_issues([issue])
+            except AgentToolsError as exc:
+                lookup_note = f"Jira did not give the issue's summary, so it was left out: {exc}"
+            else:
+                if issue not in found:
+                    raise AgentToolsError(
+                        f"Jira has no issue {issue} that you can see, so no branch was created. "
+                        "Check the key, or give name to create the branch anyway."
+                    )
+                summary = found[issue].summary
+
+        async def send() -> BranchWriteResult:
+            branch, start, note, outcome = await bitbucket.create_branch(
+                slug,
+                branch_type,
+                project=key,
+                issue_key=issue,
+                name=name,
+                summary=summary,
+                start_point=start_point,
+            )
+            notes = " ".join(n for n in (note, lookup_note) if n)
+            return BranchWriteResult.model_validate(
+                {
+                    **report(
+                        "create_branch",
+                        "Bitbucket",
+                        outcome,
+                        f"Created branch {branch} in {key}/{slug} from {start}.",
+                    ),
+                    "project": key,
+                    "repository": slug,
+                    "branch": branch,
+                    "branch_type": branch_type.strip().casefold(),
+                    "start_point": start,
+                    "issue_key": issue,
+                    "note": notes or None,
+                    "url": bitbucket.branch_url(key, slug, branch) if outcome.sent else None,
+                }
+            )
+
+        signature = ("create_branch", key, slug, branch_type, issue, name, summary, start_point)
+        return await once(branch_guard, signature, send)
 
     @server.tool(annotations=WRITE)
     @anticipated
