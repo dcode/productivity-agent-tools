@@ -40,9 +40,15 @@ Last updated: 2026-11-12.
 - **In use:** Goose on the work laptop, against Jira 11.3.12, Bitbucket 10.2.8 and Confluence
   10.2.19. No CI
   server (Bamboo or other) reports builds or deployments to this Bitbucket.
-- **Last smoke run:** build `v0.1.0-18-g6c2ec1d`, 2026-11-12, with `ci = false` and
-  Confluence on: all 39 calls answered, none failed. The dry-run review and the dry-run
-  create (with `JIRA_ISSUE_TYPE` set) now work.
+- **Last smoke run:** build `v0.2.0-2-g278dd18`, 2026-11-12: 30 calls answered, 1 failed.
+  - The dry-run branch create failed in `call` itself, before reaching Bitbucket:
+    `branch_type=feature` was refused as "must be a number, true/false or JSON". `call`
+    did not recognise a parameter that is a named choice of words. Fixed on the agile
+    branch (it also affected `mode`, `body_format` and `space_type` on the Confluence
+    tools); needs a re-run.
+  - The dry-run Epic create worked: the Epic Name field was found by its type.
+  - The ten checks that need a pull request did not run, so `BITBUCKET_PR` is probably
+    missing from `.env`.
 
 ## Done
 
@@ -157,6 +163,7 @@ chance comes up and tick it here.
         hint plus one that removes the note macro; review the dry run, then publish with
         `--no-dry-run`. This will be the first real use of `replacements`.
 - [ ] Agile issues and branches (the smoke test has dry-run checks for both):
+  - [x] The dry-run Epic create finds the Epic Name field on 11.3.12
   - [ ] `jira_get_create_fields project=<KEY> issue_type=Epic` lists an Epic Name field,
         and for a story type an Epic Link and Story Points field (if not, paste the output:
         the fields are recognised by their custom type key)
