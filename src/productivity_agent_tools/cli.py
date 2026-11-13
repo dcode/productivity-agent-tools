@@ -192,11 +192,13 @@ async def _serve(settings: Settings, transport: httpx.AsyncBaseTransport | None 
         await server.run_stdio_async()
 
 
-def _accepts_text(schema: object) -> bool:
+def _accepts_text(schema: object, definitions: dict[str, Any] | None = None) -> bool:
     """Tell whether a tool parameter's schema allows a string.
 
     Args:
         schema: JSON schema of one parameter.
+        definitions: The tool schema's ``$defs``, which a parameter may point into. A
+            named choice of words, such as a branch type, is described that way.
 
     Returns:
         True if a plain string is a valid value.
@@ -205,7 +207,11 @@ def _accepts_text(schema: object) -> bool:
         return True
     if schema.get("type") == "string":
         return True
-    return any(_accepts_text(option) for option in schema.get("anyOf", []))
+    reference = schema.get("$ref")
+    if isinstance(reference, str) and reference.startswith("#/$defs/"):
+        target = (definitions or {}).get(reference.removeprefix("#/$defs/"))
+        return target is not None and _accepts_text(target, definitions)
+    return any(_accepts_text(option, definitions) for option in schema.get("anyOf", []))
 
 
 def _tool_arguments(schema: dict[str, Any], pairs: tuple[str, ...]) -> dict[str, Any]:
@@ -233,7 +239,7 @@ def _tool_arguments(schema: dict[str, Any], pairs: tuple[str, ...]) -> dict[str,
             raise AgentToolsError(f"Argument '{pair}' must be written as name=value.")
         if name not in properties:
             raise AgentToolsError(f"'{name}' is not a parameter of this tool. Parameters: {known}.")
-        if _accepts_text(properties[name]):
+        if _accepts_text(properties[name], schema.get("$defs")):
             arguments[name] = raw
             continue
         try:
