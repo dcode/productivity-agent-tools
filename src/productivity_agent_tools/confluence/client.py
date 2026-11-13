@@ -1,9 +1,12 @@
 """Confluence Data Center REST client built on an ``ApiClient`` adapter."""
 
 import re
+from collections.abc import Sequence
 from dataclasses import dataclass
+from html.entities import name2codepoint
 from typing import Literal
 from urllib.parse import quote
+from xml.etree import ElementTree
 
 from pydantic import JsonValue
 
@@ -101,6 +104,112 @@ def to_storage(body: str, body_format: BodyFormat) -> str:
     if body_format == "storage":
         return body.strip()
     raise AgentToolsError(f"body_format must be markdown or storage, not '{body_format}'.")
+
+
+_ENTITY = re.compile(r"&([A-Za-z][A-Za-z0-9]*);")
+_XML_ENTITIES: frozenset[str] = frozenset({"amp", "lt", "gt", "quot", "apos"})
+_SNIPPET_SHOWN: int = 60
+
+
+def _numeric_entity(match: re.Match[str]) -> str:
+    """Turn a named HTML entity into a numeric one, which plain XML understands.
+
+    Args:
+        match: A match of ``_ENTITY``.
+
+    Returns:
+        The numeric reference, or the text unchanged for XML's own or unknown entities.
+    """
+    name = match.group(1)
+    if name in _XML_ENTITIES or name not in name2codepoint:
+        return match.group(0)
+    return f"&#{name2codepoint[name]};"
+
+
+def is_well_formed(storage: str) -> bool:
+    """Tell whether a storage-format body is well-formed XML.
+
+    Args:
+        storage: The body, with Confluence's ``ac:`` and ``ri:`` elements and HTML entities.
+
+    Returns:
+        True if every element is closed and nested properly.
+    """
+    wrapped = (
+        f'<root xmlns:ac="urn:ac" xmlns:ri="urn:ri">{_ENTITY.sub(_numeric_entity, storage)}</root>'
+    )
+    try:
+        ElementTree.fromstring(wrapped)
+    except ElementTree.ParseError:
+        return False
+    return True
+
+
+def _shown(snippet: str) -> str:
+    """Shorten a snippet for an error message.
+
+    Args:
+        snippet: The text.
+
+    Returns:
+        The text, cut with an ellipsis when long.
+    """
+    return snippet if len(snippet) <= _SNIPPET_SHOWN else f"{snippet[:_SNIPPET_SHOWN]}..."
+
+
+def apply_replacements(body: str, replacements: Sequence[tuple[str, str]]) -> str:
+    """Swap exact pieces of a storage-format body for others.
+
+    Every piece must occur exactly once, so an edit can never land somewhere
+    unintended, and a body that was well-formed must stay so.
+
+    Args:
+        body: The page's current body in storage format.
+        replacements: Pairs of the text to find and the text to put in its place.
+
+    Returns:
+        The edited body.
+
+    Raises:
+        AgentToolsError: If there is nothing to replace, a piece is empty, missing or
+            ambiguous, nothing would change, or the result would be broken markup.
+    """
+    if not replacements:
+        raise AgentToolsError("Give at least one replacement.")
+    problems: list[str] = []
+    for find, _ in replacements:
+        count = body.count(find) if find else 0
+        if not find:
+            problems.append("a replacement has an empty 'find'")
+        elif count == 0:
+            problems.append(f"'{_shown(find)}' was not found")
+        elif count > 1:
+            problems.append(f"'{_shown(find)}' occurs {count} times")
+    if problems:
+        raise AgentToolsError(
+            "Nothing was changed: "
+            + "; ".join(problems)
+            + ". Each 'find' must be copied exactly from the body confluence_get_page "
+            "returns (read it with max_chars high enough to see all of it) and occur exactly "
+            "once; add neighbouring markup to make it unique."
+        )
+    edited = body
+    for find, replace in replacements:
+        if find not in edited:
+            raise AgentToolsError(
+                f"Nothing was changed: '{_shown(find)}' overlaps an earlier replacement. "
+                "Make the replacements separate pieces of the page."
+            )
+        edited = edited.replace(find, replace, 1)
+    if edited == body:
+        raise AgentToolsError("Nothing was changed: the replacements leave the page as it is.")
+    if is_well_formed(body) and not is_well_formed(edited):
+        raise AgentToolsError(
+            "Nothing was changed: the replacements would leave broken markup (an element not "
+            "closed, or a bare & or < in text; write &amp; and &lt;). Replace whole elements, "
+            "or only the text inside one."
+        )
+    return edited
 
 
 @dataclass(frozen=True, slots=True)
@@ -546,6 +655,7 @@ class ConfluenceClient:
         title: str | None = None,
         body_format: BodyFormat = "markdown",
         mode: UpdateMode = "replace",
+        replacements: Sequence[tuple[str, str]] | None = None,
     ) -> PageUpdate:
         """Work out an edit against the page as it is now.
 
@@ -557,6 +667,8 @@ class ConfluenceClient:
             title: New title, or None to keep it.
             body_format: ``markdown`` or ``storage``.
             mode: ``replace`` the body, or ``append`` or ``prepend`` the new text to it.
+            replacements: Pairs of exact storage-format text to find in the current body
+                and text to put in its place, instead of ``body``.
 
         Returns:
             The planned edit.
@@ -565,8 +677,10 @@ class ConfluenceClient:
             AgentToolsError: If nothing would change, the user may not edit the page, the
                 page changed since it was read, an argument is invalid, or the request fails.
         """
-        if body is None and (title is None or not title.strip()):
-            raise AgentToolsError("Give a new body, a new title, or both.")
+        if body is not None and replacements is not None:
+            raise AgentToolsError("Give either a body or replacements, not both.")
+        if body is None and replacements is None and (title is None or not title.strip()):
+            raise AgentToolsError("Give a new body, replacements, a new title, or a mix.")
         if mode not in ("replace", "append", "prepend"):
             raise AgentToolsError(f"mode must be replace, append or prepend, not '{mode}'.")
         page = await self.get_page(page_id, MAX_BODY_CHARS)
@@ -587,6 +701,8 @@ class ConfluenceClient:
                 "confluence_get_page, redo the edit on the new text, and pass its version."
             )
         new_body = page.body
+        if replacements is not None:
+            new_body = apply_replacements(page.body, replacements)
         if body is not None:
             storage = to_storage(body, body_format)
             new_body = {

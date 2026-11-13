@@ -28,17 +28,13 @@ Last updated: 2026-11-12.
 - **In progress:** Confluence reads, search, page creation and editing (branch
   `claude/beautiful-hamilton-k4u2un`), for a management request to publish an "About me"
   page. Not yet run against the real Confluence; see the checks below.
-- **Tests:** 312 passing, about 99.9% branch coverage. All hooks clean.
+- **Tests:** 316 passing, about 99.9% branch coverage. All hooks clean.
 - **In use:** Goose on the work laptop, against Jira 11.3.12, Bitbucket 10.2.8 and Confluence
   10.2.19. No CI
   server (Bamboo or other) reports builds or deployments to this Bitbucket.
-- **Last smoke run:** build `v0.1.0-15-g04c2e92`, 2026-11-12, with `ci = false` and
-  Confluence on. 37 calls answered, 2 failed:
-  - the dry-run review still could not find the user: with no earlier request in the
-    process, only `applinks/whoami` was asked, and it sends no `X-AUSERNAME` header. Fixed
-    on this branch (a REST request is made first); needs a re-run.
-  - the dry-run create still used `Task`: set `JIRA_ISSUE_TYPE` at the top of the script
-    to a type the project has (name or numeric id)
+- **Last smoke run:** build `v0.1.0-18-g6c2ec1d`, 2026-11-12, with `ci = false` and
+  Confluence on: all 39 calls answered, none failed. The dry-run review and the dry-run
+  create (with `JIRA_ISSUE_TYPE` set) now work.
 
 ## Done
 
@@ -124,7 +120,7 @@ chance comes up and tick it here.
   - [x] `bitbucket_status` shows your `user_slug`, from the `X-AUSERNAME` header
         (`applinks/whoami` does not accept a bearer token on 10.2.8)
   - [x] The dry-run comment shows the request it would send
-  - [ ] The dry-run review does too (failed twice; see the last smoke run)
+  - [x] The dry-run review does too
   - [ ] One real comment and one real approve and unapprove on a test pull request, with
         `--no-dry-run`, compared in the browser
 - [ ] Confluence:
@@ -144,9 +140,10 @@ chance comes up and tick it here.
   - [ ] **The profile page.** It already exists, made from a team template: "Profile |
         <your name>" in the team space, 2,850 characters of storage format with layout
         sections, a to-do note macro and nine `ac:placeholder` hints, due Fri Nov 20. So
-        this is an edit, not a create: read it whole, replace each hint with text, remove
-        the note macro, send it back with `mode=replace` and `body_format=storage`, review
-        the dry run, then publish with `--no-dry-run`.
+        this is an edit, not a create. Once you have edit access: read it whole
+        (`max_chars=5000`), then one `confluence_update_page` with `replacements`, one per
+        hint plus one that removes the note macro; review the dry run, then publish with
+        `--no-dry-run`. This will be the first real use of `replacements`.
 
 ## Next up
 
@@ -156,11 +153,7 @@ Rough order. Each item is one pull request. API references: the Jira 11.0.2 and 
 
 1. **Get edit access to the profile page**, then fill it in (see the Confluence checks
    above) before Fri Nov 20.
-2. Re-run the smoke test for the dry-run review, then open the pull request for this
-   branch.
-3. Maybe: a find-and-replace mode for `confluence_update_page` (exact storage snippets in,
-   replacements out), so filling a template does not send the whole page through the
-   model. Decide after the profile page shows how well `replace` works.
+2. Open the pull request for this branch (the smoke test is clean).
 
 ## Later
 

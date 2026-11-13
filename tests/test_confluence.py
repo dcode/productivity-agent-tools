@@ -14,6 +14,8 @@ from productivity_agent_tools.config import Settings, parse_settings
 from productivity_agent_tools.confluence.client import (
     MAX_BODY_CHARS,
     ConfluenceClient,
+    apply_replacements,
+    is_well_formed,
     page_id_of,
     space_key_of,
     to_storage,
@@ -321,7 +323,7 @@ async def test_create_checks_the_title_and_sends_storage_format(
 async def test_plan_update_checks_the_version_and_combines_bodies(
     client: ConfluenceClient,
 ) -> None:
-    with pytest.raises(AgentToolsError, match="Give a new body, a new title"):
+    with pytest.raises(AgentToolsError, match="Give a new body, replacements, a new title"):
         await client.plan_update("100", 3, title=" ")
     with pytest.raises(AgentToolsError, match="mode must be"):
         await client.plan_update("100", 3, "x", mode=cast(Any, "merge"))
@@ -353,6 +355,91 @@ async def test_a_page_the_user_may_not_edit_says_so_and_refuses_the_edit(
     del confluence.pages["100"]["operations"]
     assert (await live.get_page("100")).can_edit is None
     assert (await live.plan_update("100", 3, "x")).version == 4
+
+
+TEMPLATE = (
+    '<ac:layout><ac:layout-section ac:type="single"><ac:layout-cell>'
+    '<ac:structured-macro ac:name="note"><ac:rich-text-body><p>Fill this&nbsp;out</p>'
+    "</ac:rich-text-body></ac:structured-macro>"
+    "<table><tbody><tr><th>Location</th><td><ac:placeholder>City, state</ac:placeholder></td>"
+    "</tr><tr><th>Ask me about</th><td><ac:placeholder>Topics</ac:placeholder></td></tr>"
+    "</tbody></table><p>same</p><p>same</p>"
+    "</ac:layout-cell></ac:layout-section></ac:layout>"
+)
+NOTE = TEMPLATE[TEMPLATE.index("<ac:structured-macro") : TEMPLATE.index("<table>")]
+
+
+def test_replacements_swap_exact_pieces_and_leave_the_rest() -> None:
+    assert is_well_formed(TEMPLATE)
+    edited = apply_replacements(
+        TEMPLATE,
+        [
+            ("<ac:placeholder>City, state</ac:placeholder>", "Baltimore, MD"),
+            ("<ac:placeholder>Topics</ac:placeholder>", "Search &amp; logs"),
+            (NOTE, ""),
+        ],
+    )
+    assert edited == (
+        '<ac:layout><ac:layout-section ac:type="single"><ac:layout-cell>'
+        "<table><tbody><tr><th>Location</th><td>Baltimore, MD</td>"
+        "</tr><tr><th>Ask me about</th><td>Search &amp; logs</td></tr>"
+        "</tbody></table><p>same</p><p>same</p>"
+        "</ac:layout-cell></ac:layout-section></ac:layout>"
+    )
+
+
+def test_replacements_that_miss_or_are_ambiguous_change_nothing() -> None:
+    long = "x" * 80
+    pairs = [("<p>same</p>", "a"), ("Nowhere", "b"), ("", "c"), (long, "")]
+    with pytest.raises(AgentToolsError) as info:
+        apply_replacements(TEMPLATE, pairs)
+    message = str(info.value)
+    assert "'<p>same</p>' occurs 2 times" in message
+    assert "'Nowhere' was not found" in message
+    assert "empty 'find'" in message
+    assert f"'{'x' * 60}...' was not found" in message
+    with pytest.raises(AgentToolsError, match="at least one replacement"):
+        apply_replacements(TEMPLATE, [])
+    with pytest.raises(AgentToolsError, match="overlaps an earlier replacement"):
+        apply_replacements(TEMPLATE, [("City, state", "X"), ("ty, sta", "Y")])
+    with pytest.raises(AgentToolsError, match="leave the page as it is"):
+        apply_replacements(TEMPLATE, [("Topics", "Topics")])
+
+
+def test_replacements_may_not_break_well_formed_markup() -> None:
+    with pytest.raises(AgentToolsError, match="would leave broken markup"):
+        apply_replacements(TEMPLATE, [("Topics", "Search & logs")])
+    with pytest.raises(AgentToolsError, match="would leave broken markup"):
+        apply_replacements(TEMPLATE, [("<ac:placeholder>Topics", "Topics")])
+    # A page that was already broken is not held to a standard it did not meet.
+    assert apply_replacements("<p>a & b<br>", [("a", "c")]) == "<p>c & b<br>"
+    assert is_well_formed("<p>&nbsp;&mdash;&amp;&unknownthing;</p>") is False
+    assert is_well_formed("<p>&nbsp;&mdash;&amp;</p>")
+
+
+async def test_update_tool_fills_a_template_with_replacements(
+    confluence: FakeConfluence, make_cf_api: Callable[..., AtlassianClient]
+) -> None:
+    confluence.pages["100"]["body"]["storage"]["value"] = TEMPLATE
+    live = build_server(_settings(), {"confluence": Connected(make_cf_api(dry_run=False))})
+    fill = [{"find": "<ac:placeholder>Topics</ac:placeholder>", "replace": "Logs"}]
+    edit = {"page_id": "100", "version": 3, "replacements": fill}
+    with pytest.raises(ToolError, match="either a body or replacements"):
+        await live.call_tool("confluence_update_page", {**edit, "body": "x"})
+    with pytest.raises(ToolError, match="'Nope' was not found"):
+        await live.call_tool(
+            "confluence_update_page",
+            {**edit, "replacements": [{"find": "Nope", "replace": ""}]},
+        )
+    assert confluence.writes() == []
+
+    saved = _structured(await live.call_tool("confluence_update_page", edit))
+    assert (saved["sent"], saved["version"]) == (True, 4)
+    assert confluence.pages["100"]["body"]["storage"]["value"] == TEMPLATE.replace(
+        "<ac:placeholder>Topics</ac:placeholder>", "Logs"
+    )
+    again = _structured(await live.call_tool("confluence_update_page", edit))
+    assert again["repeat_suppressed"] is True
 
 
 async def test_plan_update_refuses_pages_too_long_to_edit_whole(

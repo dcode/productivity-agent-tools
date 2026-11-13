@@ -461,6 +461,15 @@ keeps writes behind a dry-run switch that is on by default.
   onto the current body here, so adding a section never sends the whole page through the
   model. A body left out keeps the current one, so a title change or move alone works.
   A page over 500,000 characters is refused for editing.
+- **Find and replace** (`replacements` on `confluence_update_page`, instead of `body`) is
+  for pages whose layout and macros must survive, such as a template to fill in. Each
+  pair is an exact piece of the storage-format body and its replacement, spliced here so
+  the page never goes through the model whole. Every `find` must occur exactly once in
+  the current body (all misses and duplicates are reported together), pieces may not
+  overlap, and nothing may be a no-op. If the body was well-formed XML before (checked
+  with the `ac:` and `ri:` prefixes bound and HTML entities made numeric), it must be
+  after, which catches a bare `&` or half an element. Replacement text is storage format,
+  not Markdown, because Markdown would wrap inline text in `<p>`.
 - A page read asks for `operations` and reports `can_edit` (true when `update` is among
   them, None when the server sends none). An edit of a page with `can_edit` false is
   refused before anything is sent, in dry run too, so a dry run cannot look like it would
