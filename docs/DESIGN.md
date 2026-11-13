@@ -427,8 +427,8 @@ keeps writes behind a dry-run switch that is on by default.
   dropped, cut at a word within 40 characters). Prefixes and the development and
   production branches come from `rest/branch-utils/latest/.../branchmodel`, which is not
   in the published OpenAPI spec but answers on 10.2.8; if it does not answer, Bitbucket's
-  default prefixes are used and the result says so. A type the model has switched off is refused. `custom` has
-  no prefix and uses the given name as written. The summary comes from an `IssueTracker`
+  default prefixes are used and the result says so. A type the model has switched off is
+  refused. `custom` has no prefix and uses the given name as written. The summary comes from an `IssueTracker`
   peer; with Jira on, an issue Jira does not return refuses the branch (a likely typo),
   while a Jira error only drops the summary. The start point defaults to the model's
   development branch (production for a hotfix), then the repository's default branch.
