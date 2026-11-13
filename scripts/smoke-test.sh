@@ -249,6 +249,7 @@ for name in ${SKIPPED[@]+"${SKIPPED[@]}"}; do printf '     - %s\n' "$name"; done
 printf '   full output: %s\n' "$OUT_DIR"
 
 zip_name="$(basename $(pwd))-$(build-identifier).zip"
+mkdir -p dist
 zip -j -r "dist/${zip_name}" "$OUT_DIR" >/dev/null 2>&1
 printf '   full output zip: dist/%s.zip\n' "${zip_name%.zip}"
 

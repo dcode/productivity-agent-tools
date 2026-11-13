@@ -16,5 +16,3 @@ config.toml
 jira-probe*-output.txt
 .coverage
 htmlcov/
-
-dist/
