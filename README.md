@@ -353,7 +353,7 @@ tool approval on so you see each comment or transition before it is sent.
 | `confluence_get_page` | read | A page by id or exact title: body (storage format), version, ancestors, labels |
 | `confluence_list_child_pages` | read | Pages directly under a page |
 | `confluence_create_page` | write | Create a page from Markdown or storage format, optionally under a parent |
-| `confluence_update_page` | write | Replace, append to or prepend to a page's body, or retitle or move it |
+| `confluence_update_page` | write | Replace, append to, prepend to or find-and-replace in a page's body, or retitle or move it |
 
 The `bitbucket_` tools appear only when Bitbucket is configured. Only the two
 write tools change anything in Bitbucket, and `dry_run` blocks them just as it
@@ -398,7 +398,11 @@ storage format directly (`body_format="storage"`).
 An edit must name the version the agent read. If anyone changed the page since,
 nothing is saved and the agent is told to read it again, so it cannot overwrite
 someone else's change. To add a section, the agent can append to the page
-(`mode="append"`) without sending the whole page back. `confluence_status`
+(`mode="append"`) without sending the whole page back. To fill in a template or
+change a few places on a page with layouts and macros, it passes `replacements`:
+exact pieces of the page to find and what to put there. Everything else stays
+byte for byte as it was. Each piece must occur exactly once, and an edit that
+would leave broken markup is refused. `confluence_status`
 shows your personal space key (`~` and your username), which is where pages
 about you, such as an "About me" page, usually go.
 

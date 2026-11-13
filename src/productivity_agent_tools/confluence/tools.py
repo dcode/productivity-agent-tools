@@ -19,6 +19,7 @@ from productivity_agent_tools.confluence.models import (
     Page,
     PageList,
     PageWriteResult,
+    Replacement,
     SpaceList,
 )
 from productivity_agent_tools.errors import AgentToolsError
@@ -255,6 +256,7 @@ def register_confluence_tools(
         parent_id: str | None = None,
         version_comment: str | None = None,
         minor_edit: bool = False,
+        replacements: list[Replacement] | None = None,
     ) -> PageWriteResult:
         """Edit a page, saving a new version. Visible to everyone who can see the page.
 
@@ -267,6 +269,14 @@ def register_confluence_tools(
         replace with a body that was truncated. mode=append or prepend adds the
         given text after or before the existing body, which keeps the rest
         untouched. Leave body out to change only the title or parent.
+
+        To change parts of a page and keep everything else exactly as it is
+        (filling in a template, fixing a sentence, removing a box), pass
+        replacements instead of body: each names a piece of the storage-format
+        body to find, copied exactly from confluence_get_page, and what to put
+        there. This is the safest way to edit a page with layouts or macros.
+        Every piece must occur exactly once, or nothing is changed and the
+        result says which did not.
 
         Markdown (the default) supports headings, lists, tables, links, bold,
         fenced code blocks and images by URL; use body_format="storage" for
@@ -286,10 +296,14 @@ def register_confluence_tools(
             parent_id: Move the page under this page; leave out to keep its place.
             version_comment: Short note shown in the page history.
             minor_edit: True to skip notifying the page's watchers.
+            replacements: Exact pieces of the body to swap, instead of body.
         """
+        pairs = None if replacements is None else tuple((r.find, r.replace) for r in replacements)
 
         async def send() -> PageWriteResult:
-            update = await confluence.plan_update(page_id, version, body, title, body_format, mode)
+            update = await confluence.plan_update(
+                page_id, version, body, title, body_format, mode, pairs
+            )
             outcome = await confluence.update_page(update, parent_id, version_comment, minor_edit)
             space = update.page.space or ""
             return _write_result(
@@ -313,5 +327,6 @@ def register_confluence_tools(
             parent_id,
             version_comment,
             minor_edit,
+            pairs,
         )
         return await once(guard, signature, send)

@@ -102,6 +102,19 @@ class Page(PageSummary):
     )
 
 
+class Replacement(BaseModel):
+    """One exact piece of a page's storage-format body to swap for another."""
+
+    find: str = Field(
+        description="Text to find, copied exactly from the body confluence_get_page returned. "
+        "It must occur exactly once; include neighbouring markup to make it unique."
+    )
+    replace: str = Field(
+        description="Storage-format text to put in its place (escape & as &amp; and < as "
+        "&lt; in plain text). Empty removes the found text."
+    )
+
+
 class PageWriteResult(WriteReport):
     """Outcome of a Confluence write tool."""
 
