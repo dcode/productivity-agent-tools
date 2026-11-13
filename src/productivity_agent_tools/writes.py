@@ -6,7 +6,7 @@ adapter's ``WriteOutcome`` into the shared fields, and ``once`` runs a change
 through a ``RepeatGuard`` and marks a suppressed repeat.
 """
 
-from collections.abc import Awaitable, Callable
+from collections.abc import Awaitable, Callable, Hashable
 
 from pydantic import BaseModel, Field, JsonValue
 
@@ -69,7 +69,7 @@ def report(action: str, product: str, outcome: WriteOutcome, done: str) -> dict[
 
 async def once[R: WriteReport](
     guard: RepeatGuard[R],
-    key: tuple[str | int | bool | None, ...],
+    key: Hashable,
     send: Callable[[], Awaitable[R]],
 ) -> R:
     """Make a change unless the identical change was just made.
