@@ -143,17 +143,13 @@ chance comes up and tick it here.
         read `true`.
   - [ ] `contributor = currentUser()` was accepted but found nothing; confirm once you
         have edited a page
-  - [ ] `confluence_get_page` with `max_chars` high enough for the whole body: the layout,
+  - [x] `confluence_get_page` with `max_chars` high enough for the whole body: the layout,
         macros and `ac:placeholder` hints come back intact
-  - [ ] One real `confluence_update_page` on a page of your own, then one with a stale
-        `version` to see it refused
-  - [ ] **The profile page.** It already exists, made from a team template: "Profile |
-        <your name>" in the team space, 2,850 characters of storage format with layout
-        sections, a to-do note macro and nine `ac:placeholder` hints, due Fri Nov 20. So
-        this is an edit, not a create. Once you have edit access: read it whole
-        (`max_chars=5000`), then one `confluence_update_page` with `replacements`, one per
-        hint plus one that removes the note macro; review the dry run, then publish with
-        `--no-dry-run`. This will be the first real use of `replacements`.
+  - [x] One real `confluence_update_page` (2026-11-13): the profile page, filled in with
+        `replacements` built from the live page's exact text. First real Confluence write
+        and first real use of `replacements`.
+  - [ ] An edit with a stale `version`, to see it refused on the real server
+  - [x] **The profile page** is done, ahead of the Fri Nov 20 deadline.
 - [ ] Agile issues and branches (the smoke test has dry-run checks for both):
   - [x] The dry-run Epic create finds the Epic Name field on 11.3.12
   - [ ] `jira_get_create_fields project=<KEY> issue_type=Epic` lists an Epic Name field,
@@ -175,8 +171,7 @@ Rough order. Each item is one pull request. API references: the Jira 11.0.2 and 
 10.5 OpenAPI specs (`https://dac-static.atlassian.com/server/jira/platform/jira_software_dc_11002_swagger.v3.json`,
 `https://dac-static.atlassian.com/server/bitbucket/10.5.swagger.v3.json`).
 
-1. **Fill in the profile page** before Fri Nov 20 (edit access granted; see the Confluence
-   checks above). This will be the first real Confluence write.
+1. One real story in the new epic and one real branch from an issue (see the checks above).
 2. Tag and push `v0.3.0` from `main` (#11 is merged; the tag publishes the release).
 
 ## Later
