@@ -7,7 +7,9 @@ Last updated: 2026-11-12.
 
 ## Where things stand
 
-- **Version:** 0.1.0, tagged `v0.1.0` at 92a7d95 (the design-record commit) and released.
+- **Version:** 0.2.0 in the code, not yet tagged. The last release is `v0.1.0`, tagged at
+  92a7d95. Tag `v0.2.0` on `main` after the pull request below merges (see README,
+  Releasing).
 - **Merged to `main`:**
   - [#1](https://github.com/dcode/productivity-agent-tools/pull/1): Jira server, CLI,
     CI, `configure-agent`
@@ -153,7 +155,7 @@ Rough order. Each item is one pull request. API references: the Jira 11.0.2 and 
 
 1. **Get edit access to the profile page**, then fill it in (see the Confluence checks
    above) before Fri Nov 20.
-2. Open the pull request for this branch (the smoke test is clean).
+2. Merge the pull request for this branch, then tag and push `v0.2.0` from `main`.
 
 ## Later
 
@@ -175,9 +177,6 @@ Rough order. Each item is one pull request. API references: the Jira 11.0.2 and 
 - **More Bitbucket writes:** comments on a file or line of the diff (needs the anchor's
   path, line, line type and file type), resolving and reopening tasks, editing or deleting
   the user's own comments.
-- Release `v0.2.0` (the Bitbucket reads from
-  [#3](https://github.com/dcode/productivity-agent-tools/pull/3) and the Bitbucket writes) once the checks
-  above are confirmed.
 
 ## Open questions
 
