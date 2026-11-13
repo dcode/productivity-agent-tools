@@ -8,8 +8,7 @@ Last updated: 2026-11-12.
 ## Where things stand
 
 - **Version:** 0.3.0 in the code, not yet tagged. The last release is `v0.2.0`. Tag
-  `v0.3.0` on `main` after the agile and branch pull request merges (see README,
-  Releasing).
+  `v0.3.0` on `main` to release (see README, Releasing).
 - **Merged to `main`:**
   - [#1](https://github.com/dcode/productivity-agent-tools/pull/1): Jira server, CLI,
     CI, `configure-agent`
@@ -32,12 +31,11 @@ Last updated: 2026-11-12.
     and version 0.2.0
   - [#10](https://github.com/dcode/productivity-agent-tools/pull/10): the smoke test reads
     its values from an untracked `.env` (copy `.env.example`)
+  - [#11](https://github.com/dcode/productivity-agent-tools/pull/11): agile issue fields
+    (`epic_name`, `epic`, `story_points`), `bitbucket_create_branch`, the `call` fix for
+    named-choice parameters, and version 0.3.0
 - **In review:** nothing.
 - **Tests:** 328 passing, about 99.9% branch coverage. All hooks clean.
-- **In progress:** agile issues (Epic Name, Epic Link, Story Points on create, edit and
-  read), `bitbucket_create_branch` and version 0.3.0, on branch
-  `claude/agile-issues-and-branches`. The dry runs work on the real servers; no real epic
-  or branch has been created yet.
 - **In use:** Goose on the work laptop, against Jira 11.3.12, Bitbucket 10.2.8 and Confluence
   10.2.19. No CI
   server (Bamboo or other) reports builds or deployments to this Bitbucket.
@@ -177,7 +175,7 @@ Rough order. Each item is one pull request. API references: the Jira 11.0.2 and 
 
 1. **Get edit access to the profile page**, then fill it in (see the Confluence checks
    above) before Fri Nov 20.
-2. Merge the agile and branch pull request, then tag and push `v0.3.0` from `main`.
+2. Tag and push `v0.3.0` from `main` (#11 is merged; the tag publishes the release).
 
 ## Later
 
