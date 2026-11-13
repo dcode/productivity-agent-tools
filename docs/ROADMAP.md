@@ -27,10 +27,10 @@ Last updated: 2026-11-12.
   - [#8](https://github.com/dcode/productivity-agent-tools/pull/8): products as
     entry-point plugins, `AgentToolsError`, a per-product adapter. Run `uv sync` after
     pulling so the entry points are installed. An unknown product table is now an error.
-- **In review:** [#9](https://github.com/dcode/productivity-agent-tools/pull/9): Confluence
-  (reads, search, create, edit, find-and-replace, `can_edit`), `ci = false`, the smoke-run
-  fixes and version 0.2.0 (branch `claude/beautiful-hamilton-k4u2un`). No real Confluence
-  write has been made yet; see the checks below.
+  - [#9](https://github.com/dcode/productivity-agent-tools/pull/9): Confluence (reads,
+    search, create, edit, find-and-replace, `can_edit`), `ci = false`, the smoke-run fixes
+    and version 0.2.0
+- **In review:** nothing.
 - **Tests:** 316 passing, about 99.9% branch coverage. All hooks clean.
 - **In use:** Goose on the work laptop, against Jira 11.3.12, Bitbucket 10.2.8 and Confluence
   10.2.19. No CI
@@ -156,7 +156,7 @@ Rough order. Each item is one pull request. API references: the Jira 11.0.2 and 
 
 1. **Get edit access to the profile page**, then fill it in (see the Confluence checks
    above) before Fri Nov 20.
-2. Merge the pull request for this branch, then tag and push `v0.2.0` from `main`.
+2. Tag and push `v0.2.0` from `main` (#9 is merged; the tag publishes the release).
 
 ## Later
 
