@@ -184,5 +184,6 @@ Rough order. Each item is one pull request. API references: the Jira 11.0.2 and 
 - **Deployment listing is parked.** With no CI server reporting to Bitbucket there is
   nothing to list. `ci = false` under `[bitbucket]` now hides the build and deployment
   tools; set it in the work laptop's config.
-- `scripts/smoke-test.sh` on `main` now holds a real issue key, project key and repository
-  slug. Fine for a private repository; if it is public, move them to an untracked file.
+- The smoke test's values now live in an untracked `.env` (copy `.env.example`). The real
+  issue key, project key and repository slug that were in the script are still in the git
+  history of `main`. Leave them, or rewrite history?
