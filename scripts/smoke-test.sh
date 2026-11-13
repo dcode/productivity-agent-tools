@@ -4,7 +4,8 @@
 # no agent and no model credits. Nothing here changes Jira, Bitbucket or Confluence:
 # every write tool it runs is forced into dry-run.
 #
-# 1. Replace the <placeholder> values below.
+# 1. Copy .env.example to .env in the repository root and fill in your values.
+#    .env is ignored by git, so your issue keys and project names stay local.
 # 2. Run it from anywhere:  ./scripts/smoke-test.sh
 #    Add extra options for every call after the script name, for example:
 #      ./scripts/smoke-test.sh --log-level debug
@@ -13,31 +14,32 @@
 
 set -u
 
-# ---- Edit these -------------------------------------------------------------
-
-JIRA_ISSUE="ELK-763"          # an issue you can see, e.g. PROJ-123
-JIRA_JQL="assignee = currentUser() ORDER BY updated DESC"            # e.g. assignee = currentUser() ORDER BY updated DESC
-JIRA_ISSUE_TYPE="Task"        # an issue type the issue's project lets you create
-
-BITBUCKET_PROJECT="CO" # e.g. PROJ
-BITBUCKET_REPO="il5-ansible"      # e.g. my-service
-BITBUCKET_PR="12"        # a pull request in that repo, e.g. 42
-BITBUCKET_SEARCH="<search-text>"  # a string you know is in some repo
-BITBUCKET_COMMIT="<commit-hash>"  # a commit with CI builds, e.g. the PR's latest_commit
-# Deployments cannot be listed; fill these from your CI/CD server to check one.
-BITBUCKET_DEPLOY_KEY="<deployment-key>"
-BITBUCKET_DEPLOY_ENV="<environment-key>"
-BITBUCKET_DEPLOY_RUN="<sequence-number>"
-
-CONFLUENCE_SPACE="<space-key>"    # e.g. OPS, or ~yourname for your personal space
-CONFLUENCE_PAGE="<page-id>"       # a page you can see (the number in its pageId URL)
-
-# ---- No need to edit below --------------------------------------------------
-
 EXTRA_ARGS=("$@")
 LINES_SHOWN=25
 
 cd "$(dirname "$0")/.." || exit 1
+
+# Your values come from .env; anything it leaves out stays a <placeholder>,
+# and a check that needs a placeholder is skipped.
+if [ -f .env ]; then
+  # shellcheck source=/dev/null
+  . ./.env
+else
+  printf 'No .env found: copy .env.example to .env and fill it in. Running without it.\n'
+fi
+: "${JIRA_ISSUE:=<ISSUE-123>}"
+: "${JIRA_JQL:=assignee = currentUser() ORDER BY updated DESC}"
+: "${JIRA_ISSUE_TYPE:=Task}"
+: "${BITBUCKET_PROJECT:=<project-key>}"
+: "${BITBUCKET_REPO:=<repo-slug>}"
+: "${BITBUCKET_PR:=<pr-number>}"
+: "${BITBUCKET_SEARCH:=<search-text>}"
+: "${BITBUCKET_COMMIT:=<commit-hash>}"
+: "${BITBUCKET_DEPLOY_KEY:=<deployment-key>}"
+: "${BITBUCKET_DEPLOY_ENV:=<environment-key>}"
+: "${BITBUCKET_DEPLOY_RUN:=<sequence-number>}"
+: "${CONFLUENCE_SPACE:=<space-key>}"
+: "${CONFLUENCE_PAGE:=<page-id>}"
 OUT_DIR="$(mktemp -d "${TMPDIR:-/tmp}/productivity-smoke.XXXXXX")"
 PASSED=()
 FAILED=()
@@ -249,7 +251,8 @@ for name in ${SKIPPED[@]+"${SKIPPED[@]}"}; do printf '     - %s\n' "$name"; done
 printf '   full output: %s\n' "$OUT_DIR"
 
 zip_name="$(basename $(pwd))-$(build-identifier).zip"
-zip -j -r "${zip_name}" "$OUT_DIR" >/dev/null 2>&1
-printf '   full output zip: %s.zip\n' "${zip_name%.zip}"
+mkdir -p dist
+zip -j -r "dist/${zip_name}" "$OUT_DIR" >/dev/null 2>&1
+printf '   full output zip: dist/%s.zip\n' "${zip_name%.zip}"
 
 [ "${#FAILED[@]}" -eq 0 ]
