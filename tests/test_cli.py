@@ -283,6 +283,20 @@ def test_text_parameters_are_detected_from_the_schema() -> None:
     assert cli._accepts_text({"anyOf": [{"type": "string"}, {"type": "null"}]})
     assert not cli._accepts_text({"anyOf": [{"type": "integer"}, {"type": "null"}]})
     assert cli._accepts_text("not a schema")
+    # A named choice of words, as pydantic describes a `type X = Literal[...]` alias.
+    definitions = {
+        "BranchType": {"enum": ["feature", "bugfix"], "type": "string"},
+        "Replacement": {"type": "object"},
+    }
+    assert cli._accepts_text({"$ref": "#/$defs/BranchType", "default": "feature"}, definitions)
+    assert not cli._accepts_text({"$ref": "#/$defs/Replacement"}, definitions)
+    assert not cli._accepts_text({"$ref": "#/$defs/Missing"}, definitions)
+    assert not cli._accepts_text({"$ref": "#/$defs/BranchType"})
+    schema = {
+        "properties": {"branch_type": {"$ref": "#/$defs/BranchType"}},
+        "$defs": definitions,
+    }
+    assert cli._tool_arguments(schema, ("branch_type=feature",)) == {"branch_type": "feature"}
 
 
 async def test_call_can_return_one_field_with_text_as_written(
