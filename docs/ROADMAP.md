@@ -7,8 +7,7 @@ Last updated: 2026-11-12.
 
 ## Where things stand
 
-- **Version:** 0.3.0 in the code, not yet tagged. The last release is `v0.2.0`. Tag
-  `v0.3.0` on `main` to release (see README, Releasing).
+- **Version:** 0.3.0, tagged `v0.3.0` at 8703207 and released.
 - **Merged to `main`:**
   - [#1](https://github.com/dcode/productivity-agent-tools/pull/1): Jira server, CLI,
     CI, `configure-agent`
@@ -173,7 +172,6 @@ Rough order. Each item is one pull request. API references: the Jira 11.0.2 and 
 `https://dac-static.atlassian.com/server/bitbucket/10.5.swagger.v3.json`).
 
 1. One real story in the new epic and one real branch from an issue (see the checks above).
-2. Tag and push `v0.3.0` from `main` (#11 is merged; the tag publishes the release).
 
 ## Later
 
