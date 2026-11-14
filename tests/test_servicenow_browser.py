@@ -1,5 +1,6 @@
 """Tests for the DevTools pipe driver, against a stand-in browser process."""
 
+import subprocess
 import sys
 from pathlib import Path
 
@@ -117,3 +118,22 @@ def test_find_browser_takes_the_configured_one_or_the_first_installed(tmp_path: 
         find_browser("no-such-browser-xyz")
     with pytest.raises(ConfigError, match="No Chrome or Edge was found"):
         find_browser(None, ["no-such-browser-xyz"])
+
+
+def test_it_starts_whatever_descriptors_3_and_4_are_in_this_process(binary: str) -> None:
+    """Descriptor 3 may be open here yet missing in the child, as an event loop's kqueue is."""
+    script = (
+        "import os, sys\n"
+        "os.closerange(3, 64)\n"
+        "held = os.open(os.devnull, os.O_RDONLY)\n"
+        "assert held == 3\n"
+        "os.register_at_fork(after_in_child=lambda: os.close(held))\n"
+        "from productivity_agent_tools.servicenow.browser import Browser\n"
+        "with Browser(sys.argv[1], 'https://desk.example/') as browser:\n"
+        "    names = sorted(c.name for c in browser.cookies('desk.example'))\n"
+        "    print(browser.version(), names)\n"
+    )
+    done = subprocess.run(
+        [sys.executable, "-c", script, binary], capture_output=True, text=True, timeout=30
+    )
+    assert done.stdout.strip() == "Fake/1.0 ['JSESSIONID', 'flags', 'route']", done.stderr

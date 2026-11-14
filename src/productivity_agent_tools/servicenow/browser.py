@@ -132,9 +132,10 @@ class Browser:
         to_browser, self._write = os.pipe()
         self._read, from_browser = os.pipe()
         # Copies numbered 10 or higher, so that renumbering them to 3 and 4 in
-        # the child cannot overwrite one with the other.
-        child_in = fcntl.fcntl(to_browser, fcntl.F_DUPFD, 10)
-        child_out = fcntl.fcntl(from_browser, fcntl.F_DUPFD, 10)
+        # the child cannot overwrite one with the other. Like every descriptor
+        # Python opens they close on exec, so the browser inherits only 3 and 4.
+        child_in = fcntl.fcntl(to_browser, fcntl.F_DUPFD_CLOEXEC, 10)
+        child_out = fcntl.fcntl(from_browser, fcntl.F_DUPFD_CLOEXEC, 10)
 
         def renumber() -> None:  # pragma: no cover - runs in the child process
             os.dup2(child_in, 3)
@@ -152,7 +153,10 @@ class Browser:
         try:
             self._process = subprocess.Popen(
                 command,
-                pass_fds=(3, 4),
+                # Not pass_fds=(3, 4): that needs 3 and 4 to be open in the child before
+                # renumber runs, and whatever holds those numbers here may not survive
+                # the fork (an event loop's kqueue does not).
+                close_fds=False,
                 preexec_fn=renumber,
                 stdout=subprocess.DEVNULL,
                 stderr=subprocess.DEVNULL,
