@@ -44,6 +44,10 @@ Last updated: 2026-11-14.
   tenant (the public client authenticates and is not Conditional-Access blocked).
   **Waiting on admin consent** for the read-only delegated scopes before any build. See
   "Later" for the decisions and planned order.
+- **ServiceNow (new, 2026-11-14):** the work helpdesk, for requesting software and
+  following the requests. Nothing is designed yet. `scripts/servicenow_probe.py` is written
+  and checked against a local fake only. **Next action: run both stages on the work laptop
+  and paste the summary back.** See "Later".
 
 ## Done
 
@@ -216,6 +220,36 @@ Rough order. Each item is one pull request. API references: the Jira 11.0.2 and 
   Open design point: one `microsoft` product with many tools, or several products
   (`outlook_calendar`, `outlook_mail`, ...) sharing a `microsoft` token (favoured; mirrors
   the planned GitLab split).
+- **ServiceNow (helpdesk requests):** request software for the laptop and keep track of
+  the requests. Sign-in is SAML through a federation host that asks for a smart-card
+  certificate, so there is no token to store: basic auth has no password to use, and OAuth
+  needs a client that an instance admin registers. **Status: waiting on the probe.**
+  `scripts/servicenow_probe.py` (reads only, never follows a redirect) asks:
+  - Stage 1, anonymous: where the instance redirects, and what the API tells an
+    unauthenticated caller.
+  - Stage 2, with the browser's `Cookie` header in `SNOW_COOKIE`: whether the REST API
+    accepts the browser session from a plain client, whether it needs the CSRF token
+    (`X-UserToken`, the page's `g_ck`), which of `sc_request`, `sc_req_item`, `sc_task`,
+    `incident` and the comment journal the account can read, whether the Service Catalog
+    API lists catalogs, finds software items and describes an item's form, and whether
+    `/api/now/graphql` answers (introspection, and one `GlideRecord_Query` read).
+
+  What the answers decide:
+  1. **Session reuse works:** a `ServiceNowClient` adapter whose credential is a session
+     rather than a token. It fits the token-provider seam planned for Microsoft Graph
+     (step 1 there), with the provider returning a cookie and CSRF token. Then a
+     `servicenow` product, read-only first (my requests, one request with its stage, tasks
+     and comments, catalog search, an item's form), then ordering and commenting behind
+     `dry_run`.
+  2. **How the session is obtained** is the open design question: pasted from the browser
+     each time (simple, expires with the idle timeout), or a `login servicenow` verb that
+     opens a real browser for the smart-card sign-in and keeps the session.
+  3. **Session reuse is refused:** ask the ServiceNow admins for an OAuth client, or stop.
+
+  Open questions: the session's idle timeout; whether REST or GraphQL is the better read
+  path (GraphQL only if the schema exposes more than `GlideRecord_Query`); and whether
+  scripted use of the helpdesk is within the acceptable-use policy (ask before building
+  writes).
 - **Sprints:** put an issue in a sprint by name (needs the board API to find the sprint's
   id), and list a board's sprints.
 - **Other custom Jira fields** (`customfield_*`), read and set through the same screen
