@@ -7,7 +7,8 @@ Last updated: 2026-11-14.
 
 ## Where things stand
 
-- **Version:** 0.3.0, tagged `v0.3.0` at 8703207 and released.
+- **Version:** 0.4.0 on `claude/servicenow-credential-seam`, not yet tagged. The last
+  release is 0.3.0, tagged `v0.3.0` at 8703207.
 - **Merged to `main`:**
   - [#1](https://github.com/dcode/productivity-agent-tools/pull/1): Jira server, CLI,
     CI, `configure-agent`
@@ -33,7 +34,9 @@ Last updated: 2026-11-14.
   - [#11](https://github.com/dcode/productivity-agent-tools/pull/11): agile issue fields
     (`epic_name`, `epic`, `story_points`), `bitbucket_create_branch`, the `call` fix for
     named-choice parameters, and version 0.3.0
-- **In review:** nothing.
+- **In review:** the credential seam, the ServiceNow adapter, `login servicenow` and
+  `servicenow_status`, with the Microsoft Graph and ServiceNow spikes and version 0.4.0
+  (`claude/servicenow-credential-seam`).
 - **Tests:** 389 passing, about 99.9% branch coverage. All hooks clean.
 - **In use:** Goose on the work laptop, against Jira 11.3.12, Bitbucket 10.2.8 and Confluence
   10.2.19. No CI
