@@ -7,8 +7,7 @@ Last updated: 2026-11-14.
 
 ## Where things stand
 
-- **Version:** 0.4.0 on `main` (ec90a60), not yet tagged. The last release is 0.3.0,
-  tagged `v0.3.0` at 8703207.
+- **Version:** 0.4.0, tagged `v0.4.0` at ec90a60 on `main`.
 - **Merged to `main`:**
   - [#1](https://github.com/dcode/productivity-agent-tools/pull/1): Jira server, CLI,
     CI, `configure-agent`
@@ -34,7 +33,7 @@ Last updated: 2026-11-14.
   - [#11](https://github.com/dcode/productivity-agent-tools/pull/11): agile issue fields
     (`epic_name`, `epic`, `story_points`), `bitbucket_create_branch`, the `call` fix for
     named-choice parameters, and version 0.3.0
-- **Also on `main`, not yet tagged:** the credential seam, the ServiceNow adapter,
+- **Also on `main`, in 0.4.0:** the credential seam, the ServiceNow adapter,
   `login servicenow` and `servicenow_status`, with the Microsoft Graph and ServiceNow
   spikes and version 0.4.0 (built on `claude/servicenow-credential-seam`).
 - **Tests:** 389 passing, about 99.9% branch coverage. All hooks clean.
@@ -57,9 +56,8 @@ Last updated: 2026-11-14.
   `ServiceNowClient` adapter, `login servicenow` and a `servicenow_status` tool.
   **Confirmed on the work laptop (2026-11-14):** `login servicenow`, the Keychain round
   trip, `doctor` and `servicenow_status` all work against the real instance.
-  **Next action: tag `v0.4.0`, then step 3 under "Later": the read-only tools.** The
-  slower session checks (idle expiry, API-only lifetime) are still
-  open under "Confirm against the real servers".
+  **Next action: step 3 under "Later": the read-only tools.** The slower session checks
+  (idle expiry, API-only lifetime) are still open under "Confirm against the real servers".
 
 ## Done
 
