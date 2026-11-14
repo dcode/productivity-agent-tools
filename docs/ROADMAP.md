@@ -183,7 +183,6 @@ chance comes up and tick it here.
         `branch-utils/.../branchmodel` answers on 10.2.8
   - [ ] One real `bitbucket_create_branch` from an issue, seen in the browser and on the
         issue's Development panel
-
 - [ ] ServiceNow, after `login servicenow` on the work laptop:
   - [ ] `login servicenow` itself: the packaged flow has only run against headless
         Chromium and a local fake (the spike it came from passed on the real instance)
