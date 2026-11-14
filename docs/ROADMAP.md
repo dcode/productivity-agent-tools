@@ -228,6 +228,22 @@ Rough order. Each item is one pull request. API references: the Jira 11.0.2 and 
   to approve the delegated scopes; the request was submitted with a read-only justification.
   Nothing to build until that lands (or IT registers a tenant app, which is a one-line
   `client_id`/`tenant` swap). Device-code flow not separately tested yet.
+
+  **Stopgap being probed (token replay):** while consent is pending, reuse a bearer
+  token the browser session already holds (the ServiceNow pattern — harvest the
+  credential the SSO sign-in produced — but a JWT, not a cookie pair). This is a
+  gov-cloud (DoD / GCC High) tenant, so the login authority is `login.microsoftonline.us`
+  and Graph is `dod-graph.microsoft.us` (DoD) or `graph.microsoft.us` (GCC High), not the
+  commercial hosts. `scripts/ms_graph_token_probe.py` decodes a pasted token locally and,
+  only if its `aud` is a Graph resource, makes the same read-only probes as the MSAL spike.
+  **Feasibility turns entirely on the token's `aud`:** an Outlook/Exchange token
+  (`aud=outlook.office365.us`, and often an encrypted JWE) is rejected by Graph with
+  `401 InvalidAudience`; only a token minted *for Graph* works, and only until it expires
+  (~60–90 min, no refresh — a manual re-paste each time, so this is a bridge, not the
+  design). Run on the work laptop (token and gov-network route both live there). **Not yet
+  run against a real token.** If it passes, it informs nothing in the adapter plan below
+  except an optional `HeaderProvider` that reads a hand-supplied token; the MSAL path stays
+  the real target.
   Planned order, each a pull request once unblocked:
   1. ~~**The OAuth seam.**~~ **Done**, on `main`, shared with
      ServiceNow: the adapter is given a `HeaderProvider` (async, returns the authentication
