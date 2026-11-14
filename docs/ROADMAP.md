@@ -256,8 +256,9 @@ Rough order. Each item is one pull request. API references: the Jira 11.0.2 and 
   **Sign-in decision (2026-11-14): a `login servicenow` verb that drives the installed
   browser**, chosen over pasting the cookie from DevTools. It starts Chrome (or Edge) with a
   temporary empty profile, the user signs in there as usual, and the tool reads the
-  instance's cookies (`Storage.getCookies`) and the page's `g_ck` (`Runtime.evaluate`) over
-  the DevTools protocol, then confirms them with one API read. Rejected: reading the
+  instance's cookies (`Storage.getCookies`) and the open tab's address
+  (`Target.getTargets`) over the DevTools protocol. It then fetches that page itself to
+  read `g_ck` from the HTML and confirms the pair with one API read. Rejected: reading the
   browser's cookie database (looks like credential theft to endpoint protection), an
   embedded web view (cannot do the certificate prompt), an extension (blocked on managed
   browsers), and performing the SAML exchange in Python (the tool would handle the smart
@@ -267,8 +268,13 @@ Rough order. Each item is one pull request. API references: the Jira 11.0.2 and 
     that another local program could attach to, and no websocket dependency (the spike is
     standard library only). A debugging *port* is confirmed to work on the work laptop; the
     pipe is not yet.
-  - A page shown to a guest also has a `g_ck`, so signed-in is decided by the API read
-    succeeding, not by the token appearing.
+  - **Do not attach to the page.** On the work laptop's Chrome, `Target.attachToTarget`
+    is refused with "Not allowed" (cause not established; a policy limiting page
+    inspection is the guess), so `Runtime.evaluate` is unavailable. Only browser-level
+    commands are used.
+  - Signed-in is detected from the API: without the token it answers 401 either way, but
+    its `x-is-logged-in` header turns `true`. Nothing is sent to the instance while the tab
+    is away at the sign-in host.
   - `scripts/servicenow_login_probe.py` proves the loop. It passes against headless
     Chromium and a local fake; **not yet run against the real instance.**
 
