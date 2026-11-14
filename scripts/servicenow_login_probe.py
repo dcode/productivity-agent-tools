@@ -11,10 +11,12 @@ What it does:
 1. Starts Chrome with a new, empty, temporary profile, opened on the
    instance. Your everyday profile is not touched.
 2. Waits while you sign in in that window.
-3. Asks the browser for the instance's cookies and the page's `g_ck`, over
-   the DevTools protocol.
-4. Makes one read-only API call with them from plain Python (your own user
-   record), to prove the collected session works outside the browser.
+3. Asks the browser for the instance's cookies and the address of the open
+   tab, over the DevTools protocol. It never attaches to a page: a managed
+   browser can refuse that ("Not allowed"), and it is not needed.
+4. From plain Python, fetches that same page with the cookies to read the
+   CSRF token (`g_ck`) from its HTML, then reads your own user record, to
+   prove the collected session works outside the browser.
 5. Closes the browser and deletes the temporary profile.
 
 Run it (macOS or Linux):
@@ -55,7 +57,7 @@ import urllib.parse
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from servicenow_probe import MY_ID, Probe, base_url, describe, table_path, trust
+from servicenow_probe import MY_ID, TOKEN_PATTERN, Probe, base_url, describe, table_path, trust
 
 if TYPE_CHECKING:
     from collections.abc import Iterator
@@ -72,7 +74,6 @@ BROWSERS = (
 )
 POLL_SECONDS = 2.0
 REPLY_SECONDS = 10.0
-TOKEN_SCRIPT = "typeof window.g_ck === 'string' ? window.g_ck : ''"
 
 
 class Browser:
@@ -174,26 +175,25 @@ def rows(value: Json, key: str) -> list[dict[str, Json]]:
     return [row for row in listed if isinstance(row, dict)] if isinstance(listed, list) else []
 
 
-def page_token(browser: Browser, host: str) -> str:
-    """Read `g_ck` from the first open page on the instance that has one."""
+def instance_pages(browser: Browser, host: str) -> list[str]:
+    """Return the path (with query) of each open tab that is on the instance."""
+    paths = []
     for target in rows(browser.call("Target.getTargets"), "targetInfos"):
-        on_instance = urllib.parse.urlsplit(str(target.get("url"))).netloc == host
-        if target.get("type") != "page" or not on_instance:
-            continue
-        attach: dict[str, Json] = {"targetId": target.get("targetId"), "flatten": True}
-        attached = browser.call("Target.attachToTarget", attach)
-        session = str(attached.get("sessionId")) if isinstance(attached, dict) else ""
-        try:
-            evaluate: dict[str, Json] = {"expression": TOKEN_SCRIPT, "returnByValue": True}
-            answer = browser.call("Runtime.evaluate", evaluate, session)
-        except RuntimeError, TimeoutError:
-            continue  # the page is mid-navigation; try again on the next poll
-        finally:
-            browser.call("Target.detachFromTarget", {"sessionId": session})
-        result = answer.get("result") if isinstance(answer, dict) else None
-        if isinstance(result, dict) and (token := result.get("value")):
-            return str(token)
-    return ""
+        url = urllib.parse.urlsplit(str(target.get("url")))
+        if target.get("type") == "page" and url.netloc == host:
+            paths.append(f"{url.path or '/'}{'?' + url.query if url.query else ''}")
+    return paths
+
+
+def page_token(probe: Probe, paths: list[str]) -> tuple[str, str]:
+    """Fetch the open pages with the session and read `g_ck` from their HTML."""
+    notes = []
+    for path in paths:
+        page = probe.get(path, accept="text/html")
+        if match := TOKEN_PATTERN.search(page.body.decode("utf-8", "replace")):
+            return match.group(1), f"found in the HTML of {path.split('?')[0]}"
+        notes.append(f"{path.split('?')[0]}: {describe(page)}")
+    return "", "; ".join(notes) or "(no tab on the instance)"
 
 
 def instance_cookies(browser: Browser, host: str) -> list[dict[str, Json]]:
@@ -210,23 +210,35 @@ def wait_for_session(browser: Browser, probe: Probe, host: str, timeout: float) 
     """Poll until the collected cookies and token read the user's own record."""
     me_path = table_path("sys_user", f"sys_id={MY_ID}", "sys_id")
     deadline = time.monotonic() + timeout
-    seen = ""
+    seen = "(no tab on the instance yet)"
     while time.monotonic() < deadline:
-        if token := page_token(browser, host):
-            cookies = instance_cookies(browser, host)
-            probe.cookie = "; ".join(f"{c.get('name')}={c.get('value')}" for c in cookies)
-            probe.user_token = token
-            reply = probe.get(me_path)
-            if reply.records():
-                return [
-                    "sign_in:             OK",
-                    f"token (g_ck):        found, {len(token)} characters",
-                    f"GET my user (python) {describe(reply)}",
-                    *cookie_lines(cookies),
-                ]
-            seen = describe(reply)  # a guest page has a token too; keep waiting
         time.sleep(POLL_SECONDS)
-    return ["sign_in:             TIMED OUT", f"last API answer:     {seen or '(no token seen)'}"]
+        # Nothing is sent to the instance while the tab is away at the sign-in host.
+        if not (paths := instance_pages(browser, host)):
+            continue
+        cookies = instance_cookies(browser, host)
+        probe.cookie = "; ".join(f"{c.get('name')}={c.get('value')}" for c in cookies)
+        probe.user_token = None
+        # Without the token the API answers 401 either way, but says who is asking.
+        knock = probe.get(me_path)
+        if knock.headers.get("x-is-logged-in") != "true":
+            seen = f"not signed in yet: {describe(knock)}"
+            continue
+        token, source = page_token(probe, paths)
+        if not token:
+            seen = f"signed in, but no token: {source}"
+            continue
+        probe.user_token = token
+        reply = probe.get(me_path)
+        if reply.records():
+            return [
+                "sign_in:             OK",
+                f"token (g_ck):        {source}, {len(token)} characters",
+                f"GET my user (python) {describe(reply)}",
+                *cookie_lines(cookies),
+            ]
+        seen = f"token rejected: {describe(reply)}"
+    return ["sign_in:             TIMED OUT", f"last state:          {seen}"]
 
 
 def cookie_lines(cookies: list[dict[str, Json]]) -> list[str]:
