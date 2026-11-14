@@ -11,7 +11,7 @@ import keyring.errors
 import pytest
 import truststore
 
-from productivity_agent_tools import http
+from productivity_agent_tools import transport
 from productivity_agent_tools.config import Settings, load_settings, parse_settings
 from productivity_agent_tools.credentials import bearer_token
 from productivity_agent_tools.errors import (
@@ -73,7 +73,7 @@ async def test_jira_at_site_root_uses_unprefixed_urls() -> None:
 
 
 def test_system_trust_store_is_the_default() -> None:
-    assert isinstance(http._build_ssl_context(None), truststore.SSLContext)
+    assert isinstance(transport.build_ssl_context(None), truststore.SSLContext)
 
 
 async def test_client_builds_real_tls_contexts() -> None:
