@@ -1,11 +1,18 @@
 #!/usr/bin/env python3
-"""Microsoft Graph *bearer-token replay* probe (throwaway spike, not product code).
+"""Microsoft 365 *bearer-token replay* probe (throwaway spike, not product code).
 
 A stopgap while the public "Microsoft Graph Command Line Tools" client waits on
 admin consent (see docs/ROADMAP.md). The question this answers: if you sign in
 through the browser the way you always do and lift one of the access tokens the
-session already holds, will the gov-cloud Graph endpoint accept it for read-only
-calendar and mail?
+session already holds, can it read your calendar and mail read-only?
+
+The token decides which API. A gov-cloud token audience'd for Graph
+(``dod-graph.microsoft.us``) goes to Graph; one audience'd for Outlook
+(``outlook-dod.office365.us``) goes to the Outlook REST API v2.0, which shares
+Graph's OData shape for ``/me/events``, ``/me/messages`` and ``/me/calendars``.
+In the Teams/Office first-party client the mail and calendar scopes ride the
+Outlook resource, so the Outlook-audience token is the one that reads them; the
+Graph token authenticates but 403s on mail/calendar for lack of those scopes.
 
 It hinges on one claim. A bearer token is minted for a specific *audience*
 (the ``aud`` claim). Graph accepts a replayed token only when ``aud`` is the
@@ -56,22 +63,34 @@ import time
 import urllib.error
 import urllib.request
 
-# aud/iss host -> Graph base. The token tells us which cloud it is from; we do
-# not guess. Override with --graph-base when the audience is the bare Graph app
-# GUID (00000003-0000-0000-c000-000000000000) rather than a resource URL.
-GRAPH_BASES = {
+# aud host -> API base. The token tells us which resource and cloud it is for; we
+# do not guess. Two resource families reach mail/calendar in a gov tenant:
+#   * Microsoft Graph        — directory/people/Teams, and mail/calendar *if* the
+#                              token carries Mail.*/Calendars.* on the Graph resource.
+#   * Outlook REST API v2.0  — mail/calendar on the Outlook resource; same OData
+#                              shape (/me/events, /me/messages, /me/calendars).
+# The first-party Teams/Office client requests mail/calendar on the Outlook
+# resource, so an Outlook-audience token is the one that actually reads them.
+# Override with --graph-base when aud is the bare Graph app GUID, not a URL.
+API_BASES = {
     "dod-graph.microsoft.us": "https://dod-graph.microsoft.us/v1.0",
     "graph.microsoft.us": "https://graph.microsoft.us/v1.0",
     "graph.microsoft.com": "https://graph.microsoft.com/v1.0",
+    "outlook-dod.office365.us": "https://outlook-dod.office365.us/api/v2.0",
+    "outlook.office365.us": "https://outlook.office365.us/api/v2.0",
+    "outlook.office365.com": "https://outlook.office365.com/api/v2.0",
 }
 GRAPH_APP_ID = "00000003-0000-0000-c000-000000000000"
 
-# Read-only, calendar first (the roadmap's priority order), then mail.
+# Read-only, calendar first (the roadmap's priority order), then mail. No $select:
+# the property names differ between Graph (camelCase) and Outlook REST (PascalCase),
+# and we print only the item *count* from each response, never any field, so a body
+# that crosses the wire under $top=1 is never shown.
 PROBES = (
-    ("GET /me", "/me?$select=displayName,userPrincipalName"),
-    ("GET /me/calendars", "/me/calendars?$select=name"),
-    ("GET /me/events?$top=1", "/me/events?$top=1&$select=id"),
-    ("GET /me/messages?$top=1", "/me/messages?$top=1&$select=id"),
+    ("GET /me", "/me"),
+    ("GET /me/calendars", "/me/calendars"),
+    ("GET /me/events?$top=1", "/me/events?$top=1"),
+    ("GET /me/messages?$top=1", "/me/messages?$top=1"),
 )
 
 
@@ -99,25 +118,26 @@ def decode_claims(token: str) -> tuple[dict | None, str]:
 
 
 def base_from_claims(claims: dict) -> tuple[str | None, str]:
-    """Pick the Graph base URL from the token's aud/iss. Returns (base, note)."""
+    """Pick the API base URL from the token's aud/iss. Returns (base, note)."""
     aud = str(claims.get("aud", ""))
-    for host, base in GRAPH_BASES.items():
+    for host, base in API_BASES.items():
         if host in aud:
-            return base, f"aud resource host {host}"
+            kind = "Graph" if "graph" in host else "Outlook REST"
+            return base, f"{kind}; aud resource host {host}"
     if aud in (GRAPH_APP_ID, f"api://{GRAPH_APP_ID}"):
         iss = str(claims.get("iss", ""))
         if ".microsoftonline.us" in iss:
             return None, "aud is the Graph app GUID on a gov tenant — pass --graph-base"
         if ".microsoftonline.com" in iss:
-            return GRAPH_BASES["graph.microsoft.com"], "aud is the Graph app GUID (commercial)"
+            return API_BASES["graph.microsoft.com"], "aud is the Graph app GUID (commercial)"
         return None, "aud is the Graph app GUID — pass --graph-base"
-    return None, f"aud is not a Graph resource (aud={aud!r})"
+    return None, f"aud is not a known Graph or Outlook resource (aud={aud!r})"
 
 
-def graph_get(
+def api_get(
     base: str, path: str, token: str, ctx: ssl.SSLContext
 ) -> tuple[int, dict | None, str | None]:
-    """GET a Graph path read-only. Returns (status, json_or_None, error_text_or_None)."""
+    """GET an API path read-only. Returns (status, json_or_None, error_text_or_None)."""
     req = urllib.request.Request(f"{base}{path}", headers={"Authorization": f"Bearer {token}"})
     try:
         with urllib.request.urlopen(req, timeout=20, context=ctx) as resp:
@@ -176,7 +196,7 @@ def main() -> int:
         token = token[7:].strip()  # tolerate a pasted "Bearer " prefix
 
     claims, note = decode_claims(token)
-    print("=== Microsoft Graph token probe ===")
+    print("=== Microsoft 365 token probe (Graph / Outlook REST) ===")
     print(f"decode: {note}\n")
     if claims:
         for line in _claim_lines(claims):
@@ -193,19 +213,19 @@ def main() -> int:
             print(f"Not probing: {base_note or note}.")
             print("If you believe the token is for Graph, re-run with --graph-base <url>.")
         elif base:
-            print(f"Graph base would be: {base}  ({base_note})")
+            print(f"API base would be: {base}  ({base_note})")
         else:
-            print(f"Graph base: undetermined ({base_note or note}).")
+            print(f"API base: undetermined ({base_note or note}).")
         _summary(claims, base, note, base_note, results=None)
         return 0 if base else 1
 
     cafile = args.ca_bundle or os.environ.get("SSL_CERT_FILE")
     ctx = ssl.create_default_context(cafile=cafile) if cafile else ssl.create_default_context()
-    print(f"Graph base: {base}  ({base_note})\n")
+    print(f"API base: {base}  ({base_note})\n")
 
     results = []
     for label, path in PROBES:
-        status, body, err = graph_get(base, path, token, ctx)
+        status, body, err = api_get(base, path, token, ctx)
         count = len(body.get("value", [])) if isinstance(body, dict) and "value" in body else None
         results.append((label, status, count, err))
 
@@ -232,7 +252,7 @@ def _summary(
         exp = claims.get("exp")
         if isinstance(exp, (int, float)):
             print(f"ttl_secs:   {int(exp - time.time())}")
-    print(f"graph_base: {base or 'undetermined'}  ({base_note or 'n/a'})")
+    print(f"api_base:   {base or 'undetermined'}  ({base_note or 'n/a'})")
     if results is None:
         print("probes:     not run")
     else:

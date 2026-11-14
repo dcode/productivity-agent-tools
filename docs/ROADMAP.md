@@ -230,20 +230,33 @@ Rough order. Each item is one pull request. API references: the Jira 11.0.2 and 
   `client_id`/`tenant` swap). Device-code flow not separately tested yet.
 
   **Stopgap being probed (token replay):** while consent is pending, reuse a bearer
-  token the browser session already holds (the ServiceNow pattern — harvest the
-  credential the SSO sign-in produced — but a JWT, not a cookie pair). This is a
-  gov-cloud (DoD / GCC High) tenant, so the login authority is `login.microsoftonline.us`
-  and Graph is `dod-graph.microsoft.us` (DoD) or `graph.microsoft.us` (GCC High), not the
-  commercial hosts. `scripts/ms_graph_token_probe.py` decodes a pasted token locally and,
-  only if its `aud` is a Graph resource, makes the same read-only probes as the MSAL spike.
-  **Feasibility turns entirely on the token's `aud`:** an Outlook/Exchange token
-  (`aud=outlook.office365.us`, and often an encrypted JWE) is rejected by Graph with
-  `401 InvalidAudience`; only a token minted *for Graph* works, and only until it expires
-  (~60–90 min, no refresh — a manual re-paste each time, so this is a bridge, not the
-  design). Run on the work laptop (token and gov-network route both live there). **Not yet
-  run against a real token.** If it passes, it informs nothing in the adapter plan below
-  except an optional `HeaderProvider` that reads a hand-supplied token; the MSAL path stays
-  the real target.
+  token the browser/desktop-client session already holds (the ServiceNow pattern —
+  harvest the credential the SSO sign-in produced — but a JWT, not a cookie pair). This
+  is a gov-cloud (DoD) tenant `fae6d70f-…` on `login.microsoftonline.us`; Graph is
+  `dod-graph.microsoft.us` and Outlook REST is `outlook-dod.office365.us`.
+  `scripts/ms_graph_token_probe.py` decodes a pasted token locally, routes it by `aud`
+  (Graph tokens to Graph `/v1.0`, Outlook tokens to Outlook REST `/api/v2.0` — same
+  OData shape for `/me/events|messages|calendars`), and makes read-only probes.
+
+  **First real tokens decoded (2026-11-14), both from the Teams/Office first-party
+  client `9199bf20-a13f-4107-85dc-02114787ef48`:**
+  - Graph token: `aud=dod-graph.microsoft.us` (right audience), but its `scp` has
+    **no `Calendars.*`/`Mail.*`** — only User/People/Directory/Files/Teams. So Graph
+    authenticates `/me` but will **403** on mail/calendar. That client does not request
+    mail/calendar on the Graph resource.
+  - Outlook token: `aud=outlook-dod.office365.us` with **`Calendars.ReadWrite` and
+    `Mail.ReadWrite`** — Graph rejects this audience, but **Outlook REST v2.0 accepts
+    it**, so it is the token that actually reads calendar and mail today.
+
+  So read-only calendar+mail is feasible **now via Outlook REST**, not via Graph, with
+  the token already in hand (live probe of the read calls still pending). Tokens last
+  ~60 min; the response also carries a **refresh token (~24 h)**, so the durable form of
+  the stopgap is: harvest a refresh token once, mint access tokens silently against the
+  tenant token endpoint, re-harvest daily — not per-hour debug-bridge scraping. Open
+  question for the adapter: Graph (needs the right scopes consented — the real target) vs
+  Outlook REST (works today but is a deprecated API). An optional `HeaderProvider` that
+  reads a hand-supplied / refresh-minted token is the seam either way; MSAL-after-consent
+  stays the real target.
   Planned order, each a pull request once unblocked:
   1. ~~**The OAuth seam.**~~ **Done**, on `main`, shared with
      ServiceNow: the adapter is given a `HeaderProvider` (async, returns the authentication
