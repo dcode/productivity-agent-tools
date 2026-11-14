@@ -249,14 +249,11 @@ Rough order. Each item is one pull request. API references: the Jira 11.0.2 and 
     it**, so it is the token that actually reads calendar and mail today.
 
   So read-only calendar+mail is feasible **now via Outlook REST**, not via Graph, with
-  the token already in hand (live probe of the read calls still pending). Tokens last
-  ~60 min; the response also carries a **refresh token (~24 h)**, so the durable form of
-  the stopgap is: harvest a refresh token once, mint access tokens silently against the
-  tenant token endpoint, re-harvest daily — not per-hour debug-bridge scraping. Open
-  question for the adapter: Graph (needs the right scopes consented — the real target) vs
-  Outlook REST (works today but is a deprecated API). An optional `HeaderProvider` that
-  reads a hand-supplied / refresh-minted token is the seam either way; MSAL-after-consent
-  stays the real target.
+  the token already in hand (live probe of the read calls still pending). Open question
+  for the adapter: Graph (needs the right scopes consented — the real target) vs Outlook
+  REST (works today but is a deprecated API). An optional `HeaderProvider` that reads a
+  hand-supplied / refresh-minted token is the seam either way; MSAL-after-consent stays
+  the real target.
 
   **The client is a Single-Page App (OWA/webmail, `webmail.apps.mil`).** A plain
   server-style refresh POST is refused with **AADSTS9002327** ("tokens issued for the
@@ -265,8 +262,18 @@ Rough order. Each item is one pull request. API references: the Jira 11.0.2 and 
   must carry an `Origin` header matching a registered SPA redirect URI (and MSAL.js also
   sends `redirect_uri`). `scripts/ms_token_refresh.py` now sends both, defaulting to the
   `https://webmail.apps.mil` origin and `.../mail/oauthRedirect.html` redirect seen in
-  the browser's own refresh call. Live redemption with a real refresh token still to be
-  confirmed.
+  the browser's own refresh call. **The Origin fix is confirmed working** (2026-11-14):
+  9002327 is gone and AAD accepts the request shape.
+
+  **Token cadence (corrected):** the access token is ~60 min, and although the response
+  advertises `refresh_token_expires_in` ~24 h, **Conditional Access caps effective reuse
+  at an 18 h sign-in-frequency window** (64800 s) — beyond it, redemption fails with
+  **AADSTS70043** and a fresh interactive sign-in (smart card/MFA) is required. So the
+  durable shape of the stopgap is: sign in once per ~18 h window (e.g. each morning),
+  seed the refresh token, and let the tool renew access tokens silently through the day;
+  re-seed at the next sign-in. Not per-hour debug-bridge scraping, and not a fire-and-
+  forget daemon. Live silent renewal within the window still to be confirmed with a
+  fresh token.
   Planned order, each a pull request once unblocked:
   1. ~~**The OAuth seam.**~~ **Done**, on `main`, shared with
      ServiceNow: the adapter is given a `HeaderProvider` (async, returns the authentication
