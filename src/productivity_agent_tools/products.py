@@ -28,6 +28,7 @@ from mcp.server.mcpserver import MCPServer
 
 from productivity_agent_tools.api import Adapter, ApiClient
 from productivity_agent_tools.config import ProductSettings
+from productivity_agent_tools.credentials import CredentialResolver, personal_access_token
 
 PRODUCT_GROUP: str = "productivity_agent_tools.products"
 INTEGRATION_GROUP: str = "productivity_agent_tools.integrations"
@@ -98,6 +99,9 @@ class Product[S: ProductSettings, C]:
             passed. A failure is raised as an ``AgentToolsError``.
         token_name: Name its access token is stored under; defaults to ``name``. Products
             served by one host with one token (two GitLab modules, say) share a name.
+        resolve_credential: Finds the product's credential under that name when it is
+            connected. Defaults to a personal access token; a product that signs in
+            another way names its own.
     """
 
     name: str
@@ -110,6 +114,7 @@ class Product[S: ProductSettings, C]:
     register_tools: Callable[[MCPServer, C, ToolContext], None]
     doctor: Callable[[C], AsyncIterator[str]]
     token_name: str | None = None
+    resolve_credential: CredentialResolver = personal_access_token
 
     @property
     def token(self) -> str:

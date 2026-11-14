@@ -13,6 +13,7 @@ import truststore
 
 from productivity_agent_tools import http
 from productivity_agent_tools.config import Settings, load_settings, parse_settings
+from productivity_agent_tools.credentials import bearer_token
 from productivity_agent_tools.errors import (
     ApiError,
     ConfigError,
@@ -60,7 +61,9 @@ async def test_jira_at_site_root_uses_unprefixed_urls() -> None:
         return httpx.Response(200, json={"total": 0, "issues": [{"key": "ABC-1"}]})
 
     async with AtlassianClient(
-        base_url="https://jira.example", token="t", transport=httpx.MockTransport(handler)
+        base_url="https://jira.example",
+        credentials=bearer_token("t"),
+        transport=httpx.MockTransport(handler),
     ) as core:
         jira = JiraClient(core, JiraSettings(path=""))
         result = await jira.search("x")
@@ -74,10 +77,14 @@ def test_system_trust_store_is_the_default() -> None:
 
 
 async def test_client_builds_real_tls_contexts() -> None:
-    async with AtlassianClient(base_url="https://host.example", token="t") as default:
+    async with AtlassianClient(
+        base_url="https://host.example", credentials=bearer_token("t")
+    ) as default:
         assert default.dry_run is True
     bundle = Path(certifi.where())
-    async with AtlassianClient(base_url="https://host.example", token="t", ca_bundle=bundle):
+    async with AtlassianClient(
+        base_url="https://host.example", credentials=bearer_token("t"), ca_bundle=bundle
+    ):
         pass
 
 
@@ -86,7 +93,9 @@ def _core_raising(error: Exception) -> AtlassianClient:
         raise error
 
     return AtlassianClient(
-        base_url="https://host.example", token="t", transport=httpx.MockTransport(handler)
+        base_url="https://host.example",
+        credentials=bearer_token("t"),
+        transport=httpx.MockTransport(handler),
     )
 
 
