@@ -34,7 +34,7 @@ Last updated: 2026-11-14.
     (`epic_name`, `epic`, `story_points`), `bitbucket_create_branch`, the `call` fix for
     named-choice parameters, and version 0.3.0
 - **In review:** nothing.
-- **Tests:** 335 passing, about 99.9% branch coverage. All hooks clean.
+- **Tests:** 389 passing, about 99.9% branch coverage. All hooks clean.
 - **In use:** Goose on the work laptop, against Jira 11.3.12, Bitbucket 10.2.8 and Confluence
   10.2.19. No CI
   server (Bamboo or other) reports builds or deployments to this Bitbucket.
@@ -49,10 +49,13 @@ Last updated: 2026-11-14.
   the browser's session from a plain client, and the account can read its own requests and
   the software catalog. Sign-in will be a `login servicenow` verb that drives the installed
   browser; **the sign-in probe also passed on the real instance** (smart card included).
-  Both spikes are done, and step 1 of the build (the credential seam) is done on
-  `claude/servicenow-credential-seam`, which is based on the spike branch
-  `claude/beautiful-hamilton-k4u2un`. **Next action: step 2 under "Later"**, the
-  `ServiceNowClient` adapter and `login servicenow`, storing the session in the Keychain.
+  Both spikes are done, and steps 1 and 2 of the build are done on
+  `claude/servicenow-credential-seam` (based on the spike branch
+  `claude/beautiful-hamilton-k4u2un`, no pull request yet): the credential seam, the
+  `ServiceNowClient` adapter, `login servicenow` and a `servicenow_status` tool.
+  **Next action: on the work laptop, add `[servicenow]` to the config, run
+  `login servicenow`, then `doctor`** (see "Confirm against the real servers"). After that,
+  step 3 under "Later": the read-only tools.
 
 ## Done
 
@@ -178,6 +181,20 @@ chance comes up and tick it here.
   - [ ] One real `bitbucket_create_branch` from an issue, seen in the browser and on the
         issue's Development panel
 
+- [ ] ServiceNow, after `login servicenow` on the work laptop:
+  - [ ] `login servicenow` itself: the packaged flow has only run against headless
+        Chromium and a local fake (the spike it came from passed on the real instance)
+  - [ ] The Keychain accepts the stored session (the cookie header is one to two
+        kilobytes) and `doctor` reads it back
+  - [ ] `doctor` and `call servicenow_status` name you
+  - [ ] Leave it idle past an hour: the next call should say the session has expired,
+        and `login servicenow` again should fix a running server without a restart
+  - [ ] Whether a session used only through the API lasts as long as one in the browser:
+        the adapter discards cookies the server sets, so any the instance rotates are
+        not kept
+  - [ ] With a top-level `[cookies]` table, add an empty `[servicenow.cookies]` so those
+        cookies are not sent to the helpdesk
+
 ## Next up
 
 Rough order. Each item is one pull request. API references: the Jira 11.0.2 and Bitbucket
@@ -293,18 +310,33 @@ Rough order. Each item is one pull request. API references: the Jira 11.0.2 and 
      `credentials.py` with `HeaderProvider`, `Credential`, `CredentialResolver`,
      `bearer_token` and `personal_access_token`; `Product.resolve_credential`; the adapter
      asks for headers before every request. No behaviour change for the Atlassian products.
-  2. **`ServiceNowClient` adapter and `login servicenow`** (next): own `base_url`, system
-     trust store, never follows a redirect (the cookie stays on one host), `doctor` reading
-     the user's own record, and a plain "your session has expired, sign in again" error on
-     401 or `x-is-logged-in: false`.
-  3. **`servicenow` product, read-only:** my requests and items with stage and approval, one
+  2. ~~**`ServiceNowClient` adapter and `login servicenow`**~~ **Done (2026-11-14), same
+     branch.** What was built:
+     - `transport.py`: `HttpAdapter`, the machinery every adapter shares, split out of
+       `AtlassianClient` with no change in its behaviour.
+     - `servicenow/http.py`: `ServiceNowClient`. A 401, a redirect, or an answer served to
+       a guest (`x-is-logged-in: false`) each become "the session has expired, run
+       `login servicenow`".
+     - `servicenow/session.py`: the session (cookie header and `X-UserToken`) stored as
+       JSON in the Keychain under `servicenow`. The provider reads the Keychain before
+       every request, so a new sign-in reaches a running server without a restart.
+     - `servicenow/browser.py` and `login.py`: the spike's browser driver and sign-in
+       flow, moved into the package. `login <product>` is a generic CLI verb; a product
+       offers it through `Product.login`.
+     - A minimal product so `doctor` works: `[servicenow]` settings (`base_url`, `browser`,
+       `login_timeout_seconds`) and `servicenow_status`.
+     - `set-token servicenow` is refused and points at `login`.
+
+     Not done, on purpose: no `logout` verb yet (the Keychain entry can be deleted by
+     hand), and `login` is POSIX-only.
+  3. **`servicenow` product, read-only** (next): my requests and items with stage and approval, one
      item in detail with comments, my incidents, catalog search, an item's form.
   4. **Writes behind `dry_run`:** order an item (`order_now` with the form's variables), add
      a comment. Not probed: the probe sent no writes.
 
   Open questions:
-  - Where the collected session is kept between runs (Keychain, as tokens are, is the
-    likely answer), and how long a session lasts in practice.
+  - How long a session lasts in practice (see "Confirm against the real servers").
+  - A `logout servicenow` verb that deletes the stored session.
   - The session's idle timeout, which decides how painful pasting is. The tool should not
     keep a session alive artificially.
   - Whether scripted use of the helpdesk is within the acceptable-use policy; ask before

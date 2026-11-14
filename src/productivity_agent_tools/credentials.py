@@ -41,10 +41,12 @@ class Credential:
         headers: Supplies the authentication headers. Excluded from ``repr`` so that
             nothing it holds can be logged by accident.
         source: Human-readable description of the source, safe to display.
+        label: What kind of credential it is, as shown beside the source.
     """
 
     headers: HeaderProvider = field(repr=False)
     source: str
+    label: str = "token"
 
 
 class CredentialResolver(Protocol):

@@ -19,7 +19,7 @@ needing it (Bitbucket showing Jira summaries, for example), it asks its
 """
 
 import functools
-from collections.abc import AsyncIterator, Callable, Mapping
+from collections.abc import AsyncIterator, Awaitable, Callable, Mapping
 from dataclasses import dataclass, field
 from importlib.metadata import entry_points
 from typing import Any
@@ -27,7 +27,7 @@ from typing import Any
 from mcp.server.mcpserver import MCPServer
 
 from productivity_agent_tools.api import Adapter, ApiClient
-from productivity_agent_tools.config import ProductSettings
+from productivity_agent_tools.config import Connection, ProductSettings
 from productivity_agent_tools.credentials import CredentialResolver, personal_access_token
 
 PRODUCT_GROUP: str = "productivity_agent_tools.products"
@@ -102,6 +102,8 @@ class Product[S: ProductSettings, C]:
         resolve_credential: Finds the product's credential under that name when it is
             connected. Defaults to a personal access token; a product that signs in
             another way names its own.
+        login: Signs the user in interactively and stores the result, returning a sentence
+            to show them. None for a product whose credential is a token the user pastes.
     """
 
     name: str
@@ -115,6 +117,7 @@ class Product[S: ProductSettings, C]:
     doctor: Callable[[C], AsyncIterator[str]]
     token_name: str | None = None
     resolve_credential: CredentialResolver = personal_access_token
+    login: Callable[[Connection, S], Awaitable[str]] | None = None
 
     @property
     def token(self) -> str:

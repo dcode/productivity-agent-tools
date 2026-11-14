@@ -361,7 +361,7 @@ async def _doctor_product(
     print(f"[info] {product.name} extra_cookies={','.join(connection.cookies) or 'none'}")
     try:
         credential = await product.resolve_credential(product.token, settings.token_env_file)
-        print(f"[ok]   {product.name} token found in {credential.source}")
+        print(f"[ok]   {product.name} {credential.label} found in {credential.source}")
         async with product.adapter(
             connection, credential.headers, dry_run=settings.dry_run, transport=transport
         ) as core:
@@ -532,7 +532,17 @@ def set_token(product: str = "jira") -> None:
         product: Which product the token is for, such as jira or bitbucket.
     """
     product = product.strip().lower()
-    known = sorted({p.token for p in installed_products().values()})
+    known = sorted({p.token for p in installed_products().values() if p.login is None})
+    signs_in = sorted(
+        p.name for p in installed_products().values() if p.login and p.token == product
+    )
+    if signs_in:
+        _fail(
+            AgentToolsError(
+                f"'{product}' has no token: it signs in through the browser. "
+                f"Run 'productivity-agent-tools login {signs_in[0]}'."
+            )
+        )
     if product not in known:
         _fail(AgentToolsError(f"'{product}' is not a product. Use one of: {', '.join(known)}."))
     token = getpass.getpass(f"{product} personal access token (hidden): ").strip()
@@ -540,6 +550,59 @@ def set_token(product: str = "jira") -> None:
         _fail(AgentToolsError("No token entered; nothing was stored."))
     asyncio.run(store_token(product, token))
     print(f"Stored the {product} token in the macOS Keychain.")
+
+
+async def _login(settings: Settings, name: str) -> str:
+    """Sign in to one product interactively and store the result.
+
+    Args:
+        settings: The resolved settings.
+        name: The product to sign in to.
+
+    Returns:
+        A sentence to show the user.
+
+    Raises:
+        AgentToolsError: If the product has no interactive sign-in, is not configured,
+            or the sign-in fails.
+    """
+    products = installed_products()
+    product = products.get(name)
+    if product is None or product.login is None:
+        able = ", ".join(sorted(n for n, p in products.items() if p.login)) or "none"
+        raise ConfigError(
+            f"'{name}' has no interactive sign-in. Products that do: {able}. "
+            "The others use a token: run set-token."
+        )
+    product_settings = settings.products.get(name)
+    if product_settings is None:
+        raise ConfigError(f"{name} is not configured. Add a [{name}] table to the config.")
+    return await product.login(settings.connection_for(product_settings), product_settings)
+
+
+@app.command(name="login")
+def login(
+    product: str,
+    *,
+    config: ConfigOption = DEFAULT_CONFIG_PATH,
+    log_level: LogLevelOption = None,
+) -> None:
+    """Sign in to a product through the browser and store the session in the keychain.
+
+    Args:
+        product: Which product to sign in to, such as servicenow.
+        config: Path to the TOML configuration file.
+        log_level: Least severe level logged to stderr.
+    """
+
+    async def run() -> str:
+        settings = await _resolve_settings(config, None, None, None, log_level)
+        return await _login(settings, product.strip().lower())
+
+    try:
+        print(asyncio.run(run()))
+    except AgentToolsError as exc:
+        _fail(exc)
 
 
 @app.command(name="export-ca")

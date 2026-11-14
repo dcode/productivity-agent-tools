@@ -29,6 +29,7 @@ from productivity_agent_tools.products import (
     installed_products,
 )
 from productivity_agent_tools.server import Connected, build_server
+from productivity_agent_tools.servicenow.product import PRODUCT as SERVICENOW
 
 
 def test_the_built_in_products_and_integration_are_installed() -> None:
@@ -36,6 +37,7 @@ def test_the_built_in_products_and_integration_are_installed() -> None:
         "bitbucket": BITBUCKET,
         "confluence": CONFLUENCE,
         "jira": JIRA,
+        "servicenow": SERVICENOW,
     }
     assert installed_integrations() == (INTEGRATION,)
     assert (JIRA.token, BITBUCKET.token) == ("jira", "bitbucket")

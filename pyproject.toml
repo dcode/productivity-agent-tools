@@ -28,6 +28,7 @@ productivity-agent-tools = "productivity_agent_tools.cli:main"
 bitbucket = "productivity_agent_tools.bitbucket.product:PRODUCT"
 confluence = "productivity_agent_tools.confluence.product:PRODUCT"
 jira = "productivity_agent_tools.jira.product:PRODUCT"
+servicenow = "productivity_agent_tools.servicenow.product:PRODUCT"
 
 [project.entry-points."productivity_agent_tools.integrations"]
 jira_bitbucket = "productivity_agent_tools.links:INTEGRATION"

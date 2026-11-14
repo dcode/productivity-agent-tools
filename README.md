@@ -203,6 +203,55 @@ Confluence is off until the config has a `[confluence]` table. To turn it on:
 3. Run `doctor` again; it now checks Confluence too. Restart your agent to load
    the new tools.
 
+### ServiceNow
+
+ServiceNow (a helpdesk behind single sign-on) is off until the config has a
+`[servicenow]` table. It has no token: you sign in through the browser and the
+tool keeps the resulting session. To turn it on:
+
+1. Add the table, with the instance's own address:
+
+   ```toml
+   [servicenow]
+   base_url = "https://helpdesk.example.com"
+
+   # An empty table, so cookies meant for other hosts are not sent here.
+   [servicenow.cookies]
+   ```
+
+2. Sign in:
+
+   ```bash
+   uv run productivity-agent-tools login servicenow
+   ```
+
+   A Chrome (or Edge) window opens on a new, temporary profile. Sign in there as
+   you normally do, smart card included. When the helpdesk has loaded, the
+   window closes by itself and the session is stored in the macOS Keychain.
+
+3. Run `doctor` again; it now checks ServiceNow too. Restart your agent to load
+   the new tools.
+
+The session ends when ServiceNow times it out (after about an hour idle on the
+instance this was built against). A `servicenow_` tool then says the session has
+expired; run `login servicenow` again. A server that is already running picks
+up the new session without a restart.
+
+What `login` does and does not do:
+
+- It never sees your smart card, PIN or password. Those stay between you and
+  the browser.
+- It reads the instance's cookies from that one temporary browser profile, over
+  a private pipe (no listening debug port), and deletes the profile afterwards.
+  Your everyday browser profile is not touched.
+- It checks the session by reading your own user record, then stores the
+  cookies and the page's request token. Their values are never printed or
+  logged.
+
+`login` needs macOS or Linux, and a browser whose policy allows remote
+debugging. Set `browser` under `[servicenow]` if Chrome or Edge is somewhere
+unusual.
+
 ## Run a tool without an agent
 
 `call` runs one tool directly and prints its result as JSON. It uses the same
@@ -355,6 +404,7 @@ tool approval on so you see each comment or transition before it is sent.
 | `confluence_list_child_pages` | read | Pages directly under a page |
 | `confluence_create_page` | write | Create a page from Markdown or storage format, optionally under a parent |
 | `confluence_update_page` | write | Replace, append to, prepend to or find-and-replace in a page's body, or retitle or move it |
+| `servicenow_status` | read | Who is signed in to ServiceNow, when the session was saved, dry-run |
 
 The `bitbucket_` tools appear only when Bitbucket is configured. Only the three
 write tools change anything in Bitbucket, and `dry_run` blocks them just as it
@@ -491,10 +541,15 @@ Tests run against a fake Jira and proxy; nothing here contacts a real server.
 Product modules never make HTTP calls themselves. They talk to an `ApiClient`
 (a protocol in `api.py`: `get`, `write`, `aclose`, plus `base_url` and
 `dry_run`), and each kind of service has one adapter that implements it.
-`AtlassianClient` in `http.py` is the adapter for Atlassian Data Center: bearer
-token, TLS trust, extra cookies, logging and error messages. A new service with
-different sign-in, such as Microsoft Graph, is a new adapter and a new product
-module; the Jira code does not change. Every adapter must honor `dry_run` in
+`HttpAdapter` in `transport.py` holds what every adapter shares: TLS trust,
+extra cookies, dry-run, logging and connectivity errors. `AtlassianClient` in
+`http.py` and `ServiceNowClient` in `servicenow/http.py` add how their servers
+report results and failures. An adapter is never handed a secret: it asks a
+credential provider (`credentials.py`) for the authentication headers before
+every request, which is a fixed bearer token for the Atlassian products and
+the stored browser session for ServiceNow. A new service with different
+sign-in, such as Microsoft Graph, is a new adapter and a new product module;
+the Jira code does not change. Every adapter must honor `dry_run` in
 `write`.
 
 ### Continuous integration

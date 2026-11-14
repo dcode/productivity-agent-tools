@@ -105,3 +105,16 @@ current-sprint = "assignee = currentUser() AND sprint in openSprints() ORDER BY 
 # Like [jira], this table can set its own base_url, ca_bundle, timeout_seconds
 # and a [confluence.cookies] table.
 # base_url = "https://confluence.example.com"
+
+# Optional: ServiceNow (a helpdesk behind single sign-on). Off until this table
+# exists. There is no token: run `productivity-agent-tools login servicenow`,
+# sign in in the browser window it opens, and the session is kept in the
+# Keychain until ServiceNow times it out.
+# [servicenow]
+# base_url = "https://helpdesk.example.com"
+# Browser that `login servicenow` starts. Default: Chrome, then Edge.
+# browser = "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"
+# How long `login servicenow` waits for you to finish signing in.
+# login_timeout_seconds = 300
+# An empty cookies table, so the top-level [cookies] are not sent to this host.
+# [servicenow.cookies]
