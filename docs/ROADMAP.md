@@ -257,6 +257,16 @@ Rough order. Each item is one pull request. API references: the Jira 11.0.2 and 
   Outlook REST (works today but is a deprecated API). An optional `HeaderProvider` that
   reads a hand-supplied / refresh-minted token is the seam either way; MSAL-after-consent
   stays the real target.
+
+  **The client is a Single-Page App (OWA/webmail, `webmail.apps.mil`).** A plain
+  server-style refresh POST is refused with **AADSTS9002327** ("tokens issued for the
+  Single-Page Application client-type may only be redeemed via cross-origin requests").
+  AAD redeems an SPA refresh token only for a browser-style CORS request, so the POST
+  must carry an `Origin` header matching a registered SPA redirect URI (and MSAL.js also
+  sends `redirect_uri`). `scripts/ms_token_refresh.py` now sends both, defaulting to the
+  `https://webmail.apps.mil` origin and `.../mail/oauthRedirect.html` redirect seen in
+  the browser's own refresh call. Live redemption with a real refresh token still to be
+  confirmed.
   Planned order, each a pull request once unblocked:
   1. ~~**The OAuth seam.**~~ **Done**, on `main`, shared with
      ServiceNow: the adapter is given a `HeaderProvider` (async, returns the authentication
