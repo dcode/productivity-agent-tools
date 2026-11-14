@@ -19,6 +19,7 @@ from productivity_agent_tools.bitbucket.branches import (
 from productivity_agent_tools.bitbucket.client import BitbucketClient
 from productivity_agent_tools.bitbucket.settings import BitbucketSettings
 from productivity_agent_tools.config import Settings, parse_settings
+from productivity_agent_tools.credentials import bearer_token
 from productivity_agent_tools.errors import (
     AgentToolsError,
     AuthenticationError,
@@ -399,7 +400,7 @@ async def make_api(bitbucket: FakeBitbucket) -> AsyncIterator[Callable[..., Atla
     def build(token: str = "bb-token", dry_run: bool = True) -> AtlassianClient:
         api = AtlassianClient(
             base_url="https://host.example",
-            token=token,
+            credentials=bearer_token(token),
             dry_run=dry_run,
             transport=httpx.MockTransport(bitbucket.handler),
         )

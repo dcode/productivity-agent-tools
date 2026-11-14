@@ -16,6 +16,7 @@ import httpx
 from pydantic import JsonValue
 
 from productivity_agent_tools.config import Connection
+from productivity_agent_tools.credentials import HeaderProvider
 
 
 @dataclass(frozen=True, slots=True)
@@ -120,7 +121,7 @@ class Adapter(Protocol):
     def __call__(
         self,
         connection: Connection,
-        token: str,
+        credentials: HeaderProvider,
         *,
         dry_run: bool = True,
         transport: httpx.AsyncBaseTransport | None = None,
@@ -129,7 +130,7 @@ class Adapter(Protocol):
 
         Args:
             connection: Where and how to reach the product.
-            token: The product's access token.
+            credentials: Supplies the authentication headers, asked before every request.
             dry_run: When True, writes are described but never sent.
             transport: Replacement HTTP transport, used by tests.
 

@@ -34,7 +34,7 @@ Last updated: 2026-11-14.
     (`epic_name`, `epic`, `story_points`), `bitbucket_create_branch`, the `call` fix for
     named-choice parameters, and version 0.3.0
 - **In review:** nothing.
-- **Tests:** 328 passing, about 99.9% branch coverage. All hooks clean.
+- **Tests:** 335 passing, about 99.9% branch coverage. All hooks clean.
 - **In use:** Goose on the work laptop, against Jira 11.3.12, Bitbucket 10.2.8 and Confluence
   10.2.19. No CI
   server (Bamboo or other) reports builds or deployments to this Bitbucket.
@@ -49,8 +49,10 @@ Last updated: 2026-11-14.
   the browser's session from a plain client, and the account can read its own requests and
   the software catalog. Sign-in will be a `login servicenow` verb that drives the installed
   browser; **the sign-in probe also passed on the real instance** (smart card included).
-  Both spikes are done. **Next action: start the build order under "Later"** (step 1, the
-  credential seam), once where the session is stored is agreed.
+  Both spikes are done, and step 1 of the build (the credential seam) is done on
+  `claude/servicenow-credential-seam`, which is based on the spike branch
+  `claude/beautiful-hamilton-k4u2un`. **Next action: step 2 under "Later"**, the
+  `ServiceNowClient` adapter and `login servicenow`, storing the session in the Keychain.
 
 ## Done
 
@@ -205,11 +207,10 @@ Rough order. Each item is one pull request. API references: the Jira 11.0.2 and 
   Nothing to build until that lands (or IT registers a tenant app, which is a one-line
   `client_id`/`tenant` swap). Device-code flow not separately tested yet.
   Planned order, each a pull request once unblocked:
-  1. **The OAuth seam.** Add a token *provider* to the adapter protocol: the adapter is
-     given an async `() -> str` that returns a fresh bearer token instead of a static
-     `token: str`. The Atlassian adapter wraps its PAT in a trivial provider, so Jira,
-     Bitbucket and Confluence do not change in behaviour. Tests only. This is the single
-     change MS Graph forces on shared code.
+  1. ~~**The OAuth seam.**~~ **Done** on `claude/servicenow-credential-seam`, shared with
+     ServiceNow: the adapter is given a `HeaderProvider` (async, returns the authentication
+     headers) instead of a static `token: str`. The Atlassian adapter's PAT is wrapped in
+     `bearer_token`, so Jira, Bitbucket and Confluence do not change in behaviour.
   2. **`MicrosoftGraphClient` adapter:** MSAL, auth-code + PKCE primary with a device-code
      fallback, configurable `client_id`/`tenant` (defaulting to the public client), token
      cache persisted via `keyring` under token name `microsoft`; a `login microsoft` CLI
@@ -287,11 +288,13 @@ Rough order. Each item is one pull request. API references: the Jira 11.0.2 and 
     one-hour idle timeout.
 
   Planned order, each a pull request:
-  1. **The credential seam**, shared with Microsoft Graph (step 1 there): the adapter is
-     handed a provider instead of a static token. For ServiceNow it yields request headers
-     (cookie and `X-UserToken`), so the seam should return headers, not just a bearer string.
-  2. **`ServiceNowClient` adapter and `login servicenow`:** own `base_url`, system trust store, never follows a
-     redirect (the cookie stays on one host), `doctor` reading the user's own record, and a
+  1. ~~**The credential seam**~~, shared with Microsoft Graph (step 1 there). **Done
+     (2026-11-14) on `claude/servicenow-credential-seam`, not yet in a pull request:**
+     `credentials.py` with `HeaderProvider`, `Credential`, `CredentialResolver`,
+     `bearer_token` and `personal_access_token`; `Product.resolve_credential`; the adapter
+     asks for headers before every request. No behaviour change for the Atlassian products.
+  2. **`ServiceNowClient` adapter and `login servicenow`** (next): own `base_url`, system
+     trust store, never follows a redirect (the cookie stays on one host), `doctor` reading the user's own record, and a
      plain "your session has expired, sign in again" error on 401 or `x-is-logged-in: false`.
   3. **`servicenow` product, read-only:** my requests and items with stage and approval, one
      item in detail with comments, my incidents, catalog search, an item's form.

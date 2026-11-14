@@ -276,8 +276,19 @@ keeps writes behind a dry-run switch that is on by default.
 - `api.py` defines `ApiClient`, a `Protocol` with `get`, `get_text` (plain-text resources
   such as raw diffs), `query` (reads that must be POSTed), `write` and `aclose`, plus
   `base_url` and `dry_run`. Product modules never make HTTP calls themselves.
-- `AtlassianClient` in `http.py` is the Atlassian Data Center adapter: bearer token, TLS
-  trust, extra cookies, logging and plain-language errors. One adapter is built per product.
+- `AtlassianClient` in `http.py` is the Atlassian Data Center adapter: TLS trust, extra
+  cookies, logging and plain-language errors. One adapter is built per product.
+- **An adapter is never handed a secret.** `credentials.py` defines `HeaderProvider`, an
+  async callable returning the authentication *headers*, and the adapter asks it before
+  every request. A credential that changes while the server runs (a refreshed OAuth token,
+  a new browser session) is therefore picked up without reconnecting, and a provider that
+  can no longer renew raises a plain-language error before anything is sent. It returns
+  headers rather than a token string because not every service uses one bearer header: a
+  ServiceNow browser session is a cookie plus a CSRF header.
+- Each `Product` names a `resolve_credential` (a `CredentialResolver`), which finds the
+  credential under the product's token name when it is connected and reports where it came
+  from. The default, `personal_access_token`, wraps the token from the environment, env
+  file or Keychain in `bearer_token`, so the Atlassian products behave exactly as before.
 - Each `Product` names its adapter (`Product.adapter`, matching the `Adapter` protocol in
   `api.py`); Jira and Bitbucket use `AtlassianClient.from_connection`. A GitLab product
   would bring its own adapter, since its errors and authentication differ.
@@ -571,10 +582,12 @@ Designed for but deferred. [ROADMAP.md](ROADMAP.md) has the ordered backlog and 
   the delegated scopes, so the build waits on that (see ROADMAP.md for status and ordering).
   Decisions:
   - **Sign-in is OAuth, not a static token, so the adapter protocol gains a token
-    *provider*.** The adapter is handed an async `() -> str` that returns a fresh bearer
-    token, rather than a `token: str` fixed before connecting; the Atlassian adapter wraps
-    its personal access token in a trivial provider. This is the only change MS Graph forces
-    on shared code. Everything else is reused: per-product `base_url`, the `dry_run` rule in
+    *provider*.** The adapter is handed an async provider of fresh authentication headers,
+    rather than a `token: str` fixed before connecting; the Atlassian adapter wraps its
+    personal access token in a trivial provider. **Built (2026-11-14)** as the
+    `HeaderProvider` seam described under "Overall shape", returning headers rather than a
+    token string so ServiceNow can share it. This is the only change MS Graph forces on
+    shared code. Everything else is reused: per-product `base_url`, the `dry_run` rule in
     `write`, and the plain-language error reader.
   - **MSAL (`msal`) runs the flow**, the silent refresh and the token cache. The cache is
     persisted through `keyring` under the shared service, token name `microsoft`, so

@@ -23,6 +23,7 @@ from pydantic import JsonValue
 
 from productivity_agent_tools.api import WriteOutcome
 from productivity_agent_tools.config import Connection
+from productivity_agent_tools.credentials import HeaderProvider
 from productivity_agent_tools.errors import (
     AgentToolsError,
     ApiError,
@@ -198,14 +199,14 @@ class AtlassianClient:
     """``ApiClient`` adapter for one Atlassian Data Center connection.
 
     The client is stateless between requests: cookies the server sets are
-    discarded, so every request authenticates with the bearer token alone.
+    discarded, so every request authenticates with its credential headers alone.
     """
 
     def __init__(
         self,
         *,
         base_url: str,
-        token: str,
+        credentials: HeaderProvider,
         ca_bundle: Path | None = None,
         cookies: Mapping[str, str] | None = None,
         dry_run: bool = True,
@@ -216,7 +217,7 @@ class AtlassianClient:
 
         Args:
             base_url: Scheme and host of the server, plus any prefix shared by its products.
-            token: Personal access token sent as a bearer credential.
+            credentials: Supplies the authentication headers, asked before every request.
             ca_bundle: PEM file of trusted roots, or None for the system default.
             cookies: Extra cookies to send with every request, by name.
             dry_run: When True, writes are described but never sent.
@@ -230,7 +231,8 @@ class AtlassianClient:
         self.dry_run = dry_run
         self.username: str | None = None
         self.cookie_names: tuple[str, ...] = tuple(cookies or {})
-        headers = {"Authorization": f"Bearer {token}", "Accept": "application/json"}
+        self._credentials = credentials
+        headers = {"Accept": "application/json"}
         if cookies:
             headers["Cookie"] = "; ".join(f"{name}={value}" for name, value in cookies.items())
         self._http = httpx.AsyncClient(
@@ -246,7 +248,7 @@ class AtlassianClient:
     def from_connection(
         cls,
         connection: Connection,
-        token: str,
+        credentials: HeaderProvider,
         *,
         dry_run: bool = True,
         transport: httpx.AsyncBaseTransport | None = None,
@@ -255,7 +257,7 @@ class AtlassianClient:
 
         Args:
             connection: Where and how to reach the product.
-            token: Personal access token.
+            credentials: Supplies the authentication headers.
             dry_run: When True, writes are described but never sent.
             transport: Replacement transport, used by tests.
 
@@ -264,7 +266,7 @@ class AtlassianClient:
         """
         return cls(
             base_url=connection.base_url,
-            token=token,
+            credentials=credentials,
             ca_bundle=connection.ca_bundle,
             cookies=connection.cookies,
             dry_run=dry_run,
@@ -391,7 +393,9 @@ class AtlassianClient:
         Raises:
             AgentToolsError: For any connectivity, auth, or API failure.
         """
-        extra: dict[str, str] = {} if method == "GET" else {"X-Atlassian-Token": "no-check"}
+        extra: dict[str, str] = dict(await self._credentials())
+        if method != "GET":
+            extra["X-Atlassian-Token"] = "no-check"
         if as_text:
             extra["Accept"] = "text/plain"
         _log.debug(

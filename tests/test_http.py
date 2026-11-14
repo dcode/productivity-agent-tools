@@ -5,6 +5,7 @@ import httpx
 import pytest
 from structlog.testing import capture_logs
 
+from productivity_agent_tools.credentials import bearer_token
 from productivity_agent_tools.errors import (
     ApiError,
     AuthenticationError,
@@ -184,7 +185,9 @@ async def test_dry_run_write_and_transport_failures_are_logged(
     with capture_logs() as events:
         await make_core().write("POST", "/jira/rest/api/2/issue/ABC-1/comment", {"body": "x"})
         async with AtlassianClient(
-            base_url="https://host.example", token="t", transport=httpx.MockTransport(stall)
+            base_url="https://host.example",
+            credentials=bearer_token("t"),
+            transport=httpx.MockTransport(stall),
         ) as core:
             with pytest.raises(ConnectivityError, match="Timed out"):
                 await core.get(MYSELF)
@@ -246,7 +249,9 @@ async def test_connection_failure_mentions_vpn() -> None:
         raise httpx.ConnectError("no route", request=request)
 
     async with AtlassianClient(
-        base_url="https://host.example", token="t", transport=httpx.MockTransport(refuse)
+        base_url="https://host.example",
+        credentials=bearer_token("t"),
+        transport=httpx.MockTransport(refuse),
     ) as core:
         with capture_logs() as events, pytest.raises(ConnectivityError, match="VPN"):
             await core.get(MYSELF)
@@ -255,4 +260,8 @@ async def test_connection_failure_mentions_vpn() -> None:
 
 def test_missing_ca_bundle_is_a_config_error(tmp_path: Path) -> None:
     with pytest.raises(ConfigError, match="export-ca"):
-        AtlassianClient(base_url="https://host.example", token="t", ca_bundle=tmp_path / "no.pem")
+        AtlassianClient(
+            base_url="https://host.example",
+            credentials=bearer_token("t"),
+            ca_bundle=tmp_path / "no.pem",
+        )

@@ -21,6 +21,7 @@ from productivity_agent_tools.confluence.client import (
     to_storage,
 )
 from productivity_agent_tools.confluence.settings import ConfluenceSettings
+from productivity_agent_tools.credentials import bearer_token
 from productivity_agent_tools.errors import (
     AgentToolsError,
     ConfigError,
@@ -156,7 +157,7 @@ async def make_cf_api(
     def build(token: str = TOKEN, dry_run: bool = True) -> AtlassianClient:
         api = AtlassianClient(
             base_url="https://host.example",
-            token=token,
+            credentials=bearer_token(token),
             dry_run=dry_run,
             transport=httpx.MockTransport(confluence.handler),
         )

@@ -9,6 +9,7 @@ import pytest
 import structlog
 
 from productivity_agent_tools.config import Settings
+from productivity_agent_tools.credentials import bearer_token
 from productivity_agent_tools.http import AtlassianClient
 from productivity_agent_tools.jira.client import JiraClient
 from productivity_agent_tools.jira.settings import JiraSettings
@@ -328,7 +329,7 @@ async def make_core(
         assert settings.products["jira"] is not None
         core = AtlassianClient.from_connection(
             settings.connection_for(settings.products["jira"]),
-            token,
+            bearer_token(token),
             dry_run=settings.dry_run,
             transport=httpx.MockTransport(fake.handler),
         )

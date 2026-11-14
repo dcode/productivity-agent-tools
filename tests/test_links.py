@@ -9,6 +9,7 @@ import pytest
 from productivity_agent_tools.bitbucket.client import BitbucketClient
 from productivity_agent_tools.bitbucket.settings import BitbucketSettings
 from productivity_agent_tools.config import Settings, parse_settings
+from productivity_agent_tools.credentials import bearer_token
 from productivity_agent_tools.errors import AgentToolsError
 from productivity_agent_tools.http import AtlassianClient
 from productivity_agent_tools.jira.client import JiraClient
@@ -30,7 +31,7 @@ def bb_api(bitbucket: FakeBitbucket) -> Callable[[], AtlassianClient]:
     def build() -> AtlassianClient:
         return AtlassianClient(
             base_url="https://host.example",
-            token="bb-token",
+            credentials=bearer_token("bb-token"),
             transport=httpx.MockTransport(bitbucket.handler),
         )
 
