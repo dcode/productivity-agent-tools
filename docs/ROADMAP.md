@@ -48,8 +48,9 @@ Last updated: 2026-11-14.
   following the requests. **The probe passed on the real instance:** the REST API accepts
   the browser's session from a plain client, and the account can read its own requests and
   the software catalog. Sign-in will be a `login servicenow` verb that drives the installed
-  browser. **Next action: run `scripts/servicenow_login_probe.py` on the work laptop and
-  paste the summary back**; then the build order under "Later" applies.
+  browser; **the sign-in probe also passed on the real instance** (smart card included).
+  Both spikes are done. **Next action: start the build order under "Later"** (step 1, the
+  credential seam), once where the session is stored is agreed.
 
 ## Done
 
@@ -267,7 +268,7 @@ Rough order. Each item is one pull request. API references: the Jira 11.0.2 and 
   - The DevTools channel is `--remote-debugging-pipe`, not a TCP port: no listening port
     that another local program could attach to, and no websocket dependency (the spike is
     standard library only). A debugging *port* is confirmed to work on the work laptop; the
-    pipe is not yet.
+    pipe is now confirmed too.
   - **Do not attach to the page.** On the work laptop's Chrome, `Target.attachToTarget`
     is refused with "Not allowed" (cause not established; a policy limiting page
     inspection is the guess), so `Runtime.evaluate` is unavailable. Only browser-level
@@ -275,8 +276,15 @@ Rough order. Each item is one pull request. API references: the Jira 11.0.2 and 
   - Signed-in is detected from the API: without the token it answers 401 either way, but
     its `x-is-logged-in` header turns `true`. Nothing is sent to the instance while the tab
     is away at the sign-in host.
-  - `scripts/servicenow_login_probe.py` proves the loop. It passes against headless
-    Chromium and a local fake; **not yet run against the real instance.**
+  - `scripts/servicenow_login_probe.py` proves the loop, and **passed on the work laptop
+    against the real instance (2026-11-14, Chrome 156):** the pipe channel is allowed, the
+    smart-card sign-in works in the temporary profile, and plain Python read the user's
+    record with the collected session.
+  - After sign-in the tab rests on the classic UI's home page, not the portal, and that
+    page's HTML carries `g_ck` too, so no portal path needs configuring.
+  - Eight cookies are collected, six of them HttpOnly. `JSESSIONID` is session-only;
+    `glide_session_store` is issued with a one-hour life, which suggests (not proves) a
+    one-hour idle timeout.
 
   Planned order, each a pull request:
   1. **The credential seam**, shared with Microsoft Graph (step 1 there): the adapter is
