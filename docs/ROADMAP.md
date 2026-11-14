@@ -47,8 +47,9 @@ Last updated: 2026-11-14.
 - **ServiceNow (new, 2026-11-14):** the work helpdesk, for requesting software and
   following the requests. **The probe passed on the real instance:** the REST API accepts
   the browser's session from a plain client, and the account can read its own requests and
-  the software catalog. **Next action: decide how the session is obtained and stored**, then
-  the build order under "Later" applies.
+  the software catalog. Sign-in will be a `login servicenow` verb that drives the installed
+  browser. **Next action: run `scripts/servicenow_login_probe.py` on the work laptop and
+  paste the summary back**; then the build order under "Later" applies.
 
 ## Done
 
@@ -252,11 +253,30 @@ Rough order. Each item is one pull request. API references: the Jira 11.0.2 and 
   - **GraphQL adds nothing here:** introspection is disabled, and `GlideRecord_Query` only
     repeats what the Table API gives. **Decision: use REST.**
 
+  **Sign-in decision (2026-11-14): a `login servicenow` verb that drives the installed
+  browser**, chosen over pasting the cookie from DevTools. It starts Chrome (or Edge) with a
+  temporary empty profile, the user signs in there as usual, and the tool reads the
+  instance's cookies (`Storage.getCookies`) and the page's `g_ck` (`Runtime.evaluate`) over
+  the DevTools protocol, then confirms them with one API read. Rejected: reading the
+  browser's cookie database (looks like credential theft to endpoint protection), an
+  embedded web view (cannot do the certificate prompt), an extension (blocked on managed
+  browsers), and performing the SAML exchange in Python (the tool would handle the smart
+  card and PIN). Also rejected: the `pysnc` client (Table API only, no Service Catalog, none
+  of its sign-in flows apply, and it always follows redirects).
+  - The DevTools channel is `--remote-debugging-pipe`, not a TCP port: no listening port
+    that another local program could attach to, and no websocket dependency (the spike is
+    standard library only). A debugging *port* is confirmed to work on the work laptop; the
+    pipe is not yet.
+  - A page shown to a guest also has a `g_ck`, so signed-in is decided by the API read
+    succeeding, not by the token appearing.
+  - `scripts/servicenow_login_probe.py` proves the loop. It passes against headless
+    Chromium and a local fake; **not yet run against the real instance.**
+
   Planned order, each a pull request:
   1. **The credential seam**, shared with Microsoft Graph (step 1 there): the adapter is
      handed a provider instead of a static token. For ServiceNow it yields request headers
      (cookie and `X-UserToken`), so the seam should return headers, not just a bearer string.
-  2. **`ServiceNowClient` adapter:** own `base_url`, system trust store, never follows a
+  2. **`ServiceNowClient` adapter and `login servicenow`:** own `base_url`, system trust store, never follows a
      redirect (the cookie stays on one host), `doctor` reading the user's own record, and a
      plain "your session has expired, sign in again" error on 401 or `x-is-logged-in: false`.
   3. **`servicenow` product, read-only:** my requests and items with stage and approval, one
@@ -265,10 +285,8 @@ Rough order. Each item is one pull request. API references: the Jira 11.0.2 and 
      a comment. Not probed: the probe sent no writes.
 
   Open questions:
-  - **How the session is obtained and stored** (the next decision). Either pasted from the
-    browser into the Keychain with a `set-session` verb (small, but repeated whenever the
-    session expires), or a `login servicenow` verb that opens a real browser for the
-    smart-card sign-in and collects the cookie and token itself.
+  - Where the collected session is kept between runs (Keychain, as tokens are, is the
+    likely answer), and how long a session lasts in practice.
   - The session's idle timeout, which decides how painful pasting is. The tool should not
     keep a session alive artificially.
   - Whether scripted use of the helpdesk is within the acceptable-use policy; ask before
