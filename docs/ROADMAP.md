@@ -190,7 +190,10 @@ chance comes up and tick it here.
   - [x] `doctor` and `call servicenow_status` name you (still good 23 minutes after
         sign-in)
   - [ ] Leave it idle past an hour: the next call should say the session has expired,
-        and `login servicenow` again should fix a running server without a restart
+        and `login servicenow` again should fix a running server without a restart.
+        Seen 2026-11-14: idle from 16:09:59 to 17:37:52 UTC (88 minutes) and the next
+        `servicenow_status` got a 401, so the idle limit is under 88 minutes. Still to
+        check: the wording of the error, and the fix reaching a running server.
   - [ ] Whether a session used only through the API lasts as long as one in the browser:
         the adapter discards cookies the server sets, so any the instance rotates are
         not kept
