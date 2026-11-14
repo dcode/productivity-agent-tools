@@ -1,0 +1,31 @@
+# DoD / OWA-webmail Microsoft OAuth settings — copy this [microsoft] table into
+# your config (~/.config/productivity-agent-tools/config.toml).
+#
+# None of these values is a secret: the client_id and tenant appear in every
+# token the browser issues, and the origin/redirect_uri are the public webmail
+# single-page-app registration. The only secret is the refresh token, which you
+# seed separately and which is kept in the system keychain:
+#
+#   productivity-agent-tools login-microsoft          # paste the refresh token, or
+#   productivity-agent-tools login-microsoft --from-response token.json
+#
+# Observed from a real DoD webmail sign-in (2026-11-14). This is a stopgap over
+# the Outlook REST API while the proper Microsoft Graph client awaits admin
+# consent; see docs/ROADMAP.md.
+
+[microsoft]
+# The OWA/webmail single-page application the browser signs in as.
+client_id = "9199bf20-a13f-4107-85dc-02114787ef48"
+# The DoD tenant (also fine: "organizations").
+tenant = "fae6d70f-954b-4811-92b6-0530d6f84c43"
+# The gov-cloud login host (commercial clouds use login.microsoftonline.com).
+authority = "login.microsoftonline.us"
+# The single-page-app client's refresh token is only redeemed for a request
+# carrying an Origin that matches a registered redirect URI.
+origin = "https://webmail.apps.mil"
+redirect_uri = "https://webmail.apps.mil/mail/oauthRedirect.html"
+# The Outlook resource; .default asks for everything the client is consented for.
+scope = "https://outlook-dod.office365.us/.default"
+# The Outlook REST API the adapter will read calendar and mail from (used once
+# the adapter lands; harmless to set now).
+base_url = "https://outlook-dod.office365.us/api/v2.0"

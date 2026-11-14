@@ -22,6 +22,11 @@ _COOKIE_NAME = re.compile(r"[!#$%&'*+\-.^_`|~0-9A-Za-z]+")
 _COOKIE_VALUE = re.compile(r"[\x21\x23-\x2B\x2D-\x3A\x3C-\x5B\x5D-\x7E]*")
 # Tables at the top of the config that are not products.
 _TOP_LEVEL_TABLES: frozenset[str] = frozenset({"cookies"})
+# Tables for a module that is configured and set up by its own command, but not
+# yet registered as a served product, so the server ignores them rather than
+# rejecting them. ``microsoft`` is seeded by ``login-microsoft``; its Outlook REST
+# adapter is not wired yet. Remove a name here once its product is registered.
+_PENDING_TABLES: frozenset[str] = frozenset({"microsoft"})
 
 
 @dataclass(frozen=True, slots=True)
@@ -406,7 +411,7 @@ def parse_settings(
     timeout = _timeout(raw, "timeout_seconds")
     products: dict[str, ProductSettings] = {}
     for name, table in raw.items():
-        if name in _TOP_LEVEL_TABLES:
+        if name in _TOP_LEVEL_TABLES or name in _PENDING_TABLES:
             continue
         if name in parsers:
             if not isinstance(table, dict):
