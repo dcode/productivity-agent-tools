@@ -276,8 +276,18 @@ keeps writes behind a dry-run switch that is on by default.
 - `api.py` defines `ApiClient`, a `Protocol` with `get`, `get_text` (plain-text resources
   such as raw diffs), `query` (reads that must be POSTed), `write` and `aclose`, plus
   `base_url` and `dry_run`. Product modules never make HTTP calls themselves.
-- `AtlassianClient` in `http.py` is the Atlassian Data Center adapter: TLS trust, extra
-  cookies, logging and plain-language errors. One adapter is built per product.
+- `HttpAdapter` in `transport.py` is what every adapter shares: TLS trust, extra cookies,
+  dry-run, logging and plain-language connectivity errors. It never follows a redirect and
+  keeps no cookie a server sets. A subclass implements `_interpret` to say how its kind of
+  server reports results and failures: `AtlassianClient` in `http.py` for Atlassian Data
+  Center, `ServiceNowClient` in `servicenow/http.py` for ServiceNow. One adapter is built
+  per product.
+- **A product that signs in interactively offers `Product.login`**, which the generic
+  `login <product>` verb calls. ServiceNow's opens the installed browser on a temporary
+  profile, waits for the user to sign in, reads the instance's cookies over a DevTools
+  pipe, and stores them with the page's request token in the Keychain (see ROADMAP.md,
+  ServiceNow, for what was probed and what was rejected). Its credential provider reads
+  the Keychain before every request, so a running server picks up a new sign-in.
 - **An adapter is never handed a secret.** `credentials.py` defines `HeaderProvider`, an
   async callable returning the authentication *headers*, and the adapter asks it before
   every request. A credential that changes while the server runs (a refreshed OAuth token,
