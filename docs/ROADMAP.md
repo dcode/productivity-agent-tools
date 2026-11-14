@@ -7,8 +7,8 @@ Last updated: 2026-11-14.
 
 ## Where things stand
 
-- **Version:** 0.4.0 on `claude/servicenow-credential-seam`, not yet tagged. The last
-  release is 0.3.0, tagged `v0.3.0` at 8703207.
+- **Version:** 0.4.0 on `main` (ec90a60), not yet tagged. The last release is 0.3.0,
+  tagged `v0.3.0` at 8703207.
 - **Merged to `main`:**
   - [#1](https://github.com/dcode/productivity-agent-tools/pull/1): Jira server, CLI,
     CI, `configure-agent`
@@ -34,9 +34,9 @@ Last updated: 2026-11-14.
   - [#11](https://github.com/dcode/productivity-agent-tools/pull/11): agile issue fields
     (`epic_name`, `epic`, `story_points`), `bitbucket_create_branch`, the `call` fix for
     named-choice parameters, and version 0.3.0
-- **In review:** the credential seam, the ServiceNow adapter, `login servicenow` and
-  `servicenow_status`, with the Microsoft Graph and ServiceNow spikes and version 0.4.0
-  (`claude/servicenow-credential-seam`).
+- **Also on `main`, not yet tagged:** the credential seam, the ServiceNow adapter,
+  `login servicenow` and `servicenow_status`, with the Microsoft Graph and ServiceNow
+  spikes and version 0.4.0 (built on `claude/servicenow-credential-seam`).
 - **Tests:** 389 passing, about 99.9% branch coverage. All hooks clean.
 - **In use:** Goose on the work laptop, against Jira 11.3.12, Bitbucket 10.2.8 and Confluence
   10.2.19. No CI
@@ -52,13 +52,14 @@ Last updated: 2026-11-14.
   the browser's session from a plain client, and the account can read its own requests and
   the software catalog. Sign-in will be a `login servicenow` verb that drives the installed
   browser; **the sign-in probe also passed on the real instance** (smart card included).
-  Both spikes are done, and steps 1 and 2 of the build are done on
-  `claude/servicenow-credential-seam` (based on the spike branch
-  `claude/beautiful-hamilton-k4u2un`, no pull request yet): the credential seam, the
+  Both spikes are done, and steps 1 and 2 of the build are done and on `main` (built on
+  `claude/servicenow-credential-seam`): the credential seam, the
   `ServiceNowClient` adapter, `login servicenow` and a `servicenow_status` tool.
-  **Next action: on the work laptop, add `[servicenow]` to the config, run
-  `login servicenow`, then `doctor`** (see "Confirm against the real servers"). After that,
-  step 3 under "Later": the read-only tools.
+  **Confirmed on the work laptop (2026-11-14):** `login servicenow`, the Keychain round
+  trip, `doctor` and `servicenow_status` all work against the real instance.
+  **Next action: tag `v0.4.0`, then step 3 under "Later": the read-only tools.** The
+  slower session checks (idle expiry, API-only lifetime) are still
+  open under "Confirm against the real servers".
 
 ## Done
 
@@ -184,11 +185,12 @@ chance comes up and tick it here.
   - [ ] One real `bitbucket_create_branch` from an issue, seen in the browser and on the
         issue's Development panel
 - [ ] ServiceNow, after `login servicenow` on the work laptop:
-  - [ ] `login servicenow` itself: the packaged flow has only run against headless
-        Chromium and a local fake (the spike it came from passed on the real instance)
-  - [ ] The Keychain accepts the stored session (the cookie header is one to two
+  - [x] `login servicenow` itself: the packaged flow signed in on the real instance
+        (2026-11-14)
+  - [x] The Keychain accepts the stored session (the cookie header is one to two
         kilobytes) and `doctor` reads it back
-  - [ ] `doctor` and `call servicenow_status` name you
+  - [x] `doctor` and `call servicenow_status` name you (still good 23 minutes after
+        sign-in)
   - [ ] Leave it idle past an hour: the next call should say the session has expired,
         and `login servicenow` again should fix a running server without a restart
   - [ ] Whether a session used only through the API lasts as long as one in the browser:
@@ -226,7 +228,7 @@ Rough order. Each item is one pull request. API references: the Jira 11.0.2 and 
   Nothing to build until that lands (or IT registers a tenant app, which is a one-line
   `client_id`/`tenant` swap). Device-code flow not separately tested yet.
   Planned order, each a pull request once unblocked:
-  1. ~~**The OAuth seam.**~~ **Done** on `claude/servicenow-credential-seam`, shared with
+  1. ~~**The OAuth seam.**~~ **Done**, on `main`, shared with
      ServiceNow: the adapter is given a `HeaderProvider` (async, returns the authentication
      headers) instead of a static `token: str`. The Atlassian adapter's PAT is wrapped in
      `bearer_token`, so Jira, Bitbucket and Confluence do not change in behaviour.
@@ -308,12 +310,12 @@ Rough order. Each item is one pull request. API references: the Jira 11.0.2 and 
 
   Planned order, each a pull request:
   1. ~~**The credential seam**~~, shared with Microsoft Graph (step 1 there). **Done
-     (2026-11-14) on `claude/servicenow-credential-seam`, not yet in a pull request:**
+     (2026-11-14), on `main`:**
      `credentials.py` with `HeaderProvider`, `Credential`, `CredentialResolver`,
      `bearer_token` and `personal_access_token`; `Product.resolve_credential`; the adapter
      asks for headers before every request. No behaviour change for the Atlassian products.
-  2. ~~**`ServiceNowClient` adapter and `login servicenow`**~~ **Done (2026-11-14), same
-     branch.** What was built:
+  2. ~~**`ServiceNowClient` adapter and `login servicenow`**~~ **Done (2026-11-14), on
+     `main`.** What was built:
      - `transport.py`: `HttpAdapter`, the machinery every adapter shares, split out of
        `AtlassianClient` with no change in its behaviour.
      - `servicenow/http.py`: `ServiceNowClient`. A 401, a redirect, or an answer served to
