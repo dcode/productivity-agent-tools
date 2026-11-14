@@ -294,8 +294,9 @@ Rough order. Each item is one pull request. API references: the Jira 11.0.2 and 
      `bearer_token` and `personal_access_token`; `Product.resolve_credential`; the adapter
      asks for headers before every request. No behaviour change for the Atlassian products.
   2. **`ServiceNowClient` adapter and `login servicenow`** (next): own `base_url`, system
-     trust store, never follows a redirect (the cookie stays on one host), `doctor` reading the user's own record, and a
-     plain "your session has expired, sign in again" error on 401 or `x-is-logged-in: false`.
+     trust store, never follows a redirect (the cookie stays on one host), `doctor` reading
+     the user's own record, and a plain "your session has expired, sign in again" error on
+     401 or `x-is-logged-in: false`.
   3. **`servicenow` product, read-only:** my requests and items with stage and approval, one
      item in detail with comments, my incidents, catalog search, an item's form.
   4. **Writes behind `dry_run`:** order an item (`order_now` with the form's variables), add
