@@ -33,6 +33,9 @@ from productivity_agent_tools.config import (
 )
 from productivity_agent_tools.errors import AgentToolsError, ConfigError
 from productivity_agent_tools.logs import LOG_LEVELS, configure_logging
+from productivity_agent_tools.microsoft.login import extract_refresh_token
+from productivity_agent_tools.microsoft.login import seed as seed_microsoft
+from productivity_agent_tools.microsoft.settings import load_microsoft_settings, redeem_config
 from productivity_agent_tools.products import Product, installed_products
 from productivity_agent_tools.server import Connected, build_server
 from productivity_agent_tools.tokens import store_token
@@ -598,6 +601,51 @@ def login(
     async def run() -> str:
         settings = await _resolve_settings(config, None, None, None, log_level)
         return await _login(settings, product.strip().lower())
+
+    try:
+        print(asyncio.run(run()))
+    except AgentToolsError as exc:
+        _fail(exc)
+
+
+@app.command(name="login-microsoft")
+def login_microsoft(
+    *,
+    config: ConfigOption = DEFAULT_CONFIG_PATH,
+    from_response: Annotated[
+        Path | None,
+        Parameter(
+            name="--from-response",
+            help="File holding the captured JSON token response; its refresh_token is used. "
+            "Omit to paste the refresh token at a hidden prompt.",
+        ),
+    ] = None,
+    verify: Annotated[
+        bool,
+        Parameter(name="--verify", help="Redeem the token once to confirm it works."),
+    ] = True,
+) -> None:
+    """Seed the Microsoft refresh token the Outlook stopgap renews from.
+
+    The OAuth parameters come from the [microsoft] table in the config file (copy
+    contrib/microsoft-dod.toml for the DoD values). Sign in to webmail, capture the
+    token response (or just the refresh token), and seed it here. Verifying redeems
+    it once, which rotates it, so the rotated token is what gets stored.
+    """
+    if from_response is not None:
+        try:
+            text = from_response.expanduser().read_text("utf-8")
+        except OSError as exc:
+            _fail(AgentToolsError(f"Could not read {from_response}: {exc.strerror}."))
+    else:
+        text = getpass.getpass("Microsoft refresh token (hidden): ")
+
+    async def run() -> str:
+        redeem = redeem_config(await load_microsoft_settings(config))
+        token = extract_refresh_token(text)
+        if not token:
+            raise AgentToolsError("No refresh token given; nothing was stored.")
+        return await seed_microsoft(redeem, token, verify=verify)
 
     try:
         print(asyncio.run(run()))

@@ -11,6 +11,7 @@ from mcp.server.mcpserver import MCPServer
 from productivity_agent_tools import cli
 from productivity_agent_tools.config import Settings
 from productivity_agent_tools.errors import AgentToolsError, ConfigError
+from productivity_agent_tools.microsoft.oauth import RedeemConfig
 from tests.conftest import FakeJira
 
 PEM = b"-----BEGIN CERTIFICATE-----\nAAAA\n-----END CERTIFICATE-----\n"
@@ -182,6 +183,82 @@ def test_export_ca_command_reports_count(
     fake_security(monkeypatch, FakeProcess(PEM * 2, b"", 0))
     cli.export_ca(tmp_path / "roots.pem")
     assert "Wrote 2 certificates" in capsys.readouterr().out
+
+
+MS_CONFIG = (
+    'base_url = "https://host.example"\n[jira]\n[microsoft]\n'
+    'client_id = "c"\ntenant = "t"\nauthority = "login.microsoftonline.us"\n'
+    'origin = "https://o"\nredirect_uri = "https://o/r"\n'
+    'scope = "https://outlook.example.us/.default"\n'
+)
+
+
+def test_login_microsoft_seeds_from_a_prompt(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    path = tmp_path / "config.toml"
+    path.write_text(MS_CONFIG)
+    seen: dict[str, object] = {}
+
+    async def seed(config: RedeemConfig, token: str, *, verify: bool = True) -> str:
+        seen["token"] = token
+        seen["client_id"] = config.client_id
+        seen["verify"] = verify
+        return "Seeded the Microsoft refresh token."
+
+    monkeypatch.setattr(cli.getpass, "getpass", lambda prompt: "  0.refresh \n")
+    monkeypatch.setattr(cli, "seed_microsoft", seed)
+    cli.login_microsoft(config=path)
+    assert seen == {"token": "0.refresh", "client_id": "c", "verify": True}
+    assert "Seeded the Microsoft refresh token." in capsys.readouterr().out
+
+
+def test_login_microsoft_reads_a_response_file(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    path = tmp_path / "config.toml"
+    path.write_text(MS_CONFIG)
+    response = tmp_path / "token.json"
+    response.write_text('{"refresh_token": "r-from-file", "access_token": "a"}')
+    seen: dict[str, object] = {}
+
+    async def seed(config: RedeemConfig, token: str, *, verify: bool = True) -> str:
+        seen["token"] = token
+        return "ok"
+
+    monkeypatch.setattr(cli, "seed_microsoft", seed)
+    cli.login_microsoft(config=path, from_response=response, verify=False)
+    assert seen["token"] == "r-from-file"
+
+
+def test_login_microsoft_without_a_table_exits(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    path = tmp_path / "config.toml"
+    path.write_text('base_url = "https://host.example"\n[jira]\n')
+    monkeypatch.setattr(cli.getpass, "getpass", lambda prompt: "r")
+    with pytest.raises(SystemExit) as info:
+        cli.login_microsoft(config=path)
+    assert info.value.code == 1
+
+
+def test_login_microsoft_reports_an_unreadable_response_file(tmp_path: Path) -> None:
+    path = tmp_path / "config.toml"
+    path.write_text(MS_CONFIG)
+    with pytest.raises(SystemExit) as info:
+        cli.login_microsoft(config=path, from_response=tmp_path)  # a directory, not a file
+    assert info.value.code == 1
+
+
+def test_login_microsoft_refuses_an_empty_token(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    path = tmp_path / "config.toml"
+    path.write_text(MS_CONFIG)
+    monkeypatch.setattr(cli.getpass, "getpass", lambda prompt: "   ")
+    with pytest.raises(SystemExit) as info:
+        cli.login_microsoft(config=path)
+    assert info.value.code == 1
 
 
 def test_export_ca_command_exits_cleanly_on_failure(

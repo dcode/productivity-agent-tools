@@ -289,8 +289,33 @@ Rough order. Each item is one pull request. API references: the Jira 11.0.2 and 
   durable shape of the stopgap is: sign in once per ~18 h window (e.g. each morning),
   seed the refresh token, and let the tool renew access tokens silently through the day;
   re-seed at the next sign-in. Not per-hour debug-bridge scraping, and not a fire-and-
-  forget daemon. Live silent renewal within the window still to be confirmed with a
-  fresh token.
+  forget daemon. **Live silent renewal confirmed** (2026-11-14): a fresh refresh token
+  minted an Outlook token that read `/me`, `/me/calendars`, `/me/events` and
+  `/me/messages` (all 200) via Outlook REST.
+
+  **Stopgap build track (decided 2026-11-14: automate the token lifecycle first, then
+  the adapter).** A new `microsoft/` package mirroring `servicenow/`:
+  1. ~~**Token lifecycle.**~~ **Done** (2026-11-14), the `microsoft/` package.
+     `MicrosoftSettings` reads the `[microsoft]` table (OAuth
+     `client_id`/`tenant`/`authority`/`origin`/`redirect_uri`/`scope`, all **required** —
+     no DoD defaults in core; `contrib/microsoft-dod.toml` carries the public DoD/OWA
+     values to copy; `base_url` for the Outlook REST API). `MicrosoftSession` is stored in
+     the keychain under token name `microsoft` — the refresh token (the only secret) plus
+     the non-secret redemption parameters, so the runtime credential is self-contained
+     (the `CredentialResolver` seam only gets `name`/`env_file`). `redeem_refresh_token`
+     (httpx POST to the token endpoint, `Origin` header + `redirect_uri`, system trust —
+     the login host is public, not behind the org CA). `MicrosoftCredential` provider:
+     in-memory access-token cache + `asyncio.Lock` (one redemption under concurrency),
+     reloads the session on the slow path so a re-seed while running is picked up, rotates
+     and re-stores the refresh token on each use, and maps AADSTS70043/invalid_grant to an
+     `AuthenticationError` that says to re-seed. A `login-microsoft` CLI verb seeds it
+     (paste the refresh token, or `--from-response` the captured JSON) and verifies by
+     redeeming once. `[microsoft]` is a reserved table in `parse_settings` (no product yet,
+     so `serve`/`doctor` ignore it). Full unit coverage; no adapter/tools yet.
+  2. **Outlook REST adapter + read-only `outlook_calendar`/`outlook_mail` products**, GET
+     only, on `outlook-dod.office365.us/api/v2.0`, fed by `microsoft_token`. (Next.)
+  3. **Optional: automate the seed** via the debug-bridge pull (machine-specific; deferred).
+
   Planned order, each a pull request once unblocked:
   1. ~~**The OAuth seam.**~~ **Done**, on `main`, shared with
      ServiceNow: the adapter is given a `HeaderProvider` (async, returns the authentication

@@ -106,6 +106,23 @@ current-sprint = "assignee = currentUser() AND sprint in openSprints() ORDER BY 
 # and a [confluence.cookies] table.
 # base_url = "https://confluence.example.com"
 
+# Optional: Microsoft 365 calendar and mail over the Outlook REST API (a stopgap
+# while the Microsoft Graph client awaits admin consent; see docs/ROADMAP.md).
+# There is no password: sign in to webmail, then seed the refresh token with
+# `productivity-agent-tools login-microsoft` (it is kept in the Keychain and
+# renewed silently). The OAuth values below are environment-specific and not
+# secret; DoD / OWA-webmail users can copy the ready-made block from
+# contrib/microsoft-dod.toml. The adapter and tools are not wired yet, so this
+# table is only read by login-microsoft for now.
+# [microsoft]
+# client_id = "<the sign-in app's client id>"
+# tenant = "<your tenant id, or organizations>"
+# authority = "login.microsoftonline.us"   # or login.microsoftonline.com
+# origin = "<the webmail origin, e.g. https://webmail.example.mil>"
+# redirect_uri = "<a registered redirect URI under that origin>"
+# scope = "<resource>/.default, e.g. https://outlook-dod.office365.us/.default"
+# base_url = "https://outlook-dod.office365.us/api/v2.0"
+
 # Optional: ServiceNow (a helpdesk behind single sign-on). Off until this table
 # exists. There is no token: run `productivity-agent-tools login servicenow`,
 # sign in in the browser window it opens, and the session is kept in the
