@@ -563,8 +563,43 @@ Designed for but deferred. [ROADMAP.md](ROADMAP.md) has the ordered backlog and 
 - **More Bitbucket writes:** comments on a file or line of the diff, resolving tasks, and
   editing or deleting the user's own comments.
 - **Microsoft Graph (Microsoft 365 calendar and mail):** a new adapter implementing
-  `ApiClient` with its own sign-in, plus a new product module. This is the reason
-  per-product hosts and the adapter protocol exist.
+  `ApiClient` with its own OAuth sign-in, plus one or more product modules. This is the
+  reason per-product hosts and the adapter protocol exist. The design was settled in a
+  short interview on 2026-11-13/14, after a read-only sign-in probe
+  (`scripts/ms_graph_probe.py`) confirmed against the real tenant that a public client can
+  authenticate and is not Conditional-Access blocked; the tenant requires admin consent for
+  the delegated scopes, so the build waits on that (see ROADMAP.md for status and ordering).
+  Decisions:
+  - **Sign-in is OAuth, not a static token, so the adapter protocol gains a token
+    *provider*.** The adapter is handed an async `() -> str` that returns a fresh bearer
+    token, rather than a `token: str` fixed before connecting; the Atlassian adapter wraps
+    its personal access token in a trivial provider. This is the only change MS Graph forces
+    on shared code. Everything else is reused: per-product `base_url`, the `dry_run` rule in
+    `write`, and the plain-language error reader.
+  - **MSAL (`msal`) runs the flow**, the silent refresh and the token cache. The cache is
+    persisted through `keyring` under the shared service, token name `microsoft`, so
+    interactive sign-in happens once and access tokens refresh silently after.
+  - **Authorization code + PKCE on a loopback redirect is the primary interactive flow.** It
+    opens the system browser, so smart card, MFA and managed-device Conditional Access work
+    exactly as they do for a browser login. **Device code** is an opt-in fallback for
+    headless use only; Microsoft blocks it by default in many tenants (rolling out from
+    February 2025), so it cannot be the sole flow.
+  - **`client_id` and `tenant` are configurable**, defaulting to Microsoft's first-party
+    public client "Microsoft Graph Command Line Tools"
+    (`14d82eec-204b-4c2f-b7e8-296a70dab67e`), which needs no app registration of one's own.
+    A tenant that registers its own app changes one config line.
+  - **Its own host, no VPN, no banner:** `base_url = "https://graph.microsoft.com/v1.0"`,
+    system trust store, no cookies. Unlike the Atlassian products this is a public cloud
+    host reached off the internal network, so the consent-cookie machinery does not apply.
+  - **Products share one `microsoft` token** (the `token_name` mechanism, as planned for the
+    two GitLab products), and the scope set requested is the union of the configured
+    products. Calendar first, then mail, then others.
+  - **Read-only first, writes later behind `dry_run`.** Initial scopes are delegated and
+    read-only (`Calendars.Read`, `Mail.Read`, `User.Read`, plus `offline_access` for
+    refresh); write scopes (`Calendars.ReadWrite`, `Mail.Send`) are a later, larger consent.
+  - **Data handling:** the content read (calendar entries, mail) is passed to the agent's
+    model, so access is kept delegated (the user's own data only), read-only to start, and
+    the admin-consent request names the AI use plainly rather than hiding it.
 - **OpenTelemetry tracing** of httpx requests and responses, alongside the structlog
   logging.
 

@@ -3,7 +3,7 @@
 Read this first when coming back to the project. The design and the reasons behind it are in
 [DESIGN.md](DESIGN.md). Update this file in the same commit as the work it describes.
 
-Last updated: 2026-11-12.
+Last updated: 2026-11-14.
 
 ## Where things stand
 
@@ -40,6 +40,10 @@ Last updated: 2026-11-12.
   server (Bamboo or other) reports builds or deployments to this Bitbucket.
 - **Last smoke run:** build `v0.2.0-3-g721e8b3`, 2026-11-12: all 41 calls answered, none
   failed. The dry-run branch create and the dry-run Epic create both work.
+- **Microsoft Graph (new):** design settled and the sign-in probe passed against the real
+  tenant (the public client authenticates and is not Conditional-Access blocked).
+  **Waiting on admin consent** for the read-only delegated scopes before any build. See
+  "Later" for the decisions and planned order.
 
 ## Done
 
@@ -185,9 +189,33 @@ Rough order. Each item is one pull request. API references: the Jira 11.0.2 and 
   from Markdown. The 10.2.20 OpenAPI spec is at
   `https://dac-static.atlassian.com/server/confluence/10.2.20.swagger.v3.json`.
 - **OpenTelemetry** traces of httpx requests and responses, alongside structlog.
-- **Microsoft Graph adapter** (Microsoft 365 calendar and mail): a new `ApiClient` with its
-  own sign-in, plus a product module. Needs its own design interview first, covering
-  authentication and data handling.
+- **Microsoft Graph (Microsoft 365 calendar, then mail):** an adapter plus product modules.
+  Design interview done (2026-11-13/14); the decisions are in DESIGN.md (Roadmap section).
+  **Status: blocked on admin consent.** The sign-in probe (`scripts/ms_graph_probe.py`,
+  authorization-code + PKCE with the public "Microsoft Graph Command Line Tools" client)
+  reaches the tenant and is not Conditional-Access blocked, but the tenant requires an admin
+  to approve the delegated scopes; the request was submitted with a read-only justification.
+  Nothing to build until that lands (or IT registers a tenant app, which is a one-line
+  `client_id`/`tenant` swap). Device-code flow not separately tested yet.
+  Planned order, each a pull request once unblocked:
+  1. **The OAuth seam.** Add a token *provider* to the adapter protocol: the adapter is
+     given an async `() -> str` that returns a fresh bearer token instead of a static
+     `token: str`. The Atlassian adapter wraps its PAT in a trivial provider, so Jira,
+     Bitbucket and Confluence do not change in behaviour. Tests only. This is the single
+     change MS Graph forces on shared code.
+  2. **`MicrosoftGraphClient` adapter:** MSAL, auth-code + PKCE primary with a device-code
+     fallback, configurable `client_id`/`tenant` (defaulting to the public client), token
+     cache persisted via `keyring` under token name `microsoft`; a `login microsoft` CLI
+     verb for the interactive sign-in; `doctor` calling `GET /me`. Own `base_url`
+     (`https://graph.microsoft.com/v1.0`), system trust store, no cookies.
+  3. **`outlook_calendar` product**, read-only: list calendars, list and read events.
+  4. **`outlook_mail` product**, read-only: list and search messages, read a message.
+  5. **Writes behind `dry_run`** (draft or send mail, create or update events) — a separate,
+     larger consent (`Mail.Send`, `Calendars.ReadWrite`), deferred until the read path is
+     approved and trusted.
+  Open design point: one `microsoft` product with many tools, or several products
+  (`outlook_calendar`, `outlook_mail`, ...) sharing a `microsoft` token (favoured; mirrors
+  the planned GitLab split).
 - **Sprints:** put an issue in a sprint by name (needs the board API to find the sprint's
   id), and list a board's sprints.
 - **Other custom Jira fields** (`customfield_*`), read and set through the same screen
