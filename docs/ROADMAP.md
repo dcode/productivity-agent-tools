@@ -45,9 +45,10 @@ Last updated: 2026-11-14.
   **Waiting on admin consent** for the read-only delegated scopes before any build. See
   "Later" for the decisions and planned order.
 - **ServiceNow (new, 2026-11-14):** the work helpdesk, for requesting software and
-  following the requests. Nothing is designed yet. `scripts/servicenow_probe.py` is written
-  and checked against a local fake only. **Next action: run both stages on the work laptop
-  and paste the summary back.** See "Later".
+  following the requests. **The probe passed on the real instance:** the REST API accepts
+  the browser's session from a plain client, and the account can read its own requests and
+  the software catalog. **Next action: decide how the session is obtained and stored**, then
+  the build order under "Later" applies.
 
 ## Done
 
@@ -223,33 +224,56 @@ Rough order. Each item is one pull request. API references: the Jira 11.0.2 and 
 - **ServiceNow (helpdesk requests):** request software for the laptop and keep track of
   the requests. Sign-in is SAML through a federation host that asks for a smart-card
   certificate, so there is no token to store: basic auth has no password to use, and OAuth
-  needs a client that an instance admin registers. **Status: waiting on the probe.**
-  `scripts/servicenow_probe.py` (reads only, never follows a redirect) asks:
-  - Stage 1, anonymous: where the instance redirects, and what the API tells an
-    unauthenticated caller.
-  - Stage 2, with the browser's `Cookie` header in `SNOW_COOKIE`: whether the REST API
-    accepts the browser session from a plain client, whether it needs the CSRF token
-    (`X-UserToken`, the page's `g_ck`), which of `sc_request`, `sc_req_item`, `sc_task`,
-    `incident` and the comment journal the account can read, whether the Service Catalog
-    API lists catalogs, finds software items and describes an item's form, and whether
-    `/api/now/graphql` answers (introspection, and one `GlideRecord_Query` read).
+  needs a client that an instance admin registers. **Status: probe passed, design not
+  started.**
 
-  What the answers decide:
-  1. **Session reuse works:** a `ServiceNowClient` adapter whose credential is a session
-     rather than a token. It fits the token-provider seam planned for Microsoft Graph
-     (step 1 there), with the provider returning a cookie and CSRF token. Then a
-     `servicenow` product, read-only first (my requests, one request with its stage, tasks
-     and comments, catalog search, an item's form), then ordering and commenting behind
-     `dry_run`.
-  2. **How the session is obtained** is the open design question: pasted from the browser
-     each time (simple, expires with the idle timeout), or a `login servicenow` verb that
-     opens a real browser for the smart-card sign-in and keeps the session.
-  3. **Session reuse is refused:** ask the ServiceNow admins for an OAuth client, or stop.
+  Confirmed by `scripts/servicenow_probe.py` on the real instance (2026-11-14):
+  - **The browser session works from a plain client, but only with the CSRF token.** The
+    `Cookie` header alone gets 401; adding `X-UserToken` (the page's `g_ck`, found in the
+    portal page's HTML) gets 200. The credential is therefore a pair: cookie and token.
+  - **Anonymous callers:** the Table API answers 401 with a Basic challenge (no SSO
+    redirect on API paths). GraphQL answers **200 to a guest**, so an expired session cannot
+    be detected from a GraphQL status code; check the `x-is-logged-in` header or use REST.
+  - **Own records are readable:** `sc_request`, `sc_req_item` and `incident`, filtered with
+    `javascript:gs.getUserID()`, return rows and a total.
+  - **Always filter by the user.** An unfiltered query returns the table's whole row count
+    in `X-Total-Count` and no rows (the access rules hide them), so totals from unfiltered
+    queries mean nothing, and `sc_task` showed no readable rows.
+  - **An unfiltered `sys_journal_field` query times out.** Read comments through the
+    record's own `comments` field with `sysparm_display_value`, or query the journal by
+    `element_id`; which works is unchecked.
+  - **A request item has the fields a tracker needs:** `number`, `short_description`,
+    `cat_item`, `stage`, `state`, `approval`, `request`, `estimated_delivery`, `due_date`,
+    `opened_at`, `closed_at`, `close_notes`, `comments`, plus site-specific `u_*` fields
+    (96 in all).
+  - **The Service Catalog API works:** it lists catalogs, text search finds software items
+    (many, so results need paging), and an item's form comes back with its variables (text,
+    multi-line text, select box, yes/no, plus layout-only kinds to skip).
+  - **GraphQL adds nothing here:** introspection is disabled, and `GlideRecord_Query` only
+    repeats what the Table API gives. **Decision: use REST.**
 
-  Open questions: the session's idle timeout; whether REST or GraphQL is the better read
-  path (GraphQL only if the schema exposes more than `GlideRecord_Query`); and whether
-  scripted use of the helpdesk is within the acceptable-use policy (ask before building
-  writes).
+  Planned order, each a pull request:
+  1. **The credential seam**, shared with Microsoft Graph (step 1 there): the adapter is
+     handed a provider instead of a static token. For ServiceNow it yields request headers
+     (cookie and `X-UserToken`), so the seam should return headers, not just a bearer string.
+  2. **`ServiceNowClient` adapter:** own `base_url`, system trust store, never follows a
+     redirect (the cookie stays on one host), `doctor` reading the user's own record, and a
+     plain "your session has expired, sign in again" error on 401 or `x-is-logged-in: false`.
+  3. **`servicenow` product, read-only:** my requests and items with stage and approval, one
+     item in detail with comments, my incidents, catalog search, an item's form.
+  4. **Writes behind `dry_run`:** order an item (`order_now` with the form's variables), add
+     a comment. Not probed: the probe sent no writes.
+
+  Open questions:
+  - **How the session is obtained and stored** (the next decision). Either pasted from the
+    browser into the Keychain with a `set-session` verb (small, but repeated whenever the
+    session expires), or a `login servicenow` verb that opens a real browser for the
+    smart-card sign-in and collects the cookie and token itself.
+  - The session's idle timeout, which decides how painful pasting is. The tool should not
+    keep a session alive artificially.
+  - Whether scripted use of the helpdesk is within the acceptable-use policy; ask before
+    building writes.
+  - Reading the checked-out item's variables (what was asked for) on an existing request.
 - **Sprints:** put an issue in a sprint by name (needs the board API to find the sprint's
   id), and list a board's sprints.
 - **Other custom Jira fields** (`customfield_*`), read and set through the same screen
