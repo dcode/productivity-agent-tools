@@ -17,6 +17,13 @@ endpoint. It runs on the laptop that holds the refresh token and the gov-cloud
 route; the refresh token never leaves that machine except to Microsoft's own
 login host.
 
+The observed client (``9199bf20-…``, the OWA/webmail SPA) is a Single-Page
+Application, so AAD only redeems its refresh token for a browser-style
+cross-origin request: the POST must carry an ``Origin`` header matching a
+registered SPA redirect URI, else it answers AADSTS9002327. The defaults
+(``--origin`` / ``--redirect-uri``) are the webmail.apps.mil values seen in the
+browser's own refresh call; override them for a different app.
+
 What it needs (none of these are secrets): the tenant, the client id, and the
 scope string to request. Defaults match the DoD tenant and the Teams/Office
 first-party client the tokens were observed from; override for anything else.
@@ -61,6 +68,11 @@ import urllib.request
 DEFAULT_TENANT = "fae6d70f-954b-4811-92b6-0530d6f84c43"
 DEFAULT_CLIENT_ID = "9199bf20-a13f-4107-85dc-02114787ef48"
 DEFAULT_AUTHORITY = "login.microsoftonline.us"  # gov cloud; commercial is .com
+# This client is a Single-Page App: AAD only redeems its refresh token for a
+# cross-origin (CORS) request, so the POST must carry an Origin header matching
+# a registered SPA redirect URI. Both observed from the OWA (webmail) sign-in.
+DEFAULT_ORIGIN = "https://webmail.apps.mil"
+DEFAULT_REDIRECT_URI = "https://webmail.apps.mil/mail/oauthRedirect.html"
 
 PROBE_PATHS = ("/me", "/me/calendars", "/me/events?$top=1", "/me/messages?$top=1")
 
@@ -93,23 +105,39 @@ def base_from_aud(aud: str) -> str | None:
 
 
 def refresh(
-    authority: str, tenant: str, client_id: str, scope: str, refresh_token: str, ctx: ssl.SSLContext
+    authority: str,
+    tenant: str,
+    client_id: str,
+    scope: str,
+    refresh_token: str,
+    ctx: ssl.SSLContext,
+    *,
+    origin: str | None = None,
+    redirect_uri: str | None = None,
 ) -> tuple[dict | None, str]:
-    """Redeem a refresh token for an access token. Returns (token_response, note)."""
+    """Redeem a refresh token for an access token. Returns (token_response, note).
+
+    A Single-Page-Application client (which ``9199bf20-…`` is) only has its
+    refresh token redeemed when the request looks like a browser cross-origin
+    call: AAD requires an ``Origin`` header matching a registered SPA redirect
+    URI, or it answers AADSTS9002327. ``origin`` supplies that header, and
+    ``redirect_uri`` is sent in the body as MSAL.js does.
+    """
     if "offline_access" not in scope.split():
         scope = f"offline_access {scope}"  # ask for a rotated refresh token back
     url = f"https://{authority}/{tenant}/oauth2/v2.0/token"
-    form = urllib.parse.urlencode(
-        {
-            "grant_type": "refresh_token",
-            "client_id": client_id,
-            "scope": scope,
-            "refresh_token": refresh_token,
-        }
-    ).encode()
-    req = urllib.request.Request(
-        url, data=form, headers={"Content-Type": "application/x-www-form-urlencoded"}
-    )
+    body = {
+        "grant_type": "refresh_token",
+        "client_id": client_id,
+        "scope": scope,
+        "refresh_token": refresh_token,
+    }
+    if redirect_uri:
+        body["redirect_uri"] = redirect_uri
+    headers = {"Content-Type": "application/x-www-form-urlencoded"}
+    if origin:
+        headers["Origin"] = origin  # makes AAD treat this as the SPA's CORS redemption
+    req = urllib.request.Request(url, data=urllib.parse.urlencode(body).encode(), headers=headers)
     try:
         with urllib.request.urlopen(req, timeout=20, context=ctx) as resp:
             return json.loads(resp.read()), "ok"
@@ -150,6 +178,8 @@ def main() -> int:
     parser.add_argument("--tenant", default=DEFAULT_TENANT)
     parser.add_argument("--client-id", default=DEFAULT_CLIENT_ID)
     parser.add_argument("--authority", default=DEFAULT_AUTHORITY)
+    parser.add_argument("--origin", default=DEFAULT_ORIGIN, help="Origin header (SPA redemption)")
+    parser.add_argument("--redirect-uri", default=DEFAULT_REDIRECT_URI)
     parser.add_argument("--out-dir", default=".secrets", help="dir for access.jwt / refresh.txt")
     parser.add_argument(
         "--probe", action="store_true", help="also make read-only calls with the new token"
@@ -172,10 +202,18 @@ def main() -> int:
     print("=== Microsoft refresh-token exchange ===")
     print(f"authority: https://{args.authority}/{args.tenant}")
     print(f"client_id: {args.client_id}")
+    print(f"origin:    {args.origin or '(none)'}")
     print(f"scope:     {args.scope}\n")
 
     result, note = refresh(
-        args.authority, args.tenant, args.client_id, args.scope, refresh_token, ctx
+        args.authority,
+        args.tenant,
+        args.client_id,
+        args.scope,
+        refresh_token,
+        ctx,
+        origin=args.origin,
+        redirect_uri=args.redirect_uri,
     )
     if result is None or "access_token" not in result:
         print("--- paste everything below back ---")
