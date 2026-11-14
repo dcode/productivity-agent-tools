@@ -248,12 +248,29 @@ Rough order. Each item is one pull request. API references: the Jira 11.0.2 and 
     `Mail.ReadWrite`** — Graph rejects this audience, but **Outlook REST v2.0 accepts
     it**, so it is the token that actually reads calendar and mail today.
 
-  So read-only calendar+mail is feasible **now via Outlook REST**, not via Graph, with
-  the token already in hand (live probe of the read calls still pending). Open question
-  for the adapter: Graph (needs the right scopes consented — the real target) vs Outlook
-  REST (works today but is a deprecated API). An optional `HeaderProvider` that reads a
-  hand-supplied / refresh-minted token is the seam either way; MSAL-after-consent stays
-  the real target.
+  **Confirmed end-to-end (2026-11-14), read-only via Outlook REST:** a refresh-minted
+  Outlook token (`.../outlook-dod.office365.us/.default`) returned **200** on `/me`,
+  `/me/calendars` (2), `/me/events?$top=1` (1) and `/me/messages?$top=1` (1). That is the
+  stopgap, and the only one that works.
+
+  **Graph for mail/calendar via this harvested client is a hard dead end.** Requesting
+  `dod-graph.microsoft.us/Calendars.Read Mail.Read` (from either the Outlook or the Graph
+  refresh token) fails with **AADSTS65002** — not 65001 (consentable) but *preauthorization
+  required*: the OWA/webmail SPA is a Microsoft first-party app and is not preauthorized by
+  the API owner (Microsoft) to request Graph. No tenant admin can change that. So this
+  detour cannot reach Graph mail/calendar at all; the real Graph path remains the pending
+  admin consent on the proper Graph CLI client, unchanged by any of this.
+
+  **Read-only by discipline, not by scope:** the client holds only `Mail.ReadWrite` /
+  `Calendars.ReadWrite` (no read-only scope exists to request), so the minted token is
+  write-capable and the stopgap adapter must stay GET-only — same posture as "writes
+  behind `dry_run`" below.
+
+  Adapter shape if we build the stopgap: Outlook REST v2.0 base
+  (`outlook-dod.office365.us/api/v2.0`), fed by the `HeaderProvider` seam (done) reading a
+  refresh-minted token. **Outlook REST v2.0 is deprecated by Microsoft** — functional in
+  the DoD cloud today but on borrowed time — so keep the stopgap thin and swappable;
+  MSAL-on-Graph-after-consent stays the real target.
 
   **The client is a Single-Page App (OWA/webmail, `webmail.apps.mil`).** A plain
   server-style refresh POST is refused with **AADSTS9002327** ("tokens issued for the
