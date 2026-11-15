@@ -21,7 +21,7 @@ DEFAULT_CONFIG_PATH: Path = Path("~/.config/productivity-agent-tools/config.toml
 _COOKIE_NAME = re.compile(r"[!#$%&'*+\-.^_`|~0-9A-Za-z]+")
 _COOKIE_VALUE = re.compile(r"[\x21\x23-\x2B\x2D-\x3A\x3C-\x5B\x5D-\x7E]*")
 # Tables at the top of the config that are not products.
-_TOP_LEVEL_TABLES: frozenset[str] = frozenset({"cookies"})
+_TOP_LEVEL_TABLES: frozenset[str] = frozenset({"cookies", "group"})
 # Tables that configure a module but are not themselves served products, so the
 # server ignores them rather than rejecting them. ``[microsoft]`` holds the OAuth
 # parameters ``login-microsoft`` seeds the refresh token from; the Outlook data
@@ -48,23 +48,50 @@ class Connection:
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
-class ProductSettings:
-    """Connection values a product's own table may set for itself.
+class GroupSettings:
+    """Connection values shared by the products that name a ``[group.<name>]`` table.
 
-    Each is None when the product's table does not set it, in which case the
-    top-level value applies.
+    A group sits between the top-level defaults and a product: a product's own
+    value wins, then its group's, then the top level. It lets products on one
+    host (several Atlassian products, the two Outlook products) share a base URL
+    and cookies without the top level having to belong to any one of them.
+
+    Each is None when the group's table does not set it.
 
     Attributes:
-        base_url: The product's own scheme and host, or None to use the top-level one.
-        ca_bundle: The product's own PEM file of trusted roots, or None for the top-level setting.
-        cookies: The product's own extra cookies, replacing the top-level ones, or None.
-        timeout_seconds: The product's own per-request timeout, or None for the top-level one.
+        base_url: The group's scheme and host, or None to fall through to the top level.
+        ca_bundle: The group's PEM file of trusted roots, or None.
+        cookies: The group's extra cookies, replacing the top-level ones, or None.
+        timeout_seconds: The group's per-request timeout, or None.
     """
 
     base_url: str | None = None
     ca_bundle: Path | None = None
     cookies: dict[str, str] | None = None
     timeout_seconds: float | None = None
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class ProductSettings:
+    """Connection values a product's own table may set for itself.
+
+    Each connection value is None when the product's table does not set it, in
+    which case the product's group (if it names one) applies, then the top level.
+
+    Attributes:
+        base_url: The product's own scheme and host, or None to fall through to group/top level.
+        ca_bundle: The product's own PEM file of trusted roots, or None.
+        cookies: The product's own extra cookies, replacing the inherited ones, or None.
+        timeout_seconds: The product's own per-request timeout, or None.
+        group: Name of the ``[group.<name>]`` table this product draws shared defaults from,
+            or None for the top-level defaults only.
+    """
+
+    base_url: str | None = None
+    ca_bundle: Path | None = None
+    cookies: dict[str, str] | None = None
+    timeout_seconds: float | None = None
+    group: str | None = None
 
 
 type ProductParser = Callable[[dict[str, Any]], ProductSettings]
@@ -90,6 +117,7 @@ class Settings:
         log_level: Least severe log level written to stderr.
         products: Settings of each configured product, and so each one switched on, by name,
             in the order of their tables in the config file.
+        groups: Shared connection defaults by group name, from the ``[group.<name>]`` tables.
     """
 
     base_url: str | None = None
@@ -100,6 +128,7 @@ class Settings:
     timeout_seconds: float = 30.0
     log_level: str = DEFAULT_LOG_LEVEL
     products: Mapping[str, ProductSettings] = field(default_factory=dict)
+    groups: Mapping[str, GroupSettings] = field(default_factory=dict)
 
     def product[S: ProductSettings](self, name: str, kind: type[S]) -> S | None:
         """Get one product's settings, typed as its own settings class.
@@ -122,10 +151,11 @@ class Settings:
         return found
 
     def connection_for(self, product: ProductSettings) -> Connection:
-        """Resolve one product's connection: its own values over the defaults.
+        """Resolve one product's connection: its own values, then its group's, then the defaults.
 
-        A product's ``cookies`` table replaces the default one rather than
-        adding to it, so cookies meant for one host are not sent to another.
+        A ``cookies`` table at any level replaces the inherited one rather than
+        adding to it, so cookies meant for one host are not sent to another: the
+        product's table wins, then its group's, then the top-level ``[cookies]``.
 
         Args:
             product: The product's settings.
@@ -134,20 +164,34 @@ class Settings:
             The connection to use for that product.
 
         Raises:
-            ConfigError: If neither the product nor the top level names a base URL.
+            ConfigError: If none of the product, its group or the top level names a base URL.
         """
-        base_url = product.base_url or self.base_url
+        group = self.groups.get(product.group) if product.group else None
+        group_base = group.base_url if group else None
+        group_ca = group.ca_bundle if group else None
+        group_cookies = group.cookies if group else None
+        group_timeout = group.timeout_seconds if group else None
+        base_url = product.base_url or group_base or self.base_url
         if not base_url:
             raise ConfigError(
-                "No base_url is set. Add base_url at the top of the config, or under the "
-                'product\'s own table, e.g. base_url = "https://host".'
+                "No base_url is set. Add base_url at the top of the config, under the "
+                "product's group, or under the product's own table, e.g. "
+                'base_url = "https://host".'
             )
+        if product.cookies is not None:
+            cookies = product.cookies
+        elif group_cookies is not None:
+            cookies = group_cookies
+        else:
+            cookies = self.cookies
         timeout = product.timeout_seconds
+        if timeout is None:
+            timeout = self.timeout_seconds if group_timeout is None else group_timeout
         return Connection(
             base_url=base_url,
-            ca_bundle=product.ca_bundle or self.ca_bundle,
-            cookies=dict(self.cookies if product.cookies is None else product.cookies),
-            timeout_seconds=self.timeout_seconds if timeout is None else timeout,
+            ca_bundle=product.ca_bundle or group_ca or self.ca_bundle,
+            cookies=dict(cookies),
+            timeout_seconds=timeout,
         )
 
 
@@ -362,15 +406,16 @@ def max_results(raw: dict[str, Any], table: str, default: int) -> int:
     return value
 
 
-def product_overrides(raw: dict[str, Any], table: str) -> dict[str, Any]:
-    """Read the connection values a product's table sets for itself.
+def _connection_overrides(raw: dict[str, Any], table: str) -> dict[str, Any]:
+    """Read the connection values a product or group table sets for itself.
 
     Args:
-        raw: The product's parsed table.
+        raw: The parsed table.
         table: Name of the table, for error messages.
 
     Returns:
-        Keyword arguments for the ``ProductSettings`` fields.
+        Keyword arguments for the connection fields (``base_url``, ``ca_bundle``,
+        ``cookies``, ``timeout_seconds``).
 
     Raises:
         ConfigError: If a value is invalid.
@@ -383,6 +428,44 @@ def product_overrides(raw: dict[str, Any], table: str) -> dict[str, Any]:
         ),
         "timeout_seconds": _timeout(raw, f"{table}.timeout_seconds"),
     }
+
+
+def product_overrides(raw: dict[str, Any], table: str) -> dict[str, Any]:
+    """Read the connection values and group a product's table sets for itself.
+
+    Args:
+        raw: The product's parsed table.
+        table: Name of the table, for error messages.
+
+    Returns:
+        Keyword arguments for the ``ProductSettings`` connection fields and ``group``.
+
+    Raises:
+        ConfigError: If a value is invalid.
+    """
+    group = as_str(raw, "group", None)
+    return {
+        **_connection_overrides(raw, table),
+        "group": group.strip() if group and group.strip() else None,
+    }
+
+
+def parse_group(raw: object, name: str) -> GroupSettings:
+    """Build one group's shared connection defaults from its ``[group.<name>]`` table.
+
+    Args:
+        raw: The parsed group table.
+        name: The group's name, for error messages.
+
+    Returns:
+        The group settings.
+
+    Raises:
+        ConfigError: If the table is not a table or a value is invalid.
+    """
+    if not isinstance(raw, dict):
+        raise ConfigError(f"Config table 'group.{name}' must be a table.")
+    return GroupSettings(**_connection_overrides(raw, f"group.{name}"))
 
 
 def parse_settings(
@@ -410,6 +493,7 @@ def parse_settings(
 
         parsers = {name: p.parse_settings for name, p in installed_products().items()}
     timeout = _timeout(raw, "timeout_seconds")
+    groups = _parse_groups(raw.get("group", {}))
     products: dict[str, ProductSettings] = {}
     for name, table in raw.items():
         if name in _TOP_LEVEL_TABLES or name in _PENDING_TABLES:
@@ -423,6 +507,13 @@ def parse_settings(
             raise ConfigError(
                 f"Config table '{name}' names no installed product. Products: {known}."
             )
+    for name, product in products.items():
+        if product.group is not None and product.group not in groups:
+            known = ", ".join(sorted(groups)) or "none"
+            raise ConfigError(
+                f"Product '{name}' names group '{product.group}', but there is no "
+                f"[group.{product.group}] table. Groups: {known}."
+            )
     settings = Settings(
         base_url=_base_url(raw, "base_url"),
         ca_bundle=_as_path(raw, "ca_bundle"),
@@ -432,10 +523,28 @@ def parse_settings(
         timeout_seconds=30.0 if timeout is None else timeout,
         log_level=log_level_name(as_str(raw, "log_level", None) or DEFAULT_LOG_LEVEL),
         products=products,
+        groups=groups,
     )
     for product in products.values():
         settings.connection_for(product)
     return settings
+
+
+def _parse_groups(raw: object) -> dict[str, GroupSettings]:
+    """Build the group settings from the ``[group]`` table.
+
+    Args:
+        raw: The parsed ``[group]`` table, or an empty mapping when absent.
+
+    Returns:
+        The shared connection defaults by group name.
+
+    Raises:
+        ConfigError: If ``[group]`` or one of its entries is malformed.
+    """
+    if not isinstance(raw, dict):
+        raise ConfigError("Config table 'group' must hold named [group.<name>] tables.")
+    return {name: parse_group(table, name) for name, table in raw.items()}
 
 
 async def load_settings(path: Path) -> Settings:
@@ -497,16 +606,17 @@ def apply_overrides(
             raise ConfigError(f"Cookie '{pair}' must be written as name=value.")
         extra[_cookie_name(name)] = _cookie_value(name, value)
 
-    def with_extra[P: ProductSettings](product: P) -> P:
-        if product.cookies is None:
-            return product
-        return replace(product, cookies={**product.cookies, **extra})
+    def with_extra[P: ProductSettings | GroupSettings](settings_with_cookies: P) -> P:
+        if settings_with_cookies.cookies is None:
+            return settings_with_cookies
+        return replace(settings_with_cookies, cookies={**settings_with_cookies.cookies, **extra})
 
     return replace(
         settings,
         dry_run=settings.dry_run if dry_run is None else dry_run,
         cookies={**settings.cookies, **extra},
         products={name: with_extra(product) for name, product in settings.products.items()},
+        groups={name: with_extra(group) for name, group in settings.groups.items()},
         log_level=settings.log_level if log_level is None else log_level_name(log_level),
         token_env_file=(
             settings.token_env_file if token_env_file is None else token_env_file.expanduser()

@@ -30,16 +30,23 @@ redirect_uri = "https://webmail.apps.mil/mail/oauthRedirect.html"
 # The Outlook resource; .default asks for everything the client is consented for.
 scope = "https://outlook-dod.office365.us/.default"
 # The Outlook REST API the token is for (read by login-microsoft only; the
-# products below set their own base_url).
+# products share the base_url set under [group.microsoft] below).
+base_url = "https://outlook-dod.office365.us/api/v2.0"
+
+# Shared connection for the Outlook products: the base URL lives here once, and
+# no cookies table means they inherit none (this host has no DoD consent banner,
+# so your Atlassian [cookies] must not reach it). Keep your Atlassian host and
+# banner cookie in their own group (e.g. [group.atlassian]) so the top level
+# stays neutral.
+[group.microsoft]
 base_url = "https://outlook-dod.office365.us/api/v2.0"
 
 # Read-only Microsoft 365 calendar tools (outlook_calendar_*). Remove this table
-# to turn calendar off. If you run no Atlassian products you could instead set a
-# single top-level base_url and leave these two tables empty.
+# to turn calendar off.
 [outlook_calendar]
-base_url = "https://outlook-dod.office365.us/api/v2.0"
+group = "microsoft"
 
 # Read-only Microsoft 365 mail tools (outlook_mail_*). Remove this table to turn
 # mail off.
 [outlook_mail]
-base_url = "https://outlook-dod.office365.us/api/v2.0"
+group = "microsoft"

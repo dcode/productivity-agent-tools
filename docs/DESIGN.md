@@ -316,8 +316,22 @@ keeps writes behind a dry-run switch that is on by default.
 
 - TOML at `~/.config/productivity-agent-tools/config.toml`. The top-level `base_url`,
   `ca_bundle`, `timeout_seconds` (30) and `[cookies]` are defaults that a product table can
-  override. The top-level `base_url` is optional when every product names its own.
-- `base_url` is scheme and host, plus a path only when every product shares a prefix. Each
+  override. The top-level `base_url` is optional when every product (or its group) names its
+  own.
+- **Groups (`[group.<name>]`) sit between the top level and a product.** A group holds the
+  same connection fields (`base_url`, `ca_bundle`, `timeout_seconds`, `[group.<name>.cookies]`)
+  and a product joins one with `group = "<name>"`. Each value resolves product → group →
+  top level, so products on one host — the Atlassian products on the internal host, the two
+  Outlook products on the Outlook REST host — share a base URL and banner cookies in one
+  place without the top level having to belong to any one of them. This matters because a
+  user may run only the Microsoft (or a future) tools and never touch Atlassian: the top
+  level stays neutral, and the DoD banner cookie lives in `[group.atlassian]` where it is
+  only sent to that host. A product's `group` must name a defined group, or it is a config
+  error (so a typo is caught). Cookies replace rather than merge at every level (a product's
+  own `[x.cookies]` wins, then its group's, then the top level's), so a cookie meant for one
+  host is never sent to another. `--cookie` overrides are added wherever cookies are defined
+  (top level, each group, each product).
+- `base_url` is scheme and host, plus a path only when a shared prefix applies. Each
   product's sub-path goes in its own `path` (`""` for the host root).
 - `dry_run` (default `true`), `token_env_file`, `log_level` (default `info`) and per-product
   `default_max_results` (25) are config keys. Results are capped at 100 per call.
@@ -545,9 +559,11 @@ keeps writes behind a dry-run switch that is on by default.
 - **Two products, one token.** Both set `token_name = "microsoft"` and
   `resolve_credential = microsoft_token`, so they share one keychain refresh-token
   session. Each is switched on by its own table (`[outlook_calendar]`, `[outlook_mail]`),
-  so a user can enable just one; the OAuth parameters stay in the separate `[microsoft]`
-  table that `login-microsoft` reads (never a served product). This mirrors the planned
-  GitLab split (`gitlab_wiki`/`gitlab_scm` sharing a `gitlab` token). Chosen over one
+  so a user can enable just one; they share one host through a `[group.microsoft]` table
+  (see Configuration) so the Outlook REST base URL is written once; and the OAuth parameters
+  stay in the separate `[microsoft]` table that `login-microsoft` reads (never a served
+  product). This mirrors the planned GitLab split (`gitlab_wiki`/`gitlab_scm` sharing a
+  `gitlab` token). Chosen over one
   `microsoft` product with many tools for independent enablement and cleaner tool
   grouping.
 - **Products sharing a token share one resolved credential.** `cli._open_server` now
