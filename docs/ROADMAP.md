@@ -254,6 +254,46 @@ Rough order. Each item is one pull request. API references: the Jira 11.0.2 and 
   Jira–GitLab integration if issues are tracked in Jira. Not started; the plugin structure
   was built for it. Open question: does `jira_get_issue_pull_requests` become an
   integration per code host, or a capability (`CodeHost`) that every code host offers?
+- **Multiple accounts of one product (multi-tenancy)** — design notes, not started
+  (captured 2026-11-15). Motivation: run the *same* product against two accounts at once —
+  e.g. an Army M365 mailbox and a civilian-employer M365 mailbox, each its own credential
+  and host, both through `outlook_mail`. Today one product = one config table = one tool
+  prefix = one client = one `token_name`, so two mailboxes is impossible.
+
+  The seams already lean this way and should be reused, not replaced: the adapter is handed
+  a `HeaderProvider` (not a token), credentials are addressable by keychain name through
+  `CredentialResolver`, and the new `[group.<name>]` layer carries per-host connection. So
+  the likely model is three layers:
+  1. **Named auth profiles** — e.g. `[[auth.microsoft]]` with `name = "A365"` /
+     `"MyEmployer"`, each a credential of a *kind* (microsoft-oauth, atlassian-pat,
+     servicenow-browser) stored in the keychain under its own name. `[microsoft]` today
+     becomes the single default profile; `login-microsoft --account A365` seeds a named one.
+     This generalizes `token_name` from a single string to a named profile.
+  2. **Groups** gain an `auth = "<profile>"` reference (connection + which credential), as
+     in `[group.a365]` / `[group.my365]`.
+  3. **Product instances** — one product bound to several groups, each instance getting its
+     own tool namespace.
+
+  **The hard part is instancing the tool names, not auth.** `register_tools` hardcodes tool
+  names (`outlook_mail_list_messages`), and `build_server`/config assume one client per
+  product name. Multi-account needs distinct prefixes the agent can address unambiguously
+  (`outlook_mail_a365_*` vs `outlook_mail_my365_*` — favoured over an `account=` arg on
+  every tool, for agent clarity and write safety), which means `register_tools` must take a
+  prefix and config must gain an instance dimension. That touches every product. The entry
+  point stays one singular `Product`; instancing is a runtime/config concern layered on top.
+
+  Open questions to settle (worth a short design interview, like Jira/ServiceNow — the
+  tool-naming choice is costly to change later):
+  - Config syntax: `groups = ["a365", "my365"]` on a single `[outlook_mail]` table (one
+    instance per group, backward-compatible: omit or `group = "x"` = single instance)
+    vs. array-of-tables `[[outlook_mail]]`. Favour the list — avoids array-of-tables and
+    keeps the single-instance case a plain `[product]` table.
+  - Tool-prefix derivation: from the group/instance name? Must be prefix-safe.
+  - Per-instance `login` and keychain naming; `doctor` and `status` per instance.
+  - Agent-facing instructions so the model knows which prefix is which mailbox.
+  - Single-instance must stay dead simple; multi-instance strictly opt-in.
+  - Writes (later) make cross-account mistakes costly: distinct prefixes + per-instance
+    `dry_run`.
 - **More Confluence:** labels (`content/{id}/label`), attachments (a photo for "About
   me", then `ac:image` with `ri:attachment`), page comments, blog posts, and `@` mentions
   from Markdown. The 10.2.20 OpenAPI spec is at
