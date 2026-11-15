@@ -9,10 +9,9 @@ Last updated: 2026-11-15.
 
 - **Version:** 0.7.0, on `main` via
   [#15](https://github.com/dcode/productivity-agent-tools/pull/15) (2026-11-15). Tags:
-  `v0.5.0` at 804f319 (pushed). Release tags go on the commit that changes `__version__`;
-  `v0.1.0`-`v0.4.0` predate that rule and stay where they are.
-  - [ ] Push `v0.6.0` at 9be367b and `v0.7.0` at 0235736 from the laptop (the cloud
-        session cannot push tags)
+  `v0.5.0` at 804f319, `v0.6.0` at 9be367b, `v0.7.0` at 0235736. Release tags go on the
+  commit that changes `__version__`; `v0.1.0`-`v0.4.0` predate that rule and stay where
+  they are. Cloud sessions cannot push tags, so tag from the laptop.
 - **Config groups (new, 2026-11-15):** a `[group.<name>]` table holds shared connection
   values (`base_url`, `ca_bundle`, `timeout_seconds`, cookies) and a product joins it with
   `group = "<name>"`; resolution is product → group → top level. This came out of the first
