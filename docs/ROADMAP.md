@@ -7,7 +7,8 @@ Last updated: 2026-11-14.
 
 ## Where things stand
 
-- **Version:** 0.4.0, tagged `v0.4.0` at ec90a60 on `main`.
+- **Version:** 0.5.0 (unreleased, on `claude/zealous-mendel-ny1eml`): the Microsoft
+  token lifecycle. Last tagged release `v0.4.0` at ec90a60 on `main`.
 - **Merged to `main`:**
   - [#1](https://github.com/dcode/productivity-agent-tools/pull/1): Jira server, CLI,
     CI, `configure-agent`
