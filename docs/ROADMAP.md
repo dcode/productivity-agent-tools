@@ -207,7 +207,13 @@ chance comes up and tick it here.
         check: the wording of the error, and the fix reaching a running server.
   - [ ] Whether a session used only through the API lasts as long as one in the browser:
         the adapter discards cookies the server sets, so any the instance rotates are
-        not kept
+        not kept.
+        Seen 2026-11-14/15: a `servicenow_status` loop on a fresh session kept
+        succeeding overnight, last success **2026-11-15T05:26:43Z**; it stopped because
+        the VPN dropped, not on a 401. So an API-only session, kept busy, survives well
+        past the idle limit even though rotated cookies are dropped, with no absolute
+        cap hit in that window. Still to record: the loop's start time (the "saved" time
+        in `servicenow_status`) and interval, to state the lifetime as a number.
   - [ ] With a top-level `[cookies]` table, add an empty `[servicenow.cookies]` so those
         cookies are not sent to the helpdesk
 - [ ] Outlook REST (`outlook_calendar`/`outlook_mail`), after `login-microsoft` on the
