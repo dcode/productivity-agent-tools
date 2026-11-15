@@ -2,8 +2,13 @@
 # This file names your internal host, so the real one must never be committed.
 
 # base_url, ca_bundle, timeout_seconds and [cookies] at the top of this file are
-# the defaults for every product. A product's own table (such as [jira]) can
-# set any of them again to override it for that product alone.
+# the defaults for every product. A product's own table (such as [jira]) can set
+# any of them again to override it for that product alone. Between the two, a
+# [group.<name>] table holds shared connection values for the products that name
+# it with group = "<name>" (see [group.atlassian] below): each value resolves
+# product -> group -> top level. Put a host and its banner cookie in a group when
+# several products share them, so the top level stays neutral for products on
+# other hosts (such as Microsoft 365).
 
 # Default scheme and host. Each product's own sub-path goes in its table below
 # (path under [jira]), not here. Only add a path here if every product sits
@@ -39,6 +44,16 @@ timeout_seconds = 30
 # browser's developer tools after clicking through the banner.
 # Add or override per run with --cookie name=value.
 # [cookies]
+# consent_accepted = "1"
+
+# Optional: a group of shared connection values. A product joins it with
+# group = "<name>" and inherits these unless it sets its own. Use this when
+# several products share a host (and a banner cookie) so you declare them once
+# and keep the top level neutral for products on other hosts. A product's group
+# must have a table here, or it is a config error.
+# [group.atlassian]
+# base_url = "https://atlassian.example.com"
+# [group.atlassian.cookies]
 # consent_accepted = "1"
 
 # Each product is switched on by having its table here: remove or comment out a
@@ -106,14 +121,18 @@ current-sprint = "assignee = currentUser() AND sprint in openSprints() ORDER BY 
 # and a [confluence.cookies] table.
 # base_url = "https://confluence.example.com"
 
-# Optional: Microsoft 365 calendar and mail over the Outlook REST API (a stopgap
-# while the Microsoft Graph client awaits admin consent; see docs/ROADMAP.md).
-# There is no password: sign in to webmail, then seed the refresh token with
-# `productivity-agent-tools login-microsoft` (it is kept in the Keychain and
-# renewed silently). The OAuth values below are environment-specific and not
-# secret; DoD / OWA-webmail users can copy the ready-made block from
-# contrib/microsoft-dod.toml. The adapter and tools are not wired yet, so this
-# table is only read by login-microsoft for now.
+# Optional: Microsoft 365 calendar and mail over the Outlook REST API, read-only
+# (a stopgap while the Microsoft Graph client awaits admin consent; see
+# docs/ROADMAP.md). There is no password: sign in to webmail, then seed the
+# refresh token with `productivity-agent-tools login-microsoft` (it is kept in
+# the Keychain and renewed silently). The OAuth values below are
+# environment-specific and not secret; DoD / OWA-webmail users can copy the
+# ready-made block from contrib/microsoft-dod.toml.
+#
+# [microsoft] is read only by login-microsoft (it is not a served product). The
+# tools are the two products below; they share the Outlook host through a group
+# so the base_url is written once, and that host has no consent banner, so keep
+# your Atlassian cookie out of its group.
 # [microsoft]
 # client_id = "<the sign-in app's client id>"
 # tenant = "<your tenant id, or organizations>"
@@ -122,6 +141,13 @@ current-sprint = "assignee = currentUser() AND sprint in openSprints() ORDER BY 
 # redirect_uri = "<a registered redirect URI under that origin>"
 # scope = "<resource>/.default, e.g. https://outlook-dod.office365.us/.default"
 # base_url = "https://outlook-dod.office365.us/api/v2.0"
+#
+# [group.microsoft]
+# base_url = "https://outlook-dod.office365.us/api/v2.0"
+# [outlook_calendar]
+# group = "microsoft"
+# [outlook_mail]
+# group = "microsoft"
 
 # Optional: ServiceNow (a helpdesk behind single sign-on). Off until this table
 # exists. There is no token: run `productivity-agent-tools login servicenow`,

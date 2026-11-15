@@ -7,9 +7,15 @@ Last updated: 2026-11-15.
 
 ## Where things stand
 
-- **Version:** 0.6.0 (unreleased, on `claude/zealous-mendel-ny1eml`): the Outlook REST
-  adapter and the read-only `outlook_calendar` and `outlook_mail` products, built on the
-  0.5.0 Microsoft token lifecycle. Last tagged release `v0.4.0` at ec90a60 on `main`.
+- **Version:** 0.7.0 (unreleased, on `claude/zealous-mendel-ny1eml`): the `[group.<name>]`
+  config layer (0.7.0) on top of the Outlook REST adapter and read-only `outlook_calendar`
+  /`outlook_mail` products (0.6.0) and the Microsoft token lifecycle (0.5.0). Last tagged
+  release `v0.4.0` at ec90a60 on `main`.
+- **Config groups (new, 2026-11-15):** a `[group.<name>]` table holds shared connection
+  values (`base_url`, `ca_bundle`, `timeout_seconds`, cookies) and a product joins it with
+  `group = "<name>"`; resolution is product → group → top level. This came out of the first
+  live Outlook `doctor` run (below): it keeps the top level neutral so a Microsoft-only user
+  never inherits the Atlassian host or its banner cookie. See DESIGN.md, Configuration.
 - **Merged to `main`:**
   - [#1](https://github.com/dcode/productivity-agent-tools/pull/1): Jira server, CLI,
     CI, `configure-agent`
@@ -205,10 +211,18 @@ chance comes up and tick it here.
   - [ ] With a top-level `[cookies]` table, add an empty `[servicenow.cookies]` so those
         cookies are not sent to the helpdesk
 - [ ] Outlook REST (`outlook_calendar`/`outlook_mail`), after `login-microsoft` on the
-      work laptop. All unit-tested against a fake; none has touched the live tenant.
+      work laptop. First live run 2026-11-15: `login-microsoft` seeded and the token is
+      **accepted** (redemption works, no 401), but `GET /me` returned 404 because both
+      Outlook tables were **empty**, so they inherited the top-level Atlassian `base_url`
+      (stormwind) and the `dodacknowledged` cookie — the request went to stormwind, not
+      Outlook. **Fixed by the group layer:** put the Outlook host in `[group.microsoft]`
+      and `group = "microsoft"` on each product (contrib updated), so the top-level
+      Atlassian settings no longer leak. Re-run pending with the corrected config.
   - [ ] `doctor`: both products authenticate `GET /me` and name you (one seeded
         `[microsoft]` token, shared). Confirm the shared-credential path mints the Outlook
-        token once, not once per product.
+        token once, not once per product. (Note: `doctor` redeems per product in sequence,
+        so the two "seeded at" times differ by the rotation between them — that is expected
+        and confirms the token is shared.)
   - [ ] `call outlook_calendar_status` and `outlook_mail_status`: `user_name`/`email` match
         the mailbox.
   - [ ] `outlook_calendar_list_calendars`, then `outlook_calendar_list_events` for the next

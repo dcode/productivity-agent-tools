@@ -179,6 +179,116 @@ def test_empty_product_cookie_table_sends_none_and_flag_cookies_still_apply() ->
     assert changed.cookies == {"consent": "yes", "route": "a1"}
 
 
+def test_a_product_inherits_its_group_when_it_sets_nothing_itself() -> None:
+    # The top level names no host and no cookies: the group supplies both.
+    settings = parse_settings(
+        {
+            "group": {
+                "atlassian": {
+                    "base_url": "https://stormwind.example/",
+                    "ca_bundle": "/etc/group.pem",
+                    "timeout_seconds": 45,
+                    "cookies": {"dodacknowledged": "1"},
+                }
+            },
+            "jira": {"group": "atlassian", "path": "/jira"},
+        }
+    )
+    assert list(settings.groups) == ["atlassian"]
+    assert settings.connection_for(_jira(settings)) == Connection(
+        base_url="https://stormwind.example",
+        ca_bundle=Path("/etc/group.pem"),
+        cookies={"dodacknowledged": "1"},
+        timeout_seconds=45.0,
+    )
+
+
+def test_resolution_order_is_product_then_group_then_top_level() -> None:
+    settings = parse_settings(
+        {
+            "base_url": "https://global.example",
+            "ca_bundle": "/etc/global.pem",
+            "timeout_seconds": 10,
+            "cookies": {"global": "g"},
+            "group": {
+                "atlassian": {
+                    "base_url": "https://group.example",
+                    "timeout_seconds": 20,
+                    "cookies": {"group": "x"},
+                }
+            },
+            # Product overrides only base_url; ca_bundle falls to the top level (group sets
+            # none), timeout and cookies come from the group.
+            "jira": {"group": "atlassian", "path": "", "base_url": "https://jira.example"},
+        }
+    )
+    assert settings.connection_for(_jira(settings)) == Connection(
+        base_url="https://jira.example",
+        ca_bundle=Path("/etc/global.pem"),
+        cookies={"group": "x"},
+        timeout_seconds=20.0,
+    )
+
+
+def test_a_product_without_a_group_still_uses_the_top_level() -> None:
+    settings = parse_settings(
+        {
+            "base_url": "https://global.example",
+            "cookies": {"global": "g"},
+            "group": {"atlassian": {"base_url": "https://group.example"}},
+            "jira": {},
+        }
+    )
+    conn = settings.connection_for(_jira(settings))
+    assert conn.base_url == "https://global.example" and conn.cookies == {"global": "g"}
+
+
+def test_a_group_can_supply_the_base_url_with_no_top_level_one() -> None:
+    settings = parse_settings(
+        {
+            "group": {"ms": {"base_url": "https://outlook.example/api/v2.0"}},
+            "jira": {"group": "ms", "path": ""},
+        }
+    )
+    assert settings.base_url is None
+    assert settings.connection_for(_jira(settings)).base_url == "https://outlook.example/api/v2.0"
+
+
+def test_cli_cookie_overrides_reach_group_inherited_cookies() -> None:
+    settings = parse_settings(
+        {
+            "group": {"atlassian": {"base_url": "https://h.example", "cookies": {"a": "1"}}},
+            "jira": {"group": "atlassian"},
+        }
+    )
+    changed = apply_overrides(settings, cookies=["route=b2"])
+    assert changed.connection_for(_jira(changed)).cookies == {"a": "1", "route": "b2"}
+    # The source settings are untouched.
+    assert settings.connection_for(_jira(settings)).cookies == {"a": "1"}
+
+
+@pytest.mark.parametrize(
+    "raw",
+    [
+        # A product names a group that has no table.
+        {"base_url": "https://h.example", "jira": {"group": "nope"}},
+        # [group] is not a table of tables.
+        {"base_url": "https://h.example", "group": "atlassian", "jira": {}},
+        # A [group.x] entry is not a table.
+        {"base_url": "https://h.example", "group": {"atlassian": "x"}, "jira": {}},
+        # A group value is invalid.
+        {
+            "group": {"atlassian": {"base_url": "http://insecure.example"}},
+            "jira": {"group": "atlassian"},
+        },
+        {"group": {"atlassian": {"cookies": {"a": 1}}}, "jira": {"group": "atlassian"}},
+    ],
+)
+def test_invalid_group_config_is_rejected(raw: dict[str, object]) -> None:
+    with pytest.raises(ConfigError):
+        parse_settings(raw)
+
+
 def test_a_product_is_on_only_when_its_table_is_in_the_config() -> None:
     neither = parse_settings({"base_url": "https://host.example"})
     assert neither.products == {}
