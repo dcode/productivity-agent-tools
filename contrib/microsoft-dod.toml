@@ -1,5 +1,5 @@
-# DoD / OWA-webmail Microsoft OAuth settings — copy this [microsoft] table into
-# your config (~/.config/productivity-agent-tools/config.toml).
+# DoD / OWA-webmail Microsoft settings — copy these tables into your config
+# (~/.config/productivity-agent-tools/config.toml).
 #
 # None of these values is a secret: the client_id and tenant appear in every
 # token the browser issues, and the origin/redirect_uri are the public webmail
@@ -13,6 +13,9 @@
 # the Outlook REST API while the proper Microsoft Graph client awaits admin
 # consent; see docs/ROADMAP.md.
 
+# [microsoft] is not a served product: it only tells login-microsoft how to seed
+# and renew the refresh token. The calendar and mail data is served by the
+# [outlook_calendar] and [outlook_mail] products below, which share this token.
 [microsoft]
 # The OWA/webmail single-page application the browser signs in as.
 client_id = "9199bf20-a13f-4107-85dc-02114787ef48"
@@ -26,6 +29,17 @@ origin = "https://webmail.apps.mil"
 redirect_uri = "https://webmail.apps.mil/mail/oauthRedirect.html"
 # The Outlook resource; .default asks for everything the client is consented for.
 scope = "https://outlook-dod.office365.us/.default"
-# The Outlook REST API the adapter will read calendar and mail from (used once
-# the adapter lands; harmless to set now).
+# The Outlook REST API the token is for (read by login-microsoft only; the
+# products below set their own base_url).
+base_url = "https://outlook-dod.office365.us/api/v2.0"
+
+# Read-only Microsoft 365 calendar tools (outlook_calendar_*). Remove this table
+# to turn calendar off. If you run no Atlassian products you could instead set a
+# single top-level base_url and leave these two tables empty.
+[outlook_calendar]
+base_url = "https://outlook-dod.office365.us/api/v2.0"
+
+# Read-only Microsoft 365 mail tools (outlook_mail_*). Remove this table to turn
+# mail off.
+[outlook_mail]
 base_url = "https://outlook-dod.office365.us/api/v2.0"

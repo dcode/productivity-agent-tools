@@ -20,6 +20,8 @@ from productivity_agent_tools.jira.client import JiraClient
 from productivity_agent_tools.jira.product import PRODUCT as JIRA
 from productivity_agent_tools.jira.settings import JiraSettings
 from productivity_agent_tools.links import INTEGRATION
+from productivity_agent_tools.microsoft.calendar_product import PRODUCT as OUTLOOK_CALENDAR
+from productivity_agent_tools.microsoft.mail_product import PRODUCT as OUTLOOK_MAIL
 from productivity_agent_tools.products import (
     Integration,
     Product,
@@ -37,9 +39,12 @@ def test_the_built_in_products_and_integration_are_installed() -> None:
         "bitbucket": BITBUCKET,
         "confluence": CONFLUENCE,
         "jira": JIRA,
+        "outlook_calendar": OUTLOOK_CALENDAR,
+        "outlook_mail": OUTLOOK_MAIL,
         "servicenow": SERVICENOW,
     }
     assert installed_integrations() == (INTEGRATION,)
+    assert (OUTLOOK_CALENDAR.token, OUTLOOK_MAIL.token) == ("microsoft", "microsoft")
     assert (JIRA.token, BITBUCKET.token) == ("jira", "bitbucket")
 
 
