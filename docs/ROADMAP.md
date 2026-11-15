@@ -3,12 +3,13 @@
 Read this first when coming back to the project. The design and the reasons behind it are in
 [DESIGN.md](DESIGN.md). Update this file in the same commit as the work it describes.
 
-Last updated: 2026-11-14.
+Last updated: 2026-11-15.
 
 ## Where things stand
 
-- **Version:** 0.5.0 (unreleased, on `claude/zealous-mendel-ny1eml`): the Microsoft
-  token lifecycle. Last tagged release `v0.4.0` at ec90a60 on `main`.
+- **Version:** 0.6.0 (unreleased, on `claude/zealous-mendel-ny1eml`): the Outlook REST
+  adapter and the read-only `outlook_calendar` and `outlook_mail` products, built on the
+  0.5.0 Microsoft token lifecycle. Last tagged release `v0.4.0` at ec90a60 on `main`.
 - **Merged to `main`:**
   - [#1](https://github.com/dcode/productivity-agent-tools/pull/1): Jira server, CLI,
     CI, `configure-agent`
@@ -37,7 +38,7 @@ Last updated: 2026-11-14.
 - **Also on `main`, in 0.4.0:** the credential seam, the ServiceNow adapter,
   `login servicenow` and `servicenow_status`, with the Microsoft Graph and ServiceNow
   spikes and version 0.4.0 (built on `claude/servicenow-credential-seam`).
-- **Tests:** 389 passing, about 99.9% branch coverage. All hooks clean.
+- **Tests:** 494 passing, about 99.98% branch coverage. All hooks clean.
 - **In use:** Goose on the work laptop, against Jira 11.3.12, Bitbucket 10.2.8 and Confluence
   10.2.19. No CI
   server (Bamboo or other) reports builds or deployments to this Bitbucket.
@@ -45,8 +46,11 @@ Last updated: 2026-11-14.
   failed. The dry-run branch create and the dry-run Epic create both work.
 - **Microsoft Graph (new):** design settled and the sign-in probe passed against the real
   tenant (the public client authenticates and is not Conditional-Access blocked).
-  **Waiting on admin consent** for the read-only delegated scopes before any build. See
-  "Later" for the decisions and planned order.
+  **Waiting on admin consent** for the read-only delegated scopes before any build. The
+  **Outlook REST stopgap** is being built in the meantime: the token lifecycle (0.5.0) and
+  now the adapter plus the read-only `outlook_calendar`/`outlook_mail` products (0.6.0) are
+  done and unit-tested, but **not yet run against the live tenant** (see "Confirm against
+  the real servers"). See "Later" for the decisions and planned order.
 - **ServiceNow (new, 2026-11-14):** the work helpdesk, for requesting software and
   following the requests. **The probe passed on the real instance:** the REST API accepts
   the browser's session from a plain client, and the account can read its own requests and
@@ -200,6 +204,26 @@ chance comes up and tick it here.
         not kept
   - [ ] With a top-level `[cookies]` table, add an empty `[servicenow.cookies]` so those
         cookies are not sent to the helpdesk
+- [ ] Outlook REST (`outlook_calendar`/`outlook_mail`), after `login-microsoft` on the
+      work laptop. All unit-tested against a fake; none has touched the live tenant.
+  - [ ] `doctor`: both products authenticate `GET /me` and name you (one seeded
+        `[microsoft]` token, shared). Confirm the shared-credential path mints the Outlook
+        token once, not once per product.
+  - [ ] `call outlook_calendar_status` and `outlook_mail_status`: `user_name`/`email` match
+        the mailbox.
+  - [ ] `outlook_calendar_list_calendars`, then `outlook_calendar_list_events` for the next
+        week: times come back in UTC (the `Prefer` header), recurrences are expanded, and
+        the count matches the browser. Then `outlook_calendar_get_event` on one, with
+        attendees and a text body.
+  - [ ] `outlook_mail_list_messages` (and `unread_only=true`), `outlook_mail_search_messages`
+        on a known term, and `outlook_mail_get_message` on one (text body, truncation).
+  - [ ] `outlook_mail_get_message_headers` on a real message: confirm
+        `InternetMessageHeaders` actually comes back (it is `$select`-only and may be capped
+        in size), and that Authentication-Results / Received / List-Unsubscribe are present
+        and useful for triage. **Open question:** does the DoD Outlook REST v2.0 return the
+        full header set, or a subset?
+  - [ ] Confirm a 401 (let the 18 h sign-in window lapse) is reported as "re-seed with
+        login-microsoft", and that re-seeding fixes a running server without a restart.
 
 ## Next up
 
@@ -313,8 +337,30 @@ Rough order. Each item is one pull request. API references: the Jira 11.0.2 and 
      (paste the refresh token, or `--from-response` the captured JSON) and verifies by
      redeeming once. `[microsoft]` is a reserved table in `parse_settings` (no product yet,
      so `serve`/`doctor` ignore it). Full unit coverage; no adapter/tools yet.
-  2. **Outlook REST adapter + read-only `outlook_calendar`/`outlook_mail` products**, GET
-     only, on `outlook-dod.office365.us/api/v2.0`, fed by `microsoft_token`. (Next.)
+  2. ~~**Outlook REST adapter + read-only `outlook_calendar`/`outlook_mail` products**, GET
+     only, on `outlook-dod.office365.us/api/v2.0`, fed by `microsoft_token`.~~ **Done
+     (2026-11-15), version 0.6.0.** The `microsoft/` package gained `OutlookClient` (the
+     adapter, Outlook's `_interpret` plus `Prefer: body-content-type=text, timezone=UTC`),
+     a shared `OutlookSettings`, a shared `reads.py` (OData `value`/`nextLink`, `/me`,
+     PascalCase→snake_case helpers), and two products that **share the `microsoft` token**:
+     - `outlook_calendar`: `outlook_calendar_status`, `_list_calendars`,
+       `_list_events` (via `calendarview`, recurrences expanded, default now→+7d),
+       `_get_event` (body as text, attendees, truncation).
+     - `outlook_mail`: `outlook_mail_status`, `_list_messages` (newest first, unread
+       filter), `_search_messages` (OData `$search`), `_get_message` (body as text,
+       truncation), and `_get_message_headers` (internet/MIME headers via `$select`, for
+       spam/phishing/mailing-list triage — Authentication-Results, Received chain,
+       List-Unsubscribe, etc.).
+
+     Decision taken here (the open design point below): **two products, not one.** They
+     share a token, each has its own `[outlook_calendar]`/`[outlook_mail]` table so either
+     can be enabled alone, and `[microsoft]` stays an OAuth-only config table (not a served
+     product). To keep the shared *rotating* refresh token safe, `cli._open_server` now
+     resolves a token name **once** and hands the same credential provider to every product
+     that shares it (one cache, one lock, one rotation) — see DESIGN.md, Outlook REST
+     specifics. `contrib/microsoft-dod.toml` gained the two product tables. Fully unit
+     tested against a fake Outlook; **never run against the live tenant yet** (see
+     "Confirm against the real servers").
   3. **Optional: automate the seed** via the debug-bridge pull (machine-specific; deferred).
 
   Planned order, each a pull request once unblocked:
@@ -332,9 +378,12 @@ Rough order. Each item is one pull request. API references: the Jira 11.0.2 and 
   5. **Writes behind `dry_run`** (draft or send mail, create or update events) — a separate,
      larger consent (`Mail.Send`, `Calendars.ReadWrite`), deferred until the read path is
      approved and trusted.
-  Open design point: one `microsoft` product with many tools, or several products
-  (`outlook_calendar`, `outlook_mail`, ...) sharing a `microsoft` token (favoured; mirrors
-  the planned GitLab split).
+  Open design point **(resolved 2026-11-15)**: one `microsoft` product with many tools, or
+  several products (`outlook_calendar`, `outlook_mail`, ...) sharing a `microsoft` token.
+  Went with **several products sharing the token** (favoured; mirrors the planned GitLab
+  split), and already implemented that way for the Outlook REST stopgap. When the Graph
+  path is built, reuse the same two products and swap only the adapter/credential. The
+  shared-token machinery (`cli._open_server` resolving a token name once) is in place.
 - **ServiceNow (helpdesk requests):** request software for the laptop and keep track of
   the requests. Sign-in is SAML through a federation host that asks for a smart-card
   certificate, so there is no token to store: basic auth has no password to use, and OAuth

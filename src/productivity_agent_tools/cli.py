@@ -31,6 +31,7 @@ from productivity_agent_tools.config import (
     apply_overrides,
     load_settings,
 )
+from productivity_agent_tools.credentials import Credential
 from productivity_agent_tools.errors import AgentToolsError, ConfigError
 from productivity_agent_tools.logs import LOG_LEVELS, configure_logging
 from productivity_agent_tools.microsoft.login import extract_refresh_token
@@ -166,9 +167,17 @@ async def _open_server(
     products = installed_products()
     async with contextlib.AsyncExitStack() as stack:
         connected: dict[str, Connected] = {}
+        # Products that share a token name (the two Outlook products share "microsoft")
+        # share one resolved credential, so an OAuth token is minted and its rotating
+        # refresh token is renewed by a single provider, never raced between two.
+        credentials: dict[str, Credential] = {}
         for name, product_settings in settings.products.items():
             product = products[name]
-            credential = await product.resolve_credential(product.token, settings.token_env_file)
+            if product.token not in credentials:
+                credentials[product.token] = await product.resolve_credential(
+                    product.token, settings.token_env_file
+                )
+            credential = credentials[product.token]
             client = await stack.enter_async_context(
                 product.adapter(
                     settings.connection_for(product_settings),

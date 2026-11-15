@@ -22,10 +22,11 @@ _COOKIE_NAME = re.compile(r"[!#$%&'*+\-.^_`|~0-9A-Za-z]+")
 _COOKIE_VALUE = re.compile(r"[\x21\x23-\x2B\x2D-\x3A\x3C-\x5B\x5D-\x7E]*")
 # Tables at the top of the config that are not products.
 _TOP_LEVEL_TABLES: frozenset[str] = frozenset({"cookies"})
-# Tables for a module that is configured and set up by its own command, but not
-# yet registered as a served product, so the server ignores them rather than
-# rejecting them. ``microsoft`` is seeded by ``login-microsoft``; its Outlook REST
-# adapter is not wired yet. Remove a name here once its product is registered.
+# Tables that configure a module but are not themselves served products, so the
+# server ignores them rather than rejecting them. ``[microsoft]`` holds the OAuth
+# parameters ``login-microsoft`` seeds the refresh token from; the Outlook data
+# itself is served by the ``outlook_calendar`` and ``outlook_mail`` products,
+# which have their own tables and share the ``microsoft`` keychain token.
 _PENDING_TABLES: frozenset[str] = frozenset({"microsoft"})
 
 

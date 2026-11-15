@@ -534,6 +534,55 @@ keeps writes behind a dry-run switch that is on by default.
 - Both writes go through the shared `RepeatGuard`. Labels, attachments, comments, blog
   posts and deleting pages are not offered yet.
 
+### Outlook REST specifics (the Microsoft stopgap)
+
+- Two read-only products, `outlook_calendar` and `outlook_mail`, over the Outlook REST
+  API v2.0 (`outlook-dod.office365.us/api/v2.0`). They are the stopgap described under
+  Roadmap and ROADMAP.md: the real target is Microsoft Graph behind MSAL once admin
+  consent lands, so these are kept thin and swappable. **GET only**, by discipline: the
+  harvested token carries `Mail.ReadWrite`/`Calendars.ReadWrite` (no read-only scope
+  exists to request), so the adapter stays read-only the way writes stay behind `dry_run`.
+- **Two products, one token.** Both set `token_name = "microsoft"` and
+  `resolve_credential = microsoft_token`, so they share one keychain refresh-token
+  session. Each is switched on by its own table (`[outlook_calendar]`, `[outlook_mail]`),
+  so a user can enable just one; the OAuth parameters stay in the separate `[microsoft]`
+  table that `login-microsoft` reads (never a served product). This mirrors the planned
+  GitLab split (`gitlab_wiki`/`gitlab_scm` sharing a `gitlab` token). Chosen over one
+  `microsoft` product with many tools for independent enablement and cleaner tool
+  grouping.
+- **Products sharing a token share one resolved credential.** `cli._open_server` now
+  resolves each distinct token name once and hands the same `HeaderProvider` to every
+  product that shares it. Without this, two `MicrosoftCredential` instances would each
+  hold their own access-token cache and lock and could race to redeem — and so rotate —
+  the one refresh token on a cold cache. One shared provider means one lock, one cache,
+  one orderly rotation. (Two GitLab products would benefit the same way.)
+- **`OutlookClient`** is the adapter (`transport.py`'s `HttpAdapter` plus an Outlook
+  `_interpret`). It is a public-cloud host, so there is no consent banner, no cookie
+  session and no sign-in redirect to read: a 401 means the minted token was refused,
+  which for the stopgap means the refresh token can no longer be redeemed, so the message
+  says to re-seed. Errors are read from Outlook's `{"error": {"code", "message"}}` shape;
+  429 is called out as rate limiting with "do not loop".
+- **Two `Prefer` headers on every request:** `outlook.body-content-type="text"` so event
+  and message bodies arrive as plain text (smaller, no markup for the model), and
+  `outlook.timezone="UTC"` so event times are normalized rather than mailbox-local.
+- **Calendar.** `outlook_calendar_list_events` uses `calendarview` (a start/end range,
+  recurrences expanded) rather than `/me/events` (series masters), because "what is on my
+  calendar" wants the actual occurrences. The range defaults to now through seven days
+  out; a bare date is widened to the start or end of that day. Bodies are truncated like
+  Confluence's (default 20,000, ceiling 500,000, with `body_chars`/`truncated`).
+- **Mail.** `outlook_mail_list_messages` is newest-first with an optional unread filter;
+  `outlook_mail_search_messages` uses Outlook's own `$search` (which cannot be combined
+  with `$orderby`). Bodies truncate the same way.
+- **Internet headers are a separate tool.** `outlook_mail_get_message_headers` fetches
+  `InternetMessageHeaders` with `$select` (Outlook returns them only when asked for alone,
+  which would strip the other fields a normal read needs), and returns the headers in
+  order with duplicates kept. It is for triage and automation: Authentication-Results
+  (SPF/DKIM/DMARC), the Received chain, Return-Path/Reply-To, and List-Id/List-Unsubscribe
+  for mailing lists.
+- **Outlook REST v2.0 answers in PascalCase** (`Subject`, `ReceivedDateTime`,
+  `EmailAddress`); the clients normalize that to the snake_case models so the agent sees
+  one vocabulary. OData collections are `{"value": [...]}` with `@odata.nextLink` for more.
+
 ### Logging
 
 - structlog on stderr, always. Output is readable lines in a terminal and JSON lines
