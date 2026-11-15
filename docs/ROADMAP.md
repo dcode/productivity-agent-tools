@@ -7,12 +7,12 @@ Last updated: 2026-11-15.
 
 ## Where things stand
 
-- **Version:** 0.7.0 (unreleased, on `claude/zealous-mendel-ny1eml`, rebased onto `main`
-  2026-11-15): the `[group.<name>]` config layer (0.7.0) on top of the Outlook REST adapter
-  and read-only `outlook_calendar`/`outlook_mail` products (0.6.0). `main` is at 0.5.0
-  (804f319, the Microsoft token lifecycle), **not yet tagged**. Last tagged release
-  `v0.4.0` at ec90a60. Release plan: tag `v0.5.0` at 804f319, merge this branch, tag
-  `v0.7.0` on the merge (0.6.0 was never on `main` alone, so no `v0.6.0`).
+- **Version:** 0.7.0, on `main` via
+  [#15](https://github.com/dcode/productivity-agent-tools/pull/15) (2026-11-15). Tags:
+  `v0.5.0` at 804f319 (pushed). Release tags go on the commit that changes `__version__`;
+  `v0.1.0`-`v0.4.0` predate that rule and stay where they are.
+  - [ ] Push `v0.6.0` at 9be367b and `v0.7.0` at 0235736 from the laptop (the cloud
+        session cannot push tags)
 - **Config groups (new, 2026-11-15):** a `[group.<name>]` table holds shared connection
   values (`base_url`, `ca_bundle`, `timeout_seconds`, cookies) and a product joins it with
   `group = "<name>"`; resolution is product → group → top level. This came out of the first
@@ -46,7 +46,7 @@ Last updated: 2026-11-15.
 - **Also on `main`, in 0.4.0:** the credential seam, the ServiceNow adapter,
   `login servicenow` and `servicenow_status`, with the Microsoft Graph and ServiceNow
   spikes and version 0.4.0 (built on `claude/servicenow-credential-seam`).
-- **Also on `main`, in 0.5.0 (untagged):** the Outlook REST spikes and the Microsoft
+- **Also on `main`, in 0.5.0:** the Outlook REST spikes and the Microsoft
   refresh-token lifecycle (`login-microsoft`).
 - **Tests:** 494 passing, about 99.98% branch coverage. All hooks clean.
 - **In use:** Goose on the work laptop, against Jira 11.3.12, Bitbucket 10.2.8 and Confluence
