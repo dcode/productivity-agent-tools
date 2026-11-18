@@ -627,9 +627,31 @@ keeps writes behind a dry-run switch that is on by default.
   order with duplicates kept. It is for triage and automation: Authentication-Results
   (SPF/DKIM/DMARC), the Received chain, Return-Path/Reply-To, and List-Id/List-Unsubscribe
   for mailing lists.
+- **OData query tools are the escape hatch.** `outlook_mail_query_messages` and
+  `outlook_calendar_query_events` (`microsoft/odata.py`) pass `$filter`, `$select`,
+  `$orderby`, `$expand`, `$top`, `$skip` and `$count` to the collection as written (GET
+  only), on `/me/messages` or one mail folder, and on `/me/events` or one calendar. They
+  exist for what the fixed tools cannot ask, chiefly finding a message by
+  `InternetMessageId` and filtering on any filterable property. Decisions:
+  - Options are not parsed or rewritten here; the API validates them and its error
+    message (an `InefficientFilter`, an unknown property) reaches the agent unchanged.
+    The tool docstrings carry the rules the agent most often trips on: PascalCase names,
+    single-quoted strings, and `$orderby` properties having to lead the `$filter`.
+  - Without `$select` a compact default is sent (no body, no headers), so a broad query
+    cannot pull every body by accident; any string longer than `max_chars` is cut wherever
+    it is in an item, and `values_truncated` says how many were.
+  - Items keep the API's own property names (unlike the fixed tools' snake_case models),
+    so a name seen in a result can go straight into the next filter or select.
+    `@odata.*` annotations are dropped.
+  - Paging is `$skip`: the result gives `next_skip` when `@odata.nextLink` was present,
+    rather than handing the agent an opaque next link to follow.
+  - Events are read from `/events`, so recurring meetings are series masters;
+    "what is on my calendar" stays with `calendarview` in `outlook_calendar_list_events`.
+  - Header *contents* cannot be filtered on: `InternetMessageHeaders` is not a filterable
+    property. Finding mailing-list or failed-DMARC mail means paging and reading headers.
 - **Outlook REST v2.0 answers in PascalCase** (`Subject`, `ReceivedDateTime`,
-  `EmailAddress`); the clients normalize that to the snake_case models so the agent sees
-  one vocabulary. OData collections are `{"value": [...]}` with `@odata.nextLink` for more.
+  `EmailAddress`); the fixed tools normalize that to the snake_case models so the agent
+  sees one vocabulary. OData collections are `{"value": [...]}` with `@odata.nextLink` for more.
 
 ### Logging
 

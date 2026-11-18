@@ -18,7 +18,9 @@ from productivity_agent_tools.microsoft.models import (
     Event,
     EventList,
     EventSummary,
+    QueryResult,
 )
+from productivity_agent_tools.microsoft.odata import EVENT_FIELDS, ODataQuery, run_query
 from productivity_agent_tools.microsoft.outlook_settings import OutlookSettings
 from productivity_agent_tools.microsoft.reads import (
     account,
@@ -175,6 +177,37 @@ class OutlookCalendarClient:
             raise AgentToolsError("Give an event id; outlook_calendar_list_events shows them.")
         found = await self._api.get(f"/me/events/{quote(cleaned, safe='')}")
         return self._event(as_object(found, "event"), clamp_chars(max_chars))
+
+    async def query_events(
+        self, query: ODataQuery, calendar_id: str | None = None, max_chars: int | None = None
+    ) -> QueryResult:
+        """Query events with OData options, on every calendar's default or one calendar.
+
+        This reads ``/events``, where a recurring meeting is one series master
+        rather than one item per occurrence; ``list_events`` expands them.
+
+        Args:
+            query: The OData options, passed to the API as written.
+            calendar_id: Limit to one calendar; None for the default calendar.
+            max_chars: Cut any string value here (default 20000, at most 500000).
+
+        Returns:
+            One page of events, with the API's property names.
+
+        Raises:
+            AgentToolsError: If an option is invalid or the API refuses the query.
+        """
+        path = "/me/events"
+        if cleaned := (calendar_id or "").strip():
+            path = f"/me/calendars/{quote(cleaned, safe='')}/events"
+        return await run_query(
+            self._api,
+            path,
+            query,
+            default_top=self.settings.default_max_results,
+            default_select=EVENT_FIELDS,
+            max_chars=clamp_chars(max_chars),
+        )
 
     def _summary(self, item: JsonObject) -> EventSummary:
         """Build the compact view of an event.

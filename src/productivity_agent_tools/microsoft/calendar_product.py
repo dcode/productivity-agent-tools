@@ -11,7 +11,14 @@ from mcp.server.mcpserver import MCPServer
 
 from productivity_agent_tools.microsoft.calendar_client import OutlookCalendarClient
 from productivity_agent_tools.microsoft.credentials import microsoft_token
-from productivity_agent_tools.microsoft.models import CalendarList, Event, EventList, OutlookStatus
+from productivity_agent_tools.microsoft.models import (
+    CalendarList,
+    Event,
+    EventList,
+    OutlookStatus,
+    QueryResult,
+)
+from productivity_agent_tools.microsoft.odata import ODataQuery
 from productivity_agent_tools.microsoft.outlook import OutlookClient
 from productivity_agent_tools.microsoft.outlook_settings import (
     OutlookSettings,
@@ -85,6 +92,62 @@ def register_calendar_tools(
             max_results: Maximum rows to return (default from config, at most 100).
         """
         return await calendar.list_events(start, end, calendar_id, max_results)
+
+    @server.tool(annotations=READ)
+    @anticipated
+    async def outlook_calendar_query_events(
+        filter: str | None = None,
+        select: str | None = None,
+        orderby: str | None = None,
+        expand: str | None = None,
+        top: int | None = None,
+        skip: int | None = None,
+        count: bool = False,
+        calendar_id: str | None = None,
+        max_chars: int | None = None,
+    ) -> QueryResult:
+        """Query events with OData v4 options, for what outlook_calendar_list_events cannot do.
+
+        This reads the events themselves, so a recurring meeting is one item (its
+        series master, Type "SeriesMaster") rather than one per occurrence; to see
+        what is on the calendar on given days, use outlook_calendar_list_events.
+        The options go to the Outlook REST API as written. Property names are
+        PascalCase (Subject, Start/DateTime, End/DateTime, Organizer, Location,
+        IsAllDay, ShowAs, Importance, Categories, Type); string values go in single
+        quotes. Examples:
+
+        - Meetings a person organized: filter="Organizer/EmailAddress/Address eq
+          'pat@example.mil'"
+        - By subject: filter="contains(Subject, 'standup')"
+        - Recurring series only: filter="Type eq 'SeriesMaster'"
+        - With attendees: select="Subject,Start,Attendees"
+
+        With both filter and orderby, every orderby property must also appear in
+        the filter, first and in the same order.
+
+        Args:
+            filter: OData $filter expression.
+            select: Comma-separated properties to return; leave out for a compact set
+                (no body, no attendees).
+            orderby: OData $orderby, such as "Start/DateTime desc".
+            expand: OData $expand, such as "Attachments($select=Name)".
+            top: Rows per page (default from config, at most 100).
+            skip: Rows to skip, for the next page: pass next_skip from the last result.
+            count: True to have the API report the total number of matches.
+            calendar_id: Limit to one calendar, from outlook_calendar_list_calendars;
+                leave out for the default calendar.
+            max_chars: Cut any long text value here (default 20000, at most 500000).
+        """
+        query = ODataQuery(
+            filter=filter,
+            select=select,
+            orderby=orderby,
+            expand=expand,
+            top=top,
+            skip=skip,
+            count=count,
+        )
+        return await calendar.query_events(query, calendar_id, max_chars)
 
     @server.tool(annotations=READ)
     @anticipated

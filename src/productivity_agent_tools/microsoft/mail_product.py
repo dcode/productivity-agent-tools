@@ -16,7 +16,9 @@ from productivity_agent_tools.microsoft.models import (
     MessageHeaders,
     MessageList,
     OutlookStatus,
+    QueryResult,
 )
+from productivity_agent_tools.microsoft.odata import ODataQuery
 from productivity_agent_tools.microsoft.outlook import OutlookClient
 from productivity_agent_tools.microsoft.outlook_settings import (
     OutlookSettings,
@@ -83,6 +85,69 @@ def register_mail_tools(server: MCPServer, mail: OutlookMailClient, context: Too
             max_results: Maximum rows to return (default from config, at most 100).
         """
         return await mail.search_messages(query, max_results)
+
+    @server.tool(annotations=READ)
+    @anticipated
+    async def outlook_mail_query_messages(
+        filter: str | None = None,
+        select: str | None = None,
+        orderby: str | None = None,
+        expand: str | None = None,
+        top: int | None = None,
+        skip: int | None = None,
+        count: bool = False,
+        folder: str | None = None,
+        max_chars: int | None = None,
+    ) -> QueryResult:
+        """Query messages with OData v4 options, for what the list and search tools cannot do.
+
+        The options go to the Outlook REST API as written. Property names are
+        PascalCase (Subject, From, ReceivedDateTime, InternetMessageId, IsRead,
+        HasAttachments, Importance, Categories, ConversationId); string values go
+        in single quotes, with a quote inside doubled. Examples:
+
+        - One message by its Message-ID header:
+          filter="InternetMessageId eq '<abc123@mail.example.com>'"
+        - From one sender since a date: filter="From/EmailAddress/Address eq
+          'pat@example.mil' and ReceivedDateTime ge 2026-11-01T00:00:00Z"
+        - Subject starts with: filter="startswith(Subject, 'Invoice')"
+        - How many unread in the inbox: folder="inbox", filter="IsRead eq false",
+          count=true, top=1
+        - Internet headers for each message in one request:
+          select="Subject,InternetMessageHeaders" (may be returned only on a single
+          message; if so, use outlook_mail_get_message_headers per message).
+
+        Rules the API enforces: with both filter and orderby, every orderby
+        property must also appear in the filter, first and in the same order (an
+        "InefficientFilter" error means this). Header contents
+        (InternetMessageHeaders) cannot be filtered on; to find, say, mailing-list
+        mail, page through messages selecting the headers. For free-text search
+        use outlook_mail_search_messages instead.
+
+        Args:
+            filter: OData $filter expression.
+            select: Comma-separated properties to return; leave out for a compact set
+                (no body, no headers). Add Body or UniqueBody to read bodies.
+            orderby: OData $orderby, such as "ReceivedDateTime desc".
+            expand: OData $expand, such as "Attachments($select=Name,Size)".
+            top: Rows per page (default from config, at most 100).
+            skip: Rows to skip, for the next page: pass next_skip from the last result.
+            count: True to have the API report the total number of matches.
+            folder: Folder id or well-known name (inbox, junkemail, sentitems,
+                deleteditems, archive, drafts); leave out to search every folder.
+            max_chars: Cut any long text value (a body, a header) here (default 20000,
+                at most 500000).
+        """
+        query = ODataQuery(
+            filter=filter,
+            select=select,
+            orderby=orderby,
+            expand=expand,
+            top=top,
+            skip=skip,
+            count=count,
+        )
+        return await mail.query_messages(query, folder, max_chars)
 
     @server.tool(annotations=READ)
     @anticipated

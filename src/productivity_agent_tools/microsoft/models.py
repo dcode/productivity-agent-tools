@@ -2,10 +2,12 @@
 
 Outlook REST v2.0 answers in PascalCase (``Subject``, ``ReceivedDateTime``,
 ``EmailAddress``); the clients normalize that into the snake_case shapes here
-so the agent sees one consistent vocabulary.
+so the agent sees one consistent vocabulary. The OData query tools are the
+exception: their items keep the API's own names, so they can be reused in a
+filter or select.
 """
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, JsonValue
 
 
 class OutlookStatus(BaseModel):
@@ -162,6 +164,31 @@ class MessageHeaders(BaseModel):
         "Useful ones for triage: Authentication-Results (SPF/DKIM/DMARC results), Received "
         "(the relay chain), Return-Path, Reply-To, List-Id and List-Unsubscribe (mailing "
         "lists), and X-* anti-spam scores."
+    )
+
+
+class QueryResult(BaseModel):
+    """One page of an OData query, with the API's own property names."""
+
+    returned: int = Field(description="Number of items in this page.")
+    total: int | None = Field(
+        default=None,
+        description="Total number of matching items, when count=true was asked for and the "
+        "API reported it.",
+    )
+    more_available: bool = Field(description="True if more items match than this page holds.")
+    next_skip: int | None = Field(
+        default=None,
+        description="Pass this as skip (with the same filter and orderby) for the next page; "
+        "None when this is the last page.",
+    )
+    values_truncated: int = Field(
+        description="How many string values were cut at max_chars (a body, say). Select fewer "
+        "properties or raise max_chars to see them whole."
+    )
+    items: list[dict[str, JsonValue]] = Field(
+        description="The items, each with the properties selected, named as the API names "
+        "them (PascalCase), so a name here can be used in the next filter or select."
     )
 
 

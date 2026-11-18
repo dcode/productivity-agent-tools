@@ -18,7 +18,9 @@ from productivity_agent_tools.microsoft.models import (
     MessageHeaders,
     MessageList,
     MessageSummary,
+    QueryResult,
 )
+from productivity_agent_tools.microsoft.odata import MESSAGE_FIELDS, ODataQuery, run_query
 from productivity_agent_tools.microsoft.outlook_settings import OutlookSettings
 from productivity_agent_tools.microsoft.reads import (
     account,
@@ -164,6 +166,35 @@ class OutlookMailClient:
             if (name := text(entry, "Name"))
         ]
         return MessageHeaders(id=text(item, "Id") or cleaned, count=len(headers), headers=headers)
+
+    async def query_messages(
+        self, query: ODataQuery, folder: str | None = None, max_chars: int | None = None
+    ) -> QueryResult:
+        """Query messages with OData options, in the whole mailbox or one folder.
+
+        Args:
+            query: The OData options, passed to the API as written.
+            folder: A folder id or well-known name (inbox, junkemail, sentitems,
+                deleteditems, archive, drafts); None for every folder.
+            max_chars: Cut any string value here (default 20000, at most 500000).
+
+        Returns:
+            One page of messages, with the API's property names.
+
+        Raises:
+            AgentToolsError: If an option is invalid or the API refuses the query.
+        """
+        path = "/me/messages"
+        if cleaned := (folder or "").strip():
+            path = f"/me/mailfolders/{quote(cleaned, safe='')}/messages"
+        return await run_query(
+            self._api,
+            path,
+            query,
+            default_top=self.settings.default_max_results,
+            default_select=MESSAGE_FIELDS,
+            max_chars=clamp_chars(max_chars),
+        )
 
     def _message_list(self, body: JsonValue) -> MessageList:
         """Build a message list from a collection response.
