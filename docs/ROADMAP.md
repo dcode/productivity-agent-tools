@@ -37,7 +37,7 @@ Last updated: 2026-11-18.
   **Re-checked live (2026-11-18): passes** — a second `login microsoft` while Goose ran
   showed the new sign-in time in the same session. A session stored before this change
   has no `signed_in_at` or window until the next `login microsoft`.
-  **OData query tools (new, 2026-11-18, same branch, not yet run live):**
+  **OData query tools (new, 2026-11-18, same branch; the main cases confirmed live):**
   `outlook_mail_query_messages` and `outlook_calendar_query_events` pass `$filter`,
   `$select`, `$orderby`, `$expand`, `$top`, `$skip` and `$count` through (GET only), so
   a message can be found by `InternetMessageId`. Asked for after reading headers by
@@ -309,20 +309,20 @@ chance comes up and tick it here.
         and useful for triage. **Open question:** does the DoD Outlook REST v2.0 return the
         full header set, or a subset?
   - [ ] OData query tools (`call` them directly, then through Goose):
-    - [ ] `outlook_mail_query_messages` with
-          `filter=InternetMessageId eq '<a real Message-ID>'` returns exactly that message.
+    - [x] `outlook_mail_query_messages` with
+          `filter=InternetMessageId eq '<a real Message-ID>'` found the message
+          (2026-11-18). The result had `returned`, `total`, `more_available`,
+          `next_skip`, `values_truncated` and `items`, as designed.
     - [ ] `count=true` reports `total`; `top=5` then `skip=<next_skip>` gives the next page
           with no overlap (add `orderby=ReceivedDateTime desc` for a stable order).
     - [ ] `folder=junkemail` reads the Junk folder.
     - [ ] A filter plus a non-leading `orderby` returns the API's `InefficientFilter`
           message, readable as is.
-    - [ ] Does camelCase (`internetMessageId`, as in Graph) work too, or only PascalCase?
-    - [ ] `select=Subject,InternetMessageHeaders` on a collection: are the headers
-          returned, or only on a single message? If they are, triage can page through mail
-          reading headers in one request per page. If not, try
-          `expand=SingleValueExtendedProperties($filter=PropertyId eq 'String 0x007D')`
-          (the raw transport headers, `PR_TRANSPORT_MESSAGE_HEADERS`; from memory of the
-          docs, unverified).
+    - [x] camelCase (`internetMessageId`, as in Graph) is accepted too (2026-11-18);
+          results still come back PascalCase (`Id`, `Subject`, `InternetMessageHeaders`).
+    - [x] `select=Subject,InternetMessageHeaders` on a collection returns the headers for
+          every item (2026-11-18), so triage pages through mail reading headers in one
+          request per page. The extended-property fallback (`String 0x007D`) is not needed.
     - [ ] `outlook_calendar_query_events` with `filter=Type eq 'SeriesMaster'`.
   - [ ] Confirm a 401 (let the 18 h sign-in window lapse) is reported as "run
         login microsoft", and that signing in again fixes a running server without a

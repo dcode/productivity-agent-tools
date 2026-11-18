@@ -622,9 +622,11 @@ keeps writes behind a dry-run switch that is on by default.
   `outlook_mail_search_messages` uses Outlook's own `$search` (which cannot be combined
   with `$orderby`). Bodies truncate the same way.
 - **Internet headers are a separate tool.** `outlook_mail_get_message_headers` fetches
-  `InternetMessageHeaders` with `$select` (Outlook returns them only when asked for alone,
-  which would strip the other fields a normal read needs), and returns the headers in
-  order with duplicates kept. It is for triage and automation: Authentication-Results
+  `InternetMessageHeaders` with `$select` (Outlook returns them only when selected, and
+  selecting them alone would strip the other fields a normal read needs), and returns the
+  headers in order with duplicates kept. For many messages at once,
+  `outlook_mail_query_messages` with `select=Subject,InternetMessageHeaders` returns them
+  for a whole page (confirmed live). It is for triage and automation: Authentication-Results
   (SPF/DKIM/DMARC), the Received chain, Return-Path/Reply-To, and List-Id/List-Unsubscribe
   for mailing lists.
 - **OData query tools are the escape hatch.** `outlook_mail_query_messages` and
@@ -648,7 +650,12 @@ keeps writes behind a dry-run switch that is on by default.
   - Events are read from `/events`, so recurring meetings are series masters;
     "what is on my calendar" stays with `calendarview` in `outlook_calendar_list_events`.
   - Header *contents* cannot be filtered on: `InternetMessageHeaders` is not a filterable
-    property. Finding mailing-list or failed-DMARC mail means paging and reading headers.
+    property. Finding mailing-list or failed-DMARC mail means paging with the headers
+    selected and reading them, which works in one request per page.
+  - Confirmed on the DoD tenant (2026-11-18): an `InternetMessageId` filter finds the
+    message; option property names are case-insensitive (Graph's camelCase works), while
+    results always come back PascalCase; a collection `$select` of
+    `InternetMessageHeaders` returns them for every item.
 - **Outlook REST v2.0 answers in PascalCase** (`Subject`, `ReceivedDateTime`,
   `EmailAddress`); the fixed tools normalize that to the snake_case models so the agent
   sees one vocabulary. OData collections are `{"value": [...]}` with `@odata.nextLink` for more.

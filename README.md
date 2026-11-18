@@ -307,9 +307,10 @@ uv run productivity-agent-tools call outlook_mail_query_messages \
   select=Subject,ReceivedDateTime,From,Id
 ```
 
-Property names are the API's PascalCase ones. Header contents
-(`Authentication-Results`, `List-Unsubscribe`) cannot be filtered on; read them
-with `outlook_mail_get_message_headers`.
+Results use the API's PascalCase property names; options accept PascalCase or
+Graph-style camelCase. Header contents (`Authentication-Results`,
+`List-Unsubscribe`) cannot be filtered on, but `select=Subject,InternetMessageHeaders`
+returns the headers for a whole page of messages to read through.
 
 If the browser sign-in cannot run, `login-microsoft` seeds a refresh token you
 captured by hand (pasted at a hidden prompt, or `--from-response token.json`).

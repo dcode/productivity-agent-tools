@@ -103,8 +103,9 @@ def register_mail_tools(server: MCPServer, mail: OutlookMailClient, context: Too
 
         The options go to the Outlook REST API as written. Property names are
         PascalCase (Subject, From, ReceivedDateTime, InternetMessageId, IsRead,
-        HasAttachments, Importance, Categories, ConversationId); string values go
-        in single quotes, with a quote inside doubled. Examples:
+        HasAttachments, Importance, Categories, ConversationId), as results name
+        them; Graph-style camelCase is accepted too. String values go in single
+        quotes, with a quote inside doubled. Examples:
 
         - One message by its Message-ID header:
           filter="InternetMessageId eq '<abc123@mail.example.com>'"
@@ -113,16 +114,18 @@ def register_mail_tools(server: MCPServer, mail: OutlookMailClient, context: Too
         - Subject starts with: filter="startswith(Subject, 'Invoice')"
         - How many unread in the inbox: folder="inbox", filter="IsRead eq false",
           count=true, top=1
-        - Internet headers for each message in one request:
-          select="Subject,InternetMessageHeaders" (may be returned only on a single
-          message; if so, use outlook_mail_get_message_headers per message).
+        - Internet headers for a whole page of messages in one request:
+          select="Subject,InternetMessageHeaders", top=25
 
         Rules the API enforces: with both filter and orderby, every orderby
         property must also appear in the filter, first and in the same order (an
         "InefficientFilter" error means this). Header contents
-        (InternetMessageHeaders) cannot be filtered on; to find, say, mailing-list
-        mail, page through messages selecting the headers. For free-text search
-        use outlook_mail_search_messages instead.
+        (InternetMessageHeaders) cannot be filtered on: to find mailing-list mail
+        (List-Unsubscribe) or failed sender checks (Authentication-Results), page
+        through messages with the headers selected, narrowing first with any
+        filter you can (a folder, a date, a sender), and read them. Headers are
+        long, so keep top small. For free-text search use
+        outlook_mail_search_messages instead.
 
         Args:
             filter: OData $filter expression.
