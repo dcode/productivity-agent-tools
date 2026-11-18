@@ -296,6 +296,21 @@ list (still without attaching to the page), redeems the code itself, and keeps
 the refresh token that comes back. Set `browser` and `login_timeout_seconds`
 under `[microsoft]` as for ServiceNow.
 
+Beyond listing, searching and reading, `outlook_mail_query_messages` and
+`outlook_calendar_query_events` take OData query options (`filter`, `select`,
+`orderby`, `expand`, `top`, `skip`, `count`) and pass them to the API as written,
+read-only. For example, to find a message by its `Message-ID` header:
+
+```bash
+uv run productivity-agent-tools call outlook_mail_query_messages \
+  "filter=InternetMessageId eq '<abc123@mail.example.com>'" \
+  select=Subject,ReceivedDateTime,From,Id
+```
+
+Property names are the API's PascalCase ones. Header contents
+(`Authentication-Results`, `List-Unsubscribe`) cannot be filtered on; read them
+with `outlook_mail_get_message_headers`.
+
 If the browser sign-in cannot run, `login-microsoft` seeds a refresh token you
 captured by hand (pasted at a hidden prompt, or `--from-response token.json`).
 

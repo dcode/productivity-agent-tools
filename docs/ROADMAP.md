@@ -37,7 +37,14 @@ Last updated: 2026-11-18.
   **Re-checked live (2026-11-18): passes** — a second `login microsoft` while Goose ran
   showed the new sign-in time in the same session. A session stored before this change
   has no `signed_in_at` or window until the next `login microsoft`.
-  **Next action: open the pull request and bump to 0.8.0 with the merge.**
+  **OData query tools (new, 2026-11-18, same branch, not yet run live):**
+  `outlook_mail_query_messages` and `outlook_calendar_query_events` pass `$filter`,
+  `$select`, `$orderby`, `$expand`, `$top`, `$skip` and `$count` through (GET only), so
+  a message can be found by `InternetMessageId`. Asked for after reading headers by
+  iterating messages. Header contents are not filterable (API limit). See DESIGN.md,
+  Outlook REST specifics.
+  **Next action: run the query checks under "Confirm against the real servers", then
+  open the pull request and bump to 0.8.0 with the merge.**
 - **Config groups (new, 2026-11-15):** a `[group.<name>]` table holds shared connection
   values (`base_url`, `ca_bundle`, `timeout_seconds`, cookies) and a product joins it with
   `group = "<name>"`; resolution is product → group → top level. This came out of the first
@@ -73,7 +80,7 @@ Last updated: 2026-11-18.
   spikes and version 0.4.0 (built on `claude/servicenow-credential-seam`).
 - **Also on `main`, in 0.5.0:** the Outlook REST spikes and the Microsoft
   refresh-token lifecycle (`login-microsoft`).
-- **Tests:** 556 passing, about 99.98% branch coverage. All hooks clean.
+- **Tests:** 568 passing, about 99.98% branch coverage. All hooks clean.
 - **In use:** Goose on the work laptop, against Jira 11.3.12, Bitbucket 10.2.8 and Confluence
   10.2.19. No CI
   server (Bamboo or other) reports builds or deployments to this Bitbucket.
@@ -292,13 +299,31 @@ chance comes up and tick it here.
   - [ ] `outlook_mail_list_messages` (and `unread_only=true`), `outlook_mail_search_messages`
         on a known term, and `outlook_mail_get_message` on one (text body, truncation).
   - [x] `outlook_mail_get_message_headers` through Goose (2026-11-18): the `Received`
-        chain came back and named the first receiving server. Authentication-Results and
-        List-Unsubscribe not checked yet.
+        chain came back and named the first receiving server, and messages with
+        `Authentication-Results` and `List-Unsubscribe` were found by iterating messages
+        and reading their headers. So the DoD API returns those headers (whether it
+        returns the *full* set is still open, below).
   - [ ] `outlook_mail_get_message_headers` on a real message: confirm
         `InternetMessageHeaders` actually comes back (it is `$select`-only and may be capped
         in size), and that Authentication-Results / Received / List-Unsubscribe are present
         and useful for triage. **Open question:** does the DoD Outlook REST v2.0 return the
         full header set, or a subset?
+  - [ ] OData query tools (`call` them directly, then through Goose):
+    - [ ] `outlook_mail_query_messages` with
+          `filter=InternetMessageId eq '<a real Message-ID>'` returns exactly that message.
+    - [ ] `count=true` reports `total`; `top=5` then `skip=<next_skip>` gives the next page
+          with no overlap (add `orderby=ReceivedDateTime desc` for a stable order).
+    - [ ] `folder=junkemail` reads the Junk folder.
+    - [ ] A filter plus a non-leading `orderby` returns the API's `InefficientFilter`
+          message, readable as is.
+    - [ ] Does camelCase (`internetMessageId`, as in Graph) work too, or only PascalCase?
+    - [ ] `select=Subject,InternetMessageHeaders` on a collection: are the headers
+          returned, or only on a single message? If they are, triage can page through mail
+          reading headers in one request per page. If not, try
+          `expand=SingleValueExtendedProperties($filter=PropertyId eq 'String 0x007D')`
+          (the raw transport headers, `PR_TRANSPORT_MESSAGE_HEADERS`; from memory of the
+          docs, unverified).
+    - [ ] `outlook_calendar_query_events` with `filter=Type eq 'SeriesMaster'`.
   - [ ] Confirm a 401 (let the 18 h sign-in window lapse) is reported as "run
         login microsoft", and that signing in again fixes a running server without a
         restart.
