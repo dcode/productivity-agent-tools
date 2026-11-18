@@ -43,8 +43,14 @@ Last updated: 2026-11-18.
   a message can be found by `InternetMessageId`. Asked for after reading headers by
   iterating messages. Header contents are not filterable (API limit). See DESIGN.md,
   Outlook REST specifics.
-  **Next action: run the query checks under "Confirm against the real servers", then
-  open the pull request and bump to 0.8.0 with the merge.**
+  **Smoke test covers Outlook and ServiceNow (2026-11-18):** `scripts/smoke-test.sh` now
+  runs every Outlook tool and `servicenow_status`, chaining real values (an inbox
+  message's `InternetMessageId` is looked up again, PascalCase and camelCase; page 2 is
+  checked against page 1), asserts results with `expect`, and records API behaviour with
+  no right answer (filter plus a non-leading `orderby`) as "observed". New `.env` value:
+  `OUTLOOK_SEARCH`. Tested here against a stub `call`, **not yet run on the laptop**.
+  **Next action: run `./scripts/smoke-test.sh` on the work laptop, then open the pull
+  request and bump to 0.8.0 with the merge.**
 - **Config groups (new, 2026-11-15):** a `[group.<name>]` table holds shared connection
   values (`base_url`, `ca_bundle`, `timeout_seconds`, cookies) and a product joins it with
   `group = "<name>"`; resolution is product → group → top level. This came out of the first
@@ -308,7 +314,7 @@ chance comes up and tick it here.
         in size), and that Authentication-Results / Received / List-Unsubscribe are present
         and useful for triage. **Open question:** does the DoD Outlook REST v2.0 return the
         full header set, or a subset?
-  - [ ] OData query tools (`call` them directly, then through Goose):
+  - [ ] OData query tools (`scripts/smoke-test.sh` runs and asserts all of these):
     - [x] `outlook_mail_query_messages` with
           `filter=InternetMessageId eq '<a real Message-ID>'` found the message
           (2026-11-18). The result had `returned`, `total`, `more_available`,
