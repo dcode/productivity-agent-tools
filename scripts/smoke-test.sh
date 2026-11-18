@@ -2,7 +2,13 @@
 #
 # Smoke test: run every tool once against your real servers with `call`,
 # no agent and no model credits. Nothing here changes Jira, Bitbucket or Confluence:
-# every write tool it runs is forced into dry-run.
+# every write tool it runs is forced into dry-run. The Outlook and ServiceNow tools
+# are read-only.
+#
+# Some checks feed on earlier ones (a message id from the inbox list, say) and
+# some assert something about a result rather than only that the call worked;
+# both are skipped when what they need is missing. "Observed" checks probe API
+# behaviour that is worth seeing but has no right answer here; they never fail.
 #
 # 1. Copy .env.example to .env in the repository root and fill in your values.
 #    .env is ignored by git, so your issue keys and project names stay local.
@@ -40,10 +46,12 @@ fi
 : "${BITBUCKET_DEPLOY_RUN:=<sequence-number>}"
 : "${CONFLUENCE_SPACE:=<space-key>}"
 : "${CONFLUENCE_PAGE:=<page-id>}"
+: "${OUTLOOK_SEARCH:=<search-text>}"
 OUT_DIR="$(mktemp -d "${TMPDIR:-/tmp}/productivity-smoke.XXXXXX")"
 PASSED=()
 FAILED=()
 SKIPPED=()
+OBSERVED=()
 
 tool() {
   uv run productivity-agent-tools call "$@" ${EXTRA_ARGS[@]+"${EXTRA_ARGS[@]}"}
@@ -93,7 +101,8 @@ check() {
     return
   fi
 
-  local file="$OUT_DIR/${name// /_}.txt"
+  local file
+  file="$(out_file "$name")"
   if tool "$@" >"$file" 2>"$file.err"; then
     PASSED+=("$name")
     head -n "$LINES_SHOWN" "$file" | sed 's/^/   /'
@@ -105,7 +114,116 @@ check() {
   else
     FAILED+=("$name")
     sed 's/^/   /' "$file.err"
+    # Leave no result behind, so checks that feed on this one are skipped.
+    rm -f "$file"
   fi
+}
+
+# out_file NAME -> where check NAME keeps its output
+out_file() {
+  local name="$1"
+  printf '%s/%s.txt' "$OUT_DIR" "${name// /_}"
+}
+
+# json_py FILE CODE [ARGS...] -> run Python CODE with the JSON in FILE as `r` (ARGS are
+#   sys.argv[3:]); prints what CODE prints.
+#   Uses the project's own Python, so it needs nothing beyond what `call` needs.
+json_py() {
+  uv run --quiet python -I -c '
+import json, sys
+with open(sys.argv[1]) as handle:
+    r = json.load(handle)
+exec(sys.argv[2])
+' "$@"
+}
+
+# pick CHECK_NAME KEY... -> print one value from a check's JSON result, or "<missing>".
+#   Keys walk objects by name and arrays by index: pick "mail list" messages 0 id
+pick() {
+  local file
+  file="$(out_file "$1")"
+  shift
+  local found=""
+  if [ -s "$file" ]; then
+    found="$(json_py "$file" '
+value = r
+for key in sys.argv[3:]:
+    if isinstance(value, list) and key.isdigit() and int(key) < len(value):
+        value = value[int(key)]
+    elif isinstance(value, dict) and key in value:
+        value = value[key]
+    else:
+        value = None
+        break
+if isinstance(value, (str, int, float)) and not isinstance(value, bool):
+    print(value)
+' "$@" 2>/dev/null)"
+  fi
+  printf '%s' "${found:-<missing>}"
+}
+
+# needs VALUE -> a stand-in for VALUE in a check's needed values: "<missing>" when pick
+#   found nothing, else "found". For values such as a Message-ID that are themselves
+#   in <angle brackets>, and so would look like an unfilled placeholder.
+needs() {
+  if [ "$1" = "<missing>" ]; then printf '<missing>'; else printf 'found'; fi
+}
+
+# expect NAME CHECK_NAME DESCRIPTION PYTHON_CONDITION
+#   Passes if the condition holds for the JSON of CHECK_NAME's result (as `r`);
+#   skipped if that check did not produce a result.
+expect() {
+  local name="$1" source="$2" description="$3" condition="$4"
+  local file
+  file="$(out_file "$source")"
+  printf '\n== %s\n   expect: %s\n' "$name" "$description"
+  if [ ! -s "$file" ]; then
+    printf '   skipped: "%s" has no result\n' "$source"
+    SKIPPED+=("$name")
+    return
+  fi
+  if json_py "$file" "sys.exit(0 if ($condition) else 1)" 2>"$(out_file "$name").err"; then
+    printf '   ok\n'
+    PASSED+=("$name")
+  else
+    printf '   NOT MET\n'
+    sed 's/^/   /' "$(out_file "$name").err"
+    FAILED+=("$name")
+  fi
+}
+
+# observe NAME NEEDED_VALUES -- TOOL [ARGS...]
+#   Like check, but records what happened instead of passing or failing: for API
+#   behaviour that is worth seeing (does it refuse this?) with no right answer.
+observe() {
+  local name="$1"
+  shift
+  local needed=()
+  while [ "$1" != "--" ]; do
+    needed+=("$1")
+    shift
+  done
+  shift
+  printf '\n== %s (observed)\n' "$name"
+  if has_placeholder ${needed[@]+"${needed[@]}"}; then
+    printf '   skipped: a value it needs is missing\n'
+    SKIPPED+=("$name")
+    return
+  fi
+  local file
+  file="$(out_file "$name")"
+  if tool "$@" >"$file" 2>"$file.err"; then
+    OBSERVED+=("$name: accepted")
+    head -n "$LINES_SHOWN" "$file" | sed 's/^/   /'
+  else
+    OBSERVED+=("$name: refused")
+    sed 's/^/   /' "$file.err"
+  fi
+}
+
+# odata_quote VALUE -> VALUE with each single quote doubled, for an OData string literal
+odata_quote() {
+  printf '%s' "${1//\'/\'\'}"
 }
 
 # ---- Which products are configured ------------------------------------------
@@ -241,6 +359,106 @@ else
   SKIPPED+=("confluence (not configured)")
 fi
 
+# ---- Outlook mail (only if [outlook_mail] is in your config) ------------------
+
+if offers outlook_mail_status; then
+  check "mail status" -- outlook_mail_status
+  # Read from the keychain when called, so a sign-in while a server runs shows at once.
+  expect "mail status is live" "mail status" "token_source says when you signed in" \
+    '"signed in at" in r["token_source"]'
+  check "mail list" -- outlook_mail_list_messages max_results=3
+  check "mail list unread" -- outlook_mail_list_messages unread_only=true max_results=3
+  expect "mail unread are unread" "mail list unread" "every message has is_read false" \
+    'all(m["is_read"] is False for m in r["messages"])'
+  check "mail search" "$OUTLOOK_SEARCH" -- \
+    outlook_mail_search_messages "query=$OUTLOOK_SEARCH" max_results=3
+
+  MAIL_ID="$(pick "mail list" messages 0 id)"
+  check "mail get" "$MAIL_ID" -- outlook_mail_get_message "message_id=$MAIL_ID" max_chars=300
+  expect "mail get truncates" "mail get" "body is at most 300 characters, flagged if cut" \
+    'len(r["body"]) <= 300 and r["truncated"] == (r["body_chars"] > 300)'
+  check "mail headers" "$MAIL_ID" -- outlook_mail_get_message_headers "message_id=$MAIL_ID"
+  expect "mail headers present" "mail headers" "a Received header is among them" \
+    'any(h["name"].lower() == "received" for h in r["headers"])'
+
+  # OData queries. Find an inbox message's Message-ID, then look it up by it.
+  check "mail query inbox" -- outlook_mail_query_messages folder=inbox top=1 \
+    select=Id,Subject,InternetMessageId "orderby=ReceivedDateTime desc"
+  INTERNET_ID="$(pick "mail query inbox" items 0 InternetMessageId)"
+  INBOX_ID="$(pick "mail query inbox" items 0 Id)"
+  check "mail query by message-id" "$(needs "$INTERNET_ID")" -- outlook_mail_query_messages \
+    "filter=InternetMessageId eq '$(odata_quote "$INTERNET_ID")'" select=Id,Subject
+  expect "mail query finds it" "mail query by message-id" "exactly that one message" \
+    "r['returned'] == 1 and r['items'][0]['Id'] == '$INBOX_ID'"
+  check "mail query camelCase" "$(needs "$INTERNET_ID")" -- outlook_mail_query_messages \
+    "filter=internetMessageId eq '$(odata_quote "$INTERNET_ID")'" select=id,subject
+  expect "mail query camelCase finds it" "mail query camelCase" \
+    "the same message, with PascalCase names back" \
+    "r['returned'] == 1 and r['items'][0]['Id'] == '$INBOX_ID'"
+
+  # Paging: two pages of two, newest first, should not overlap.
+  check "mail query page 1" -- outlook_mail_query_messages top=2 count=true \
+    "orderby=ReceivedDateTime desc"
+  expect "mail query counts" "mail query page 1" "total is reported, next_skip is 2" \
+    'isinstance(r["total"], int) and (r["next_skip"] == 2 or not r["more_available"])'
+  NEXT_SKIP="$(pick "mail query page 1" next_skip)"
+  check "mail query page 2" "$NEXT_SKIP" -- outlook_mail_query_messages top=2 \
+    "skip=$NEXT_SKIP" "orderby=ReceivedDateTime desc"
+  P1_A="$(pick "mail query page 1" items 0 Id)"
+  P1_B="$(pick "mail query page 1" items 1 Id)"
+  expect "mail query pages differ" "mail query page 2" "page 2 shares no message with page 1" \
+    "not {i['Id'] for i in r['items']} & {'$P1_A', '$P1_B'}"
+
+  # Internet headers for a whole page, in one request.
+  check "mail query headers" -- outlook_mail_query_messages top=3 \
+    select=Subject,InternetMessageHeaders max_chars=500
+  expect "mail query headers present" "mail query headers" \
+    "every message on the page carries its headers" \
+    'r["items"] and all(isinstance(i.get("InternetMessageHeaders"), list) for i in r["items"])'
+  check "mail query junk folder" -- outlook_mail_query_messages folder=junkemail top=2
+  # Does the API refuse a sort on a property the filter does not start with?
+  observe "mail query filter plus orderby" -- outlook_mail_query_messages \
+    "filter=IsRead eq false" "orderby=ReceivedDateTime desc" top=2
+else
+  printf '\n== outlook mail\n   skipped: no [outlook_mail] table in the config\n'
+  SKIPPED+=("outlook mail (not configured)")
+fi
+
+# ---- Outlook calendar (only if [outlook_calendar] is in your config) ----------
+
+if offers outlook_calendar_status; then
+  check "calendar status" -- outlook_calendar_status
+  check "calendar list" -- outlook_calendar_list_calendars max_results=5
+  check "calendar events" -- outlook_calendar_list_events max_results=5
+  expect "calendar events in UTC" "calendar events" "every start is in UTC" \
+    'all((e["start"] or {}).get("time_zone") == "UTC" for e in r["events"])'
+  EVENT_ID="$(pick "calendar events" events 0 id)"
+  check "calendar event" "$EVENT_ID" -- outlook_calendar_get_event "event_id=$EVENT_ID" max_chars=300
+  CALENDAR_ID="$(pick "calendar list" calendars 0 id)"
+  check "calendar events one calendar" "$CALENDAR_ID" -- \
+    outlook_calendar_list_events "calendar_id=$CALENDAR_ID" max_results=3
+  check "calendar query series" -- outlook_calendar_query_events \
+    "filter=Type eq 'SeriesMaster'" top=3 count=true
+  expect "calendar query series only" "calendar query series" "every item is a series master" \
+    'all(i.get("Type") == "SeriesMaster" for i in r["items"])'
+  check "calendar query one calendar" "$CALENDAR_ID" -- \
+    outlook_calendar_query_events "calendar_id=$CALENDAR_ID" top=2
+else
+  printf '\n== outlook calendar\n   skipped: no [outlook_calendar] table in the config\n'
+  SKIPPED+=("outlook calendar (not configured)")
+fi
+
+# ---- ServiceNow (only if [servicenow] is in your config) ----------------------
+
+if offers servicenow_status; then
+  check "servicenow status" -- servicenow_status
+  expect "servicenow status is live" "servicenow status" "session_source says when you signed in" \
+    '"signed in at" in r["session_source"]'
+else
+  printf '\n== servicenow\n   skipped: no [servicenow] table in the config\n'
+  SKIPPED+=("servicenow (not configured)")
+fi
+
 # ---- Jira and Bitbucket together (only if both are configured) ---------------
 
 if offers jira_get_issue_pull_requests; then
@@ -255,6 +473,10 @@ printf '   failed:  %s\n' "${#FAILED[@]}"
 for name in ${FAILED[@]+"${FAILED[@]}"}; do printf '     - %s\n' "$name"; done
 printf '   skipped: %s\n' "${#SKIPPED[@]}"
 for name in ${SKIPPED[@]+"${SKIPPED[@]}"}; do printf '     - %s\n' "$name"; done
+if [ "${#OBSERVED[@]}" -gt 0 ]; then
+  printf '   observed:\n'
+  for name in "${OBSERVED[@]}"; do printf '     - %s\n' "$name"; done
+fi
 printf '   full output: %s\n' "$OUT_DIR"
 
 zip_name="$(basename $(pwd))-$(build-identifier).zip"
