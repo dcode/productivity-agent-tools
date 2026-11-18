@@ -34,9 +34,10 @@ Last updated: 2026-11-18.
   status tools read the Keychain when called (`Credential.describe`), reporting sign-in
   time, "usable until about …", last renewal and access-token expiry. Also fixed: a
   renewal in flight during `login microsoft` could overwrite the new sign-in.
-  **Next action: re-run the status check below, then open the pull request and bump to
-  0.8.0 with the merge.** A session stored before this change has no `signed_in_at` or
-  window until the next `login microsoft`.
+  **Re-checked live (2026-11-18): passes** — a second `login microsoft` while Goose ran
+  showed the new sign-in time in the same session. A session stored before this change
+  has no `signed_in_at` or window until the next `login microsoft`.
+  **Next action: open the pull request and bump to 0.8.0 with the merge.**
 - **Config groups (new, 2026-11-15):** a `[group.<name>]` table holds shared connection
   values (`base_url`, `ca_bundle`, `timeout_seconds`, cookies) and a product joins it with
   `group = "<name>"`; resolution is product → group → top level. This came out of the first
@@ -244,8 +245,8 @@ chance comes up and tick it here.
         in `servicenow_status`) and interval, to state the lifetime as a number.
   - [ ] With a top-level `[cookies]` table, add an empty `[servicenow.cookies]` so those
         cookies are not sent to the helpdesk
-- [ ] `login microsoft` (browser sign-in) on the work laptop. **Worked first time
-      (2026-11-18)**; only the running-server check is left:
+- [x] `login microsoft` (browser sign-in) on the work laptop. **Worked first time
+      (2026-11-18)**, and every check below passed:
   - [x] Conditional Access accepts a sign-in from a **fresh temporary profile** (the
         ServiceNow SSO did, but AAD may want a compliant/registered device, which an
         empty profile cannot prove). Failure shows as an `AADSTS53000`/`53003` error in
@@ -257,11 +258,10 @@ chance comes up and tick it here.
         "no tab came back", this is the suspect.
   - [x] The code redeems (Origin header, same as the refresh) and `doctor` works without
         any paste.
-  - [ ] A second `login microsoft` while `serve` runs is picked up without a restart.
-        First try (2026-11-18) was inconclusive: the status only showed a start-up
-        string. Re-run on the fixed build: `login microsoft`, then ask for the status in
-        the same Goose session. "signed in at" should change at once; "current access
-        token valid until" moves to the new sign-in within the hour.
+  - [x] A second `login microsoft` while `serve` runs is picked up without a restart.
+        First try (2026-11-18) was inconclusive (the status was a start-up string); on
+        the fixed build (686c4c1) the status in the same Goose session showed the new
+        sign-in time at once. Passed 2026-11-18.
 - [ ] Outlook REST (`outlook_calendar`/`outlook_mail`), after `login microsoft` (or the
       `login-microsoft` paste fallback) on the work laptop. First live run 2026-11-15:
       `login-microsoft` seeded and the token is
