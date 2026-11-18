@@ -40,15 +40,29 @@ class ToolContext:
 
     Attributes:
         dry_run: When True, write tools describe the request but send nothing.
-        token_source: Description of where the product's access token came from.
+        token_source: Description of where the product's access token came from, as it
+            was when the server started.
         cookie_names: Names of the extra cookies sent to the product.
         peers: The clients of the other products that are on, by product name.
+        describe_source: Describes the credential as it is now, for credentials a new
+            sign-in can replace while the server runs; None when ``token_source`` stays true.
     """
 
     dry_run: bool
     token_source: str
     cookie_names: tuple[str, ...] = ()
     peers: Mapping[str, object] = field(default_factory=dict)
+    describe_source: Callable[[], Awaitable[str]] | None = None
+
+    async def current_source(self) -> str:
+        """Describe where the credential comes from now, for a status tool.
+
+        Returns:
+            The live description when the credential offers one, else ``token_source``.
+        """
+        if self.describe_source is None:
+            return self.token_source
+        return await self.describe_source()
 
     def peer[T](self, kind: type[T]) -> T | None:
         """Find another product's client that offers a capability.

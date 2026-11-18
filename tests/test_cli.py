@@ -250,19 +250,22 @@ def test_login_microsoft_seeds_from_a_prompt(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
     path = tmp_path / "config.toml"
-    path.write_text(MS_CONFIG)
+    path.write_text(MS_CONFIG + "sign_in_hours = 18\n")
     seen: dict[str, object] = {}
 
-    async def seed(config: RedeemConfig, token: str, *, verify: bool = True) -> str:
+    async def seed(
+        config: RedeemConfig, token: str, *, verify: bool = True, window_hours: float | None = None
+    ) -> str:
         seen["token"] = token
         seen["client_id"] = config.client_id
         seen["verify"] = verify
+        seen["hours"] = window_hours
         return "Seeded the Microsoft refresh token."
 
     monkeypatch.setattr(cli.getpass, "getpass", lambda prompt: "  0.refresh \n")
     monkeypatch.setattr(cli, "seed_microsoft", seed)
     cli.login_microsoft(config=path)
-    assert seen == {"token": "0.refresh", "client_id": "c", "verify": True}
+    assert seen == {"token": "0.refresh", "client_id": "c", "verify": True, "hours": 18.0}
     assert "Seeded the Microsoft refresh token." in capsys.readouterr().out
 
 
@@ -275,7 +278,9 @@ def test_login_microsoft_reads_a_response_file(
     response.write_text('{"refresh_token": "r-from-file", "access_token": "a"}')
     seen: dict[str, object] = {}
 
-    async def seed(config: RedeemConfig, token: str, *, verify: bool = True) -> str:
+    async def seed(
+        config: RedeemConfig, token: str, *, verify: bool = True, window_hours: float | None = None
+    ) -> str:
         seen["token"] = token
         return "ok"
 

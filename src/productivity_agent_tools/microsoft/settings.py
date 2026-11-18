@@ -47,6 +47,9 @@ class MicrosoftSettings(ProductSettings):
         browser: Browser that ``login microsoft`` starts: a path or a command name. None
             looks for Chrome, then Edge.
         login_timeout_seconds: How long ``login microsoft`` waits for the sign-in to finish.
+        sign_in_hours: How long the tenant lets one sign-in be renewed (its Conditional
+            Access sign-in frequency), used only to tell the user when to sign in again.
+            None when unknown.
     """
 
     client_id: str
@@ -57,6 +60,7 @@ class MicrosoftSettings(ProductSettings):
     scope: str
     browser: str | None = None
     login_timeout_seconds: float = 300.0
+    sign_in_hours: float | None = None
 
 
 def _required_str(raw: dict[str, Any], key: str) -> str:
@@ -76,6 +80,26 @@ def _required_str(raw: dict[str, Any], key: str) -> str:
     if not value:
         raise ConfigError(f"Config key 'microsoft.{key}' is required. {CONTRIB_HINT}")
     return value
+
+
+def _sign_in_hours(raw: dict[str, Any]) -> float | None:
+    """Read the optional length of the tenant's sign-in window.
+
+    Args:
+        raw: Parsed ``[microsoft]`` table.
+
+    Returns:
+        The hours, or None when absent.
+
+    Raises:
+        ConfigError: If the value is not a positive number.
+    """
+    value = raw.get("sign_in_hours")
+    if value is None:
+        return None
+    if isinstance(value, bool) or not isinstance(value, int | float) or value <= 0:
+        raise ConfigError("Config key 'microsoft.sign_in_hours' must be a positive number.")
+    return float(value)
 
 
 def redeem_config(settings: MicrosoftSettings) -> RedeemConfig:
@@ -118,6 +142,7 @@ def parse_microsoft_settings(raw: dict[str, Any]) -> MicrosoftSettings:
         scope=_required_str(raw, "scope"),
         browser=(as_str(raw, "browser", None) or "").strip() or None,
         login_timeout_seconds=login_timeout(raw, "microsoft", 300.0),
+        sign_in_hours=_sign_in_hours(raw),
         **product_overrides(raw, "microsoft"),
     )
 

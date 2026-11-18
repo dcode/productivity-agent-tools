@@ -13,7 +13,10 @@ class OutlookStatus(BaseModel):
 
     base_url: str = Field(description="Address of the Outlook REST API in use.")
     token_source: str = Field(
-        description="Where the OAuth token came from, and when it was seeded."
+        description="Where the OAuth token comes from, read when this tool is called: when "
+        "the user last signed in, until about when that sign-in can be renewed (if the "
+        "window is configured), when the refresh token was last renewed, and when the "
+        "access token in use expires. Use it to answer 'when does my sign-in expire'."
     )
     user_name: str | None = Field(default=None, description="Signed-in user's display name.")
     email: str | None = Field(default=None, description="Signed-in user's primary email address.")

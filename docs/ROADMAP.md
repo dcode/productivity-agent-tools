@@ -24,8 +24,19 @@ Last updated: 2026-11-18.
   **Confirmed on the work laptop (2026-11-18):** `login microsoft` signed in from the
   temporary profile, `doctor` passed, and Goose answered "how many unread email messages
   do I have" by picking `outlook_mail_list_messages` on its own (10 unread, correct).
-  **Next action: open the pull request and bump to 0.8.0 with the merge**, then work
-  through the remaining Outlook read checks under "Confirm against the real servers".
+  Later the same day calendar reads, mail search by sender, reading a message, and the
+  `Received` headers all worked through Goose.
+  **Live sign-in status (fixed 2026-11-18, same branch):** asking "when does my token
+  expire" showed the same "seeded at" before and after a second `login microsoft`. Not a
+  failed pickup: the status string was fixed at server start, and `obtained_at` is
+  overwritten on every hourly rotation, so the sign-in time was not kept at all. Now the
+  session stores `signed_in_at` and `[microsoft] sign_in_hours` (18 in contrib), and the
+  status tools read the Keychain when called (`Credential.describe`), reporting sign-in
+  time, "usable until about …", last renewal and access-token expiry. Also fixed: a
+  renewal in flight during `login microsoft` could overwrite the new sign-in.
+  **Next action: re-run the status check below, then open the pull request and bump to
+  0.8.0 with the merge.** A session stored before this change has no `signed_in_at` or
+  window until the next `login microsoft`.
 - **Config groups (new, 2026-11-15):** a `[group.<name>]` table holds shared connection
   values (`base_url`, `ca_bundle`, `timeout_seconds`, cookies) and a product joins it with
   `group = "<name>"`; resolution is product → group → top level. This came out of the first
@@ -61,7 +72,7 @@ Last updated: 2026-11-18.
   spikes and version 0.4.0 (built on `claude/servicenow-credential-seam`).
 - **Also on `main`, in 0.5.0:** the Outlook REST spikes and the Microsoft
   refresh-token lifecycle (`login-microsoft`).
-- **Tests:** 543 passing, about 99.98% branch coverage. All hooks clean.
+- **Tests:** 556 passing, about 99.98% branch coverage. All hooks clean.
 - **In use:** Goose on the work laptop, against Jira 11.3.12, Bitbucket 10.2.8 and Confluence
   10.2.19. No CI
   server (Bamboo or other) reports builds or deployments to this Bitbucket.
@@ -247,6 +258,10 @@ chance comes up and tick it here.
   - [x] The code redeems (Origin header, same as the refresh) and `doctor` works without
         any paste.
   - [ ] A second `login microsoft` while `serve` runs is picked up without a restart.
+        First try (2026-11-18) was inconclusive: the status only showed a start-up
+        string. Re-run on the fixed build: `login microsoft`, then ask for the status in
+        the same Goose session. "signed in at" should change at once; "current access
+        token valid until" moves to the new sign-in within the hour.
 - [ ] Outlook REST (`outlook_calendar`/`outlook_mail`), after `login microsoft` (or the
       `login-microsoft` paste fallback) on the work laptop. First live run 2026-11-15:
       `login-microsoft` seeded and the token is
@@ -264,6 +279,7 @@ chance comes up and tick it here.
         and confirms the token is shared.)
   - [ ] `call outlook_calendar_status` and `outlook_mail_status`: `user_name`/`email` match
         the mailbox.
+  - [x] Calendar via Goose (2026-11-18): found the 3 meetings in the next 7 days.
   - [ ] `outlook_calendar_list_calendars`, then `outlook_calendar_list_events` for the next
         week: times come back in UTC (the `Prefer` header), recurrences are expanded, and
         the count matches the browser. Then `outlook_calendar_get_event` on one, with
@@ -271,8 +287,13 @@ chance comes up and tick it here.
   - [x] Under Goose, "how many unread email messages do I have" chose
         `outlook_mail_list_messages` unprompted and answered 10, which was correct
         (2026-11-18).
+  - [x] Mail via Goose (2026-11-18): found messages from a named sender and showed the
+        most recent one's body.
   - [ ] `outlook_mail_list_messages` (and `unread_only=true`), `outlook_mail_search_messages`
         on a known term, and `outlook_mail_get_message` on one (text body, truncation).
+  - [x] `outlook_mail_get_message_headers` through Goose (2026-11-18): the `Received`
+        chain came back and named the first receiving server. Authentication-Results and
+        List-Unsubscribe not checked yet.
   - [ ] `outlook_mail_get_message_headers` on a real message: confirm
         `InternetMessageHeaders` actually comes back (it is `$select`-only and may be capped
         in size), and that Authentication-Results / Received / List-Unsubscribe are present

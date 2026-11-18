@@ -49,6 +49,7 @@ async def seed(
     refresh_token: str,
     *,
     verify: bool = True,
+    window_hours: float | None = None,
     redeem: Redeemer = redeem_refresh_token,
     store: Storer = store_session,
     now: Clock = lambda: datetime.now(UTC),
@@ -60,6 +61,7 @@ async def seed(
         refresh_token: The refresh token to seed.
         verify: When True, redeem once to confirm the token works; this rotates it,
             so the rotated token is what gets stored.
+        window_hours: How long the tenant lets the sign-in be renewed, if known.
         redeem: Redeems the refresh token; replaced in tests.
         store: Writes the session; replaced in tests.
         now: Returns the current time in UTC; replaced in tests.
@@ -72,13 +74,15 @@ async def seed(
         ApiError, ConnectivityError: If the token endpoint refuses or cannot be reached.
     """
     if not verify:
-        await store(MicrosoftSession.seeded_now(refresh_token, config), "microsoft")
+        session = MicrosoftSession.seeded_now(refresh_token, config, window_hours=window_hours)
+        await store(session, "microsoft")
         return (
             "Stored the Microsoft refresh token in the system keychain (not verified). "
             "The first request will confirm it."
         )
     grant = await redeem(config, refresh_token, now=now())
-    await store(MicrosoftSession.seeded_now(grant.refresh_token, config), "microsoft")
+    session = MicrosoftSession.seeded_now(grant.refresh_token, config, window_hours=window_hours)
+    await store(session, "microsoft")
     minutes = max(0, int((grant.expires_at - now()).total_seconds()) // 60)
     return (
         "Seeded the Microsoft refresh token in the system keychain and verified it: minted "

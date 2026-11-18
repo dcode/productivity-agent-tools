@@ -308,6 +308,17 @@ keeps writes behind a dry-run switch that is on by default.
   on the work laptop, and the cache may be encrypted) and over intercepting the token
   response (needs `Fetch`/`Network` on the page). `login-microsoft` (paste a captured
   token) remains as the fallback.
+- **Status tools describe the credential as it is now.** `Credential.source` is a string
+  fixed when the server starts, which goes stale once a new sign-in can replace the
+  credential underneath a running server. Such a credential also offers
+  `Credential.describe`, an async callable that `ToolContext.current_source()` uses, so
+  `outlook_*_status` and `servicenow_status` read the Keychain when called. The Microsoft
+  session keeps `signed_in_at` (the interactive sign-in, unchanged by rotation) apart
+  from `obtained_at` (last rotation), and the optional `sign_in_hours` from `[microsoft]`,
+  so the status can say "usable until about …" and when the access token in use expires.
+- **A renewal never overwrites a newer sign-in.** After redeeming, the provider re-reads
+  the Keychain and writes the rotated token back only if the stored one is still the one
+  it redeemed; otherwise `login microsoft` stored a new sign-in meanwhile, and that wins.
 - **An adapter is never handed a secret.** `credentials.py` defines `HeaderProvider`, an
   async callable returning the authentication *headers*, and the adapter asks it before
   every request. A credential that changes while the server runs (a refreshed OAuth token,

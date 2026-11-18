@@ -54,7 +54,9 @@ def register_mail_tools(server: MCPServer, mail: OutlookMailClient, context: Too
         can no longer be redeemed, only the user can fix that: ask them to run
         'productivity-agent-tools login microsoft'.
         """
-        return status(mail.base_url, await mail.me(), context.token_source, dry_run=context.dry_run)
+        return status(
+            mail.base_url, await mail.me(), await context.current_source(), dry_run=context.dry_run
+        )
 
     @server.tool(annotations=READ)
     @anticipated

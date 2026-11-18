@@ -1,6 +1,7 @@
 """Tests for signing in to Microsoft through the browser (``login microsoft``)."""
 
 import base64
+import dataclasses
 import hashlib
 import json
 import sys
@@ -247,6 +248,7 @@ async def test_sign_in_waits_for_the_redirect_then_stores_the_refresh_token() ->
     assert "Opening a browser window on login.microsoftonline.us" in said[0]
     assert message.startswith("Signed in to Microsoft as Pat Example (pat@x.mil).")
     assert "login microsoft" in message
+    assert "until the tenant's sign-in window ends" in message
     assert browser.watched and browser.closed
     assert browser.looks == 3
     ((config, code, verifier, timeout),) = recorder.redeemed
@@ -302,3 +304,22 @@ async def test_a_refused_code_stores_nothing() -> None:
 async def test_sign_in_needs_a_browser() -> None:
     with pytest.raises(ConfigError, match="configured browser 'no-such-browser-xyz'"):
         await sign_in(ms_settings(browser="no-such-browser-xyz"), announce=lambda line: None)
+
+
+async def test_a_known_sign_in_window_is_stored_and_announced() -> None:
+    browser, recorder = Redirecting(on_look=1), Recorder()
+    settings = dataclasses.replace(ms_settings(), sign_in_hours=18.0)
+    message = await sign_in(
+        settings,
+        launch=browser.launcher(),  # ty: ignore[invalid-argument-type]
+        redeem=recorder.redeem,
+        store=recorder.store,
+        now=lambda: NOW,
+        poll_seconds=0.01,
+        announce=lambda line: None,
+    )
+    ((session, _),) = recorder.stored
+    assert session.window_hours == 18.0
+    ends = session.window_ends_at()
+    assert ends is not None
+    assert f"renews silently until about {ends.isoformat(timespec='seconds')};" in message

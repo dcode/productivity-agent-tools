@@ -129,9 +129,30 @@ class MicrosoftCredential:
                 timeout_seconds=self._timeout,
                 transport=self._transport,
             )
-            await self._store(session.rotated(grant.refresh_token), self._name)
+            # A 'login microsoft' may have stored a new sign-in while this redemption was
+            # in flight. Writing back now would replace it with the old sign-in's rotated
+            # token, so keep the new one; this grant is still good until it expires.
+            latest = await self._load(self._name)
+            if latest is None or latest.refresh_token == session.refresh_token:
+                await self._store(session.rotated(grant.refresh_token), self._name)
             self._grant = grant
             return {"Authorization": grant.authorization()}
+
+    async def describe(self) -> str:
+        """Describe the stored sign-in as it is now, for the status tools.
+
+        Reads the keychain on every call, so a sign-in done while the server runs
+        shows at once.
+
+        Returns:
+            When the user signed in, how long that should last, and when the access
+            token now in use expires.
+        """
+        session = await self._load(self._name)
+        if session is None:
+            return NO_CREDENTIAL
+        grant = self._grant
+        return session.describe(grant.expires_at if grant is not None else None)
 
 
 async def microsoft_token(name: str, env_file: Path | None) -> Credential:
@@ -151,8 +172,10 @@ async def microsoft_token(name: str, env_file: Path | None) -> Credential:
     session = await load_session(name)
     if session is None:
         raise AuthenticationError(NO_CREDENTIAL)
+    provider = MicrosoftCredential(name=name)
     return Credential(
-        headers=MicrosoftCredential(name=name),
-        source=f"the system keychain, seeded at {session.obtained_at}",
+        headers=provider,
+        source=f"the system keychain, signed in at {session.signed_in_at}",
         label="OAuth token",
+        describe=provider.describe,
     )

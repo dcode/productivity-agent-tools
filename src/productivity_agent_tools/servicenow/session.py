@@ -151,8 +151,15 @@ async def browser_session(name: str, env_file: Path | None) -> Credential:
     async def provide() -> Mapping[str, str]:
         return (await _required_session(name)).headers()
 
+    async def describe() -> str:
+        session = await load_session(name)
+        if session is None:
+            return f"No ServiceNow browser session is saved. {SIGN_IN_ADVICE}"
+        return f"the system keychain, signed in at {session.saved_at}"
+
     return Credential(
         headers=provide,
         source=f"the system keychain, signed in at {found.saved_at}",
         label="browser session",
+        describe=describe,
     )

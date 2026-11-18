@@ -430,12 +430,15 @@ def structured(result: object) -> dict[str, object]:
 
 
 async def test_status_tools_report_the_account_and_instructions(instance: FakeOutlook) -> None:
+    async def live() -> str:
+        return "the keychain, signed in just now"
+
     async with make_api(instance) as cal_api, make_api(instance) as mail_api:
         server = build_server(
             outlook_settings(),
             {
-                "outlook_calendar": Connected(cal_api, "the keychain, seeded at X"),
-                "outlook_mail": Connected(mail_api, "the keychain, seeded at X"),
+                "outlook_calendar": Connected(cal_api, "the keychain, signed in at X"),
+                "outlook_mail": Connected(mail_api, "at start", describe_source=live),
             },
         )
         cal_status = structured(await server.call_tool("outlook_calendar_status", {}))
@@ -445,12 +448,13 @@ async def test_status_tools_report_the_account_and_instructions(instance: FakeOu
         )
     assert cal_status == {
         "base_url": BASE,
-        "token_source": "the keychain, seeded at X",
+        "token_source": "the keychain, signed in at X",
         "user_name": "Pat Example",
         "email": "pat@x.mil",
         "dry_run": True,
     }
     assert mail_status["email"] == "pat@x.mil"
+    assert mail_status["token_source"] == "the keychain, signed in just now"
     assert events["returned"] == 1
     assert "outlook_calendar_" in (server.instructions or "")
     assert "outlook_mail_" in (server.instructions or "")

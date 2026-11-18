@@ -281,7 +281,12 @@ The tools renew their access token silently for as long as the tenant's
 sign-in window allows (about 18 hours on the DoD tenant). After that an
 `outlook_` tool says the sign-in has expired; run `login microsoft` again,
 typically once each morning. A running server picks up the new sign-in without
-a restart.
+a restart, at its next hourly access-token renewal.
+
+To see when you signed in and when to sign in again, ask your agent (it calls
+`outlook_mail_status`), or run `call outlook_mail_status`. The estimate needs
+`sign_in_hours` under `[microsoft]` (18 in the DoD block); the status is read
+from the Keychain each time, so it reflects a sign-in done while the server runs.
 
 How it differs from ServiceNow: it collects no cookies. The window opens on the
 sign-in page with a one-time PKCE challenge whose secret half never leaves this

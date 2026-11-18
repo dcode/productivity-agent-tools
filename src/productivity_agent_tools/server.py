@@ -1,6 +1,6 @@
 """Assembles the MCP server from the configured product modules."""
 
-from collections.abc import Iterable, Mapping
+from collections.abc import Awaitable, Callable, Iterable, Mapping
 from dataclasses import dataclass
 from typing import Any
 
@@ -24,10 +24,13 @@ class Connected:
     Attributes:
         api: API adapter connected to the product's server.
         token_source: Description of where the access token came from.
+        describe_source: Describes the credential as it is now, when it can change while
+            the server runs; None otherwise.
     """
 
     api: ApiClient
     token_source: str = ""
+    describe_source: Callable[[], Awaitable[str]] | None = None
 
 
 def build_server(
@@ -75,6 +78,7 @@ def build_server(
         context = ToolContext(
             dry_run=settings.dry_run,
             token_source=connected[name].token_source,
+            describe_source=connected[name].describe_source,
             cookie_names=tuple(connection.cookies),
             peers={peer: client for peer, client in clients.items() if peer != name},
         )
