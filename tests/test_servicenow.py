@@ -204,11 +204,18 @@ async def test_the_credential_follows_a_new_sign_in(keychain: dict[tuple[str, st
     assert credential.label == "browser session"
     assert "2026-11-14T10:00:00" in credential.source
     assert await credential.headers() == {"Cookie": "s=1", "X-UserToken": "t1"}
-    await store_session("servicenow", BrowserSession.collected_now("s=2", "t2"))
+    second = BrowserSession(cookie="s=2", user_token="t2", saved_at="2026-11-14T11:00:00+00:00")
+    await store_session("servicenow", second)
     assert await credential.headers() == {"Cookie": "s=2", "X-UserToken": "t2"}
+    assert credential.describe is not None
+    assert (
+        await credential.describe() == "the system keychain, signed in at 2026-11-14T11:00:00+00:00"
+    )
+    assert "10:00:00" in credential.source  # the start-up description stays as it was
     keychain.clear()
     with pytest.raises(AuthenticationError, match="No ServiceNow browser session"):
         await credential.headers()
+    assert "login servicenow" in await credential.describe()
 
 
 # --- adapter ----------------------------------------------------------------------------

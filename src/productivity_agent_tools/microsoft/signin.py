@@ -279,12 +279,22 @@ async def sign_in(
                 now=now(),
                 timeout_seconds=settings.timeout_seconds or 30.0,
             )
-            await store(MicrosoftSession.seeded_now(grant.refresh_token, config), name)
+            session = MicrosoftSession.seeded_now(
+                grant.refresh_token, config, window_hours=settings.sign_in_hours
+            )
+            await store(session, name)
             who = signed_in_as(grant.id_token) or "you"
+            ends = session.window_ends_at()
+            until = (
+                f"until about {ends.isoformat(timespec='seconds')}"
+                if ends is not None
+                else "until the tenant's sign-in window ends"
+            )
             return (
                 f"Signed in to Microsoft as {who}. The refresh token is stored in the system "
-                "keychain and renews silently until the sign-in window ends (about 18 hours); "
-                "then run 'productivity-agent-tools login microsoft' again."
+                f"keychain and renews silently {until}; then run "
+                "'productivity-agent-tools login microsoft' again. A running server picks it "
+                "up when its current access token is next renewed (within the hour)."
             )
     raise AgentToolsError(
         f"The sign-in did not finish within {settings.login_timeout_seconds:.0f} seconds "

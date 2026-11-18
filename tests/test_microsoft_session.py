@@ -1,5 +1,8 @@
 """Tests for storing and reading the Microsoft refresh-token session."""
 
+import json
+from datetime import UTC, datetime
+
 import pytest
 
 from productivity_agent_tools.microsoft.oauth import RedeemConfig
@@ -38,6 +41,59 @@ def test_rotated_replaces_the_token_and_keeps_the_config() -> None:
     rotated = session.rotated("new")
     assert rotated.refresh_token == "new"
     assert rotated.config == CONFIG
+
+
+def test_rotating_keeps_the_sign_in_time_and_window() -> None:
+    session = MicrosoftSession("old", "2026-01-01T08:00:00+00:00", CONFIG, window_hours=18.0)
+    rotated = session.rotated("new")
+    assert rotated.signed_in_at == "2026-01-01T08:00:00+00:00"
+    assert rotated.obtained_at != session.obtained_at
+    assert rotated.window_hours == 18.0
+    assert MicrosoftSession.loads(rotated.dumps()) == rotated
+
+
+def test_a_session_stored_before_the_sign_in_time_was_kept_still_loads() -> None:
+    stored = (
+        '{"refresh_token": "r", "obtained_at": "2026-01-01T08:00:00+00:00", "config": '
+        '{"client_id": "c", "tenant": "t", "authority": "a", "origin": "o", '
+        '"redirect_uri": "r", "scope": "s"}}'
+    )
+    session = MicrosoftSession.loads(stored)
+    assert session is not None
+    assert session.signed_in_at == "2026-01-01T08:00:00+00:00"
+    assert session.window_hours is None
+
+
+@pytest.mark.parametrize("hours", ["18", True, 0, -1])
+def test_an_unusable_window_is_ignored(hours: object) -> None:
+    session = MicrosoftSession.seeded_now("r", CONFIG)
+    data = json.loads(session.dumps())
+    data["window_hours"] = hours
+    restored = MicrosoftSession.loads(json.dumps(data))
+    assert restored is not None and restored.window_hours is None
+
+
+def test_the_window_end_is_estimated_only_when_known() -> None:
+    known = MicrosoftSession("r", "2026-01-01T08:00:00+00:00", CONFIG, window_hours=18)
+    assert known.window_ends_at() == datetime(2026, 1, 2, 2, 0, tzinfo=UTC)
+    assert MicrosoftSession("r", "2026-01-01T08:00:00+00:00", CONFIG).window_ends_at() is None
+    garbled = MicrosoftSession("r", "yesterday", CONFIG, window_hours=18)
+    assert garbled.window_ends_at() is None
+
+
+def test_describe_says_when_to_sign_in_again_without_secrets() -> None:
+    known = MicrosoftSession("s3cret", "2026-01-01T08:00:00+00:00", CONFIG, window_hours=18)
+    text = known.describe(datetime(2026, 1, 1, 9, 0, tzinfo=UTC))
+    assert text == (
+        "the system keychain, signed in at 2026-01-01T08:00:00+00:00; usable until about "
+        "2026-01-02T02:00:00+00:00 (18 h sign-in window), then run "
+        "'productivity-agent-tools login microsoft' again; refresh token last renewed at "
+        "2026-01-01T08:00:00+00:00; current access token valid until 2026-01-01T09:00:00+00:00"
+    )
+    unknown = MicrosoftSession("s3cret", "2026-01-01T08:00:00+00:00", CONFIG).describe()
+    assert "set sign_in_hours under [microsoft]" in unknown
+    assert "access token" not in unknown
+    assert "s3cret" not in text + unknown
 
 
 def test_a_session_does_not_show_its_refresh_token() -> None:

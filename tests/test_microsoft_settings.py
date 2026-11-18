@@ -95,3 +95,11 @@ async def test_load_reports_bad_toml(tmp_path: Path) -> None:
     path.write_text("[microsoft]\nclient_id = \n")
     with pytest.raises(ConfigError, match="not valid TOML"):
         await load_microsoft_settings(path)
+
+
+def test_the_sign_in_window_is_optional_and_positive() -> None:
+    assert parse_microsoft_settings(TABLE).sign_in_hours is None
+    assert parse_microsoft_settings({**TABLE, "sign_in_hours": 18}).sign_in_hours == 18.0
+    for bad in (0, -1, True, "18"):
+        with pytest.raises(ConfigError, match=r"microsoft\.sign_in_hours"):
+            parse_microsoft_settings({**TABLE, "sign_in_hours": bad})

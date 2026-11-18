@@ -188,7 +188,7 @@ async def _open_server(
                     transport=transport,
                 )
             )
-            connected[name] = Connected(client, credential.source)
+            connected[name] = Connected(client, credential.source, credential.describe)
         yield build_server(settings, connected)
 
 
@@ -693,11 +693,16 @@ def login_microsoft(
         text = getpass.getpass("Microsoft refresh token (hidden): ")
 
     async def run() -> str:
-        redeem = redeem_config(await load_microsoft_settings(config))
+        ms_settings = await load_microsoft_settings(config)
         token = extract_refresh_token(text)
         if not token:
             raise AgentToolsError("No refresh token given; nothing was stored.")
-        return await seed_microsoft(redeem, token, verify=verify)
+        return await seed_microsoft(
+            redeem_config(ms_settings),
+            token,
+            verify=verify,
+            window_hours=ms_settings.sign_in_hours,
+        )
 
     try:
         print(asyncio.run(run()))

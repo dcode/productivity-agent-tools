@@ -32,7 +32,7 @@ def register_servicenow_tools(
         me = await servicenow.me()
         return ServiceNowStatus(
             base_url=servicenow.base_url,
-            session_source=context.token_source,
+            session_source=await context.current_source(),
             username=text(me, "user_name"),
             display_name=text(me, "name"),
             dry_run=context.dry_run,

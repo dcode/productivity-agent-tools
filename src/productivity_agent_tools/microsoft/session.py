@@ -10,9 +10,10 @@ so the provider writes the session back after every redemption.
 from __future__ import annotations
 
 import asyncio
+import dataclasses
 import json
 from dataclasses import dataclass, field
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 
 import keyring
 import keyring.errors
@@ -34,28 +35,51 @@ class MicrosoftSession:
         refresh_token: The current refresh token. Excluded from ``repr``.
         obtained_at: When this refresh token was seeded or last rotated, ISO 8601 UTC.
         config: The non-secret parameters for redeeming it.
+        signed_in_at: When the user last signed in (or seeded by hand), ISO 8601 UTC.
+            Unlike ``obtained_at`` it survives rotation: the tenant's sign-in window
+            counts from here.
+        window_hours: How long the tenant lets a sign-in be renewed, from the
+            ``[microsoft]`` ``sign_in_hours`` setting at sign-in; None when not set.
     """
 
     refresh_token: str = field(repr=False)
     obtained_at: str
     config: RedeemConfig
+    signed_in_at: str = ""
+    window_hours: float | None = None
+
+    def __post_init__(self) -> None:
+        """Default the sign-in time to when the token was obtained."""
+        if not self.signed_in_at:
+            object.__setattr__(self, "signed_in_at", self.obtained_at)
 
     @classmethod
-    def seeded_now(cls, refresh_token: str, config: RedeemConfig) -> MicrosoftSession:
-        """Create a session stamped with the current time.
+    def seeded_now(
+        cls, refresh_token: str, config: RedeemConfig, *, window_hours: float | None = None
+    ) -> MicrosoftSession:
+        """Create a session for a sign-in (or a hand seed) that happened now.
 
         Args:
             refresh_token: The refresh token to store.
             config: The redemption parameters.
+            window_hours: How long the tenant lets the sign-in be renewed, if known.
 
         Returns:
             The session.
         """
         stamp = datetime.now(UTC).isoformat(timespec="seconds")
-        return cls(refresh_token=refresh_token, obtained_at=stamp, config=config)
+        return cls(
+            refresh_token=refresh_token,
+            obtained_at=stamp,
+            config=config,
+            signed_in_at=stamp,
+            window_hours=window_hours,
+        )
 
     def rotated(self, refresh_token: str) -> MicrosoftSession:
         """Return a copy holding a freshly rotated refresh token, stamped now.
+
+        The sign-in time and window are kept: rotating does not extend the sign-in.
 
         Args:
             refresh_token: The rotated refresh token from the latest redemption.
@@ -63,13 +87,57 @@ class MicrosoftSession:
         Returns:
             The updated session.
         """
-        return MicrosoftSession.seeded_now(refresh_token, self.config)
+        stamp = datetime.now(UTC).isoformat(timespec="seconds")
+        return dataclasses.replace(self, refresh_token=refresh_token, obtained_at=stamp)
+
+    def window_ends_at(self) -> datetime | None:
+        """Estimate when the sign-in can no longer be renewed, if the window is known."""
+        if self.window_hours is None:
+            return None
+        try:
+            start = datetime.fromisoformat(self.signed_in_at)
+        except ValueError:
+            return None
+        return start + timedelta(hours=self.window_hours)
+
+    def describe(self, access_expires_at: datetime | None = None) -> str:
+        """Say, for a status tool, when the user signed in and how long it should last.
+
+        Args:
+            access_expires_at: When the access token now in use expires, if one is.
+
+        Returns:
+            A sentence safe to show; it holds no secret.
+        """
+        parts = [f"the system keychain, signed in at {self.signed_in_at}"]
+        if (ends := self.window_ends_at()) is not None:
+            parts.append(
+                f"usable until about {ends.isoformat(timespec='seconds')} "
+                f"({self.window_hours:g} h sign-in window), then run "
+                "'productivity-agent-tools login microsoft' again"
+            )
+        else:
+            parts.append(
+                "lasts as long as the tenant's sign-in policy allows (set sign_in_hours "
+                "under [microsoft] to have it estimated)"
+            )
+        parts.append(f"refresh token last renewed at {self.obtained_at}")
+        if access_expires_at is not None:
+            stamp = access_expires_at.isoformat(timespec="seconds")
+            parts.append(f"current access token valid until {stamp}")
+        return "; ".join(parts)
 
     def dumps(self) -> str:
         """Serialize the session for the keychain."""
         config = {name: getattr(self.config, name) for name in _CONFIG_FIELDS}
         return json.dumps(
-            {"refresh_token": self.refresh_token, "obtained_at": self.obtained_at, "config": config}
+            {
+                "refresh_token": self.refresh_token,
+                "obtained_at": self.obtained_at,
+                "signed_in_at": self.signed_in_at,
+                "window_hours": self.window_hours,
+                "config": config,
+            }
         )
 
     @classmethod
@@ -98,10 +166,16 @@ class MicrosoftSession:
         values = {name: config.get(name) for name in _CONFIG_FIELDS}
         if not all(isinstance(value, str) and value for value in values.values()):
             return None
+        signed_in = data.get("signed_in_at")
+        hours = data.get("window_hours")
+        usable_hours = isinstance(hours, int | float) and not isinstance(hours, bool) and hours > 0
         return cls(
             refresh_token=refresh,
             obtained_at=obtained,
             config=RedeemConfig(**values),  # type: ignore[arg-type]
+            # Sessions stored before these were kept have neither; fall back quietly.
+            signed_in_at=signed_in if isinstance(signed_in, str) else "",
+            window_hours=float(hours) if usable_hours else None,
         )
 
 

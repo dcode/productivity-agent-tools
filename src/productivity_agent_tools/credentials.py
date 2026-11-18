@@ -10,7 +10,7 @@ Each product names a ``CredentialResolver``, which finds the credential when
 the product is connected and says where it came from.
 """
 
-from collections.abc import Mapping
+from collections.abc import Awaitable, Callable, Mapping
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Protocol
@@ -42,11 +42,14 @@ class Credential:
             nothing it holds can be logged by accident.
         source: Human-readable description of the source, safe to display.
         label: What kind of credential it is, as shown beside the source.
+        describe: Describes the source as it is now, for a status tool, when that can
+            change while the server runs (a new sign-in); None when ``source`` stays true.
     """
 
     headers: HeaderProvider = field(repr=False)
     source: str
     label: str = "token"
+    describe: Callable[[], Awaitable[str]] | None = field(default=None, repr=False)
 
 
 class CredentialResolver(Protocol):

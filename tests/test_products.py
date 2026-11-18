@@ -182,3 +182,14 @@ def test_entry_points_must_name_matching_products(monkeypatch: pytest.MonkeyPatc
             installed_products()
     finally:
         products.installed_products.cache_clear()
+
+
+async def test_the_status_source_is_live_when_the_credential_can_change() -> None:
+    fixed = ToolContext(dry_run=True, token_source="at start")
+    assert await fixed.current_source() == "at start"
+
+    async def now() -> str:
+        return "signed in just now"
+
+    live = ToolContext(dry_run=True, token_source="at start", describe_source=now)
+    assert await live.current_source() == "signed in just now"

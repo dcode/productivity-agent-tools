@@ -146,6 +146,9 @@ current-sprint = "assignee = currentUser() AND sprint in openSprints() ORDER BY 
 # browser = "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"
 # How long `login microsoft` waits for you to finish signing in.
 # login_timeout_seconds = 300
+# How long your tenant lets one sign-in be renewed (its Conditional Access
+# sign-in frequency), so the status tools can say when to sign in again.
+# sign_in_hours = 18
 #
 # [group.microsoft]
 # base_url = "https://outlook-dod.office365.us/api/v2.0"

@@ -51,9 +51,8 @@ def register_calendar_tools(
         token can no longer be redeemed, only the user can fix that: ask them to
         run 'productivity-agent-tools login microsoft'.
         """
-        return status(
-            calendar.base_url, await calendar.me(), context.token_source, dry_run=context.dry_run
-        )
+        source = await context.current_source()
+        return status(calendar.base_url, await calendar.me(), source, dry_run=context.dry_run)
 
     @server.tool(annotations=READ)
     @anticipated

@@ -36,6 +36,10 @@ scope = "https://outlook-dod.office365.us/.default"
 # The Outlook REST API the token is for (read by the login commands only; the
 # products share the base_url set under [group.microsoft] below).
 base_url = "https://outlook-dod.office365.us/api/v2.0"
+# How long the tenant lets one sign-in be renewed: the DoD Conditional Access
+# sign-in frequency, observed as 18 h (AADSTS70043 after that). Only used to tell
+# you (and the status tools) when to run `login microsoft` again.
+sign_in_hours = 18
 # Browser that `login microsoft` starts (default: Chrome, then Edge), and how
 # long it waits for you to finish signing in.
 # browser = "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"
