@@ -6,14 +6,14 @@ from pathlib import Path
 
 import pytest
 
-from productivity_agent_tools.errors import ConfigError
-from productivity_agent_tools.servicenow import browser as browser_module
-from productivity_agent_tools.servicenow.browser import (
+from productivity_agent_tools import browser as browser_module
+from productivity_agent_tools.browser import (
     Browser,
     BrowserCookie,
     BrowserError,
     find_browser,
 )
+from productivity_agent_tools.errors import ConfigError
 
 FAKE = Path(__file__).parent / "fake_browser.py"
 URL = "https://desk.example/"
@@ -41,6 +41,28 @@ def test_it_lists_tabs_on_the_host_and_reads_its_cookies(binary: str) -> None:
     assert "--remote-debugging-pipe" in cookies["flags"]
     assert f"--user-data-dir={profile}" in cookies["flags"]
     assert not profile.exists()
+
+
+def test_it_reports_every_tab_address_including_ones_passed_through(binary: str) -> None:
+    with Browser(binary, URL) as browser:
+        assert browser.page_urls() == [
+            f"{URL}home?tab=1",
+            URL.rstrip("/"),
+            "https://sign-in.example/sso?SAMLRequest=x",
+        ]
+        browser.watch_targets()
+        first = browser.page_urls()
+        again = browser.page_urls()
+    assert first[0] == "https://app.example/back#code=fleeting"
+    assert first[1:] == again
+    assert "https://app.example/sw.js" not in first
+
+
+def test_watching_the_tabs_can_be_refused(binary: str, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("FAKE_BROWSER", "refuse")
+    with Browser(binary, URL) as browser:
+        with pytest.raises(BrowserError, match=r"refused Target\.setDiscoverTargets"):
+            browser.watch_targets()
 
 
 def test_extra_flags_are_passed_to_the_browser(binary: str) -> None:
@@ -102,10 +124,12 @@ def test_a_browser_that_ignores_being_asked_to_stop_is_killed(
 
 
 def test_a_browser_that_cannot_start_leaves_nothing_behind(tmp_path: Path) -> None:
-    before = set(Path(browser_module.tempfile.gettempdir()).glob("servicenow-login-*"))
+    profiles = Path(browser_module.tempfile.gettempdir())
+    pattern = f"{browser_module.PROFILE_PREFIX}*"
+    before = set(profiles.glob(pattern))
     with pytest.raises(BrowserError, match="Could not start the browser"):
         Browser(str(tmp_path / "missing"), URL)
-    assert set(Path(browser_module.tempfile.gettempdir()).glob("servicenow-login-*")) == before
+    assert set(profiles.glob(pattern)) == before
 
 
 def test_find_browser_takes_the_configured_one_or_the_first_installed(tmp_path: Path) -> None:
@@ -116,8 +140,10 @@ def test_find_browser_takes_the_configured_one_or_the_first_installed(tmp_path: 
     assert find_browser("sh").endswith("/sh")
     with pytest.raises(ConfigError, match="configured browser 'no-such-browser-xyz'"):
         find_browser("no-such-browser-xyz")
-    with pytest.raises(ConfigError, match="No Chrome or Edge was found"):
+    with pytest.raises(ConfigError, match=r"No Chrome or Edge.*under \[servicenow\]"):
         find_browser(None, ["no-such-browser-xyz"])
+    with pytest.raises(ConfigError, match=r"under \[microsoft\]"):
+        find_browser(None, ["no-such-browser-xyz"], table="microsoft")
 
 
 def test_it_starts_whatever_descriptors_3_and_4_are_in_this_process(binary: str) -> None:
@@ -128,7 +154,7 @@ def test_it_starts_whatever_descriptors_3_and_4_are_in_this_process(binary: str)
         "held = os.open(os.devnull, os.O_RDONLY)\n"
         "assert held == 3\n"
         "os.register_at_fork(after_in_child=lambda: os.close(held))\n"
-        "from productivity_agent_tools.servicenow.browser import Browser\n"
+        "from productivity_agent_tools.browser import Browser\n"
         "with Browser(sys.argv[1], 'https://desk.example/') as browser:\n"
         "    names = sorted(c.name for c in browser.cookies('desk.example'))\n"
         "    print(browser.version(), names)\n"

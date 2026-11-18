@@ -36,7 +36,9 @@ from productivity_agent_tools.errors import AgentToolsError, ConfigError
 from productivity_agent_tools.logs import LOG_LEVELS, configure_logging
 from productivity_agent_tools.microsoft.login import extract_refresh_token
 from productivity_agent_tools.microsoft.login import seed as seed_microsoft
+from productivity_agent_tools.microsoft.session import TOKEN_NAME as MICROSOFT
 from productivity_agent_tools.microsoft.settings import load_microsoft_settings, redeem_config
+from productivity_agent_tools.microsoft.signin import sign_in as sign_in_microsoft
 from productivity_agent_tools.products import Product, installed_products
 from productivity_agent_tools.server import Connected, build_server
 from productivity_agent_tools.tokens import store_token
@@ -544,7 +546,16 @@ def set_token(product: str = "jira") -> None:
         product: Which product the token is for, such as jira or bitbucket.
     """
     product = product.strip().lower()
-    known = sorted({p.token for p in installed_products().values() if p.login is None})
+    if product in _microsoft_names():
+        _fail(
+            AgentToolsError(
+                f"'{product}' has no token to paste: it signs in through the browser. "
+                f"Run 'productivity-agent-tools login {MICROSOFT}'."
+            )
+        )
+    known = sorted(
+        {p.token for p in installed_products().values() if p.login is None and p.token != MICROSOFT}
+    )
     signs_in = sorted(
         p.name for p in installed_products().values() if p.login and p.token == product
     )
@@ -564,6 +575,30 @@ def set_token(product: str = "jira") -> None:
     print(f"Stored the {product} token in the macOS Keychain.")
 
 
+def _microsoft_names() -> frozenset[str]:
+    """Names ``login`` accepts for the Microsoft sign-in: the token and its products."""
+    shared = {name for name, p in installed_products().items() if p.token == MICROSOFT}
+    return frozenset({MICROSOFT, *shared})
+
+
+async def _login_microsoft(config: Path) -> str:
+    """Sign in to Microsoft through the browser and store the refresh token.
+
+    The OAuth client comes from the ``[microsoft]`` table, not from a product's,
+    because the Outlook products share one sign-in.
+
+    Args:
+        config: Path to the TOML configuration file.
+
+    Returns:
+        A sentence to show the user.
+
+    Raises:
+        AgentToolsError: If there is no ``[microsoft]`` table or the sign-in fails.
+    """
+    return await sign_in_microsoft(await load_microsoft_settings(config))
+
+
 async def _login(settings: Settings, name: str) -> str:
     """Sign in to one product interactively and store the result.
 
@@ -581,7 +616,7 @@ async def _login(settings: Settings, name: str) -> str:
     products = installed_products()
     product = products.get(name)
     if product is None or product.login is None:
-        able = ", ".join(sorted(n for n, p in products.items() if p.login)) or "none"
+        able = ", ".join(sorted({MICROSOFT, *(n for n, p in products.items() if p.login)}))
         raise ConfigError(
             f"'{name}' has no interactive sign-in. Products that do: {able}. "
             "The others use a token: run set-token."
@@ -601,15 +636,21 @@ def login(
 ) -> None:
     """Sign in to a product through the browser and store the session in the keychain.
 
+    'microsoft' (or either Outlook product) signs in to Microsoft once for both
+    Outlook products, using the client in the [microsoft] table.
+
     Args:
-        product: Which product to sign in to, such as servicenow.
+        product: Which product to sign in to, such as servicenow or microsoft.
         config: Path to the TOML configuration file.
         log_level: Least severe level logged to stderr.
     """
+    name = product.strip().lower()
 
     async def run() -> str:
         settings = await _resolve_settings(config, None, None, None, log_level)
-        return await _login(settings, product.strip().lower())
+        if name in _microsoft_names():
+            return await _login_microsoft(config)
+        return await _login(settings, name)
 
     try:
         print(asyncio.run(run()))
@@ -634,12 +675,14 @@ def login_microsoft(
         Parameter(name="--verify", help="Redeem the token once to confirm it works."),
     ] = True,
 ) -> None:
-    """Seed the Microsoft refresh token the Outlook stopgap renews from.
+    """Seed a Microsoft refresh token captured by hand (fallback for 'login microsoft').
 
-    The OAuth parameters come from the [microsoft] table in the config file (copy
-    contrib/microsoft-dod.toml for the DoD values). Sign in to webmail, capture the
-    token response (or just the refresh token), and seed it here. Verifying redeems
-    it once, which rotates it, so the rotated token is what gets stored.
+    Use 'login microsoft' normally: it opens the browser and collects the token
+    itself. This is for when that cannot run. The OAuth parameters come from the
+    [microsoft] table in the config file (copy contrib/microsoft-dod.toml for the
+    DoD values). Sign in to webmail, capture the token response (or just the
+    refresh token), and seed it here. Verifying redeems it once, which rotates it,
+    so the rotated token is what gets stored.
     """
     if from_response is not None:
         try:

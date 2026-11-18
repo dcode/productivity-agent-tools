@@ -15,6 +15,7 @@ from mcp.types import CallToolResult
 from pydantic import JsonValue
 
 from productivity_agent_tools import cli
+from productivity_agent_tools.browser import BrowserCookie
 from productivity_agent_tools.config import Connection, Settings, parse_settings
 from productivity_agent_tools.credentials import bearer_token
 from productivity_agent_tools.errors import (
@@ -29,7 +30,6 @@ from productivity_agent_tools.errors import (
 )
 from productivity_agent_tools.products import installed_products
 from productivity_agent_tools.server import Connected, build_server
-from productivity_agent_tools.servicenow.browser import BrowserCookie
 from productivity_agent_tools.servicenow.client import ServiceNow
 from productivity_agent_tools.servicenow.http import ServiceNowClient
 from productivity_agent_tools.servicenow.login import sign_in

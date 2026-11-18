@@ -18,10 +18,10 @@ from typing import Protocol
 import httpx
 import structlog
 
+from productivity_agent_tools.browser import Browser, BrowserCookie, find_browser
 from productivity_agent_tools.config import Connection
 from productivity_agent_tools.errors import AgentToolsError, ConnectivityError
 from productivity_agent_tools.payload import objects, text, value
-from productivity_agent_tools.servicenow.browser import Browser, BrowserCookie, find_browser
 from productivity_agent_tools.servicenow.client import ME_PARAMS, USER_TABLE
 from productivity_agent_tools.servicenow.session import BrowserSession, store_session
 from productivity_agent_tools.servicenow.settings import ServiceNowSettings

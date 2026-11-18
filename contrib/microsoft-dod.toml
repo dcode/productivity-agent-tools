@@ -3,8 +3,12 @@
 #
 # None of these values is a secret: the client_id and tenant appear in every
 # token the browser issues, and the origin/redirect_uri are the public webmail
-# single-page-app registration. The only secret is the refresh token, which you
-# seed separately and which is kept in the system keychain:
+# single-page-app registration. The only secret is the refresh token, which the
+# browser sign-in collects and keeps in the system keychain:
+#
+#   productivity-agent-tools login microsoft
+#
+# If the browser sign-in cannot run, seed a refresh token captured by hand:
 #
 #   productivity-agent-tools login-microsoft          # paste the refresh token, or
 #   productivity-agent-tools login-microsoft --from-response token.json
@@ -13,8 +17,8 @@
 # the Outlook REST API while the proper Microsoft Graph client awaits admin
 # consent; see docs/ROADMAP.md.
 
-# [microsoft] is not a served product: it only tells login-microsoft how to seed
-# and renew the refresh token. The calendar and mail data is served by the
+# [microsoft] is not a served product: it only tells `login microsoft` how to
+# sign in and the tools how to renew the refresh token. The calendar and mail data is served by the
 # [outlook_calendar] and [outlook_mail] products below, which share this token.
 [microsoft]
 # The OWA/webmail single-page application the browser signs in as.
@@ -29,9 +33,13 @@ origin = "https://webmail.apps.mil"
 redirect_uri = "https://webmail.apps.mil/mail/oauthRedirect.html"
 # The Outlook resource; .default asks for everything the client is consented for.
 scope = "https://outlook-dod.office365.us/.default"
-# The Outlook REST API the token is for (read by login-microsoft only; the
+# The Outlook REST API the token is for (read by the login commands only; the
 # products share the base_url set under [group.microsoft] below).
 base_url = "https://outlook-dod.office365.us/api/v2.0"
+# Browser that `login microsoft` starts (default: Chrome, then Edge), and how
+# long it waits for you to finish signing in.
+# browser = "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"
+# login_timeout_seconds = 300
 
 # Shared connection for the Outlook products: the base URL lives here once, and
 # no cookies table means they inherit none (this host has no DoD consent banner,

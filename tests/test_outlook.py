@@ -253,7 +253,7 @@ async def test_a_rejected_token_says_to_reseed(instance: FakeOutlook) -> None:
         with pytest.raises(AuthenticationError) as info:
             await api.get("/me")
     assert "HTTP 401" in str(info.value)
-    assert "login-microsoft" in str(info.value)
+    assert "login microsoft" in str(info.value)
     assert "(no)" in str(info.value)
 
 
@@ -501,7 +501,7 @@ async def test_a_tool_passes_the_reseed_advice_to_the_agent(instance: FakeOutloo
     async with make_api(instance, token="stale") as api:
         settings = parse_settings({"outlook_calendar": {"base_url": BASE}})
         server = build_server(settings, {"outlook_calendar": Connected(api, "x")})
-        with pytest.raises(ToolError, match="login-microsoft"):
+        with pytest.raises(ToolError, match="login microsoft"):
             await server.call_tool("outlook_calendar_status", {})
 
 

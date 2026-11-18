@@ -24,7 +24,7 @@ _COOKIE_VALUE = re.compile(r"[\x21\x23-\x2B\x2D-\x3A\x3C-\x5B\x5D-\x7E]*")
 _TOP_LEVEL_TABLES: frozenset[str] = frozenset({"cookies", "group"})
 # Tables that configure a module but are not themselves served products, so the
 # server ignores them rather than rejecting them. ``[microsoft]`` holds the OAuth
-# parameters ``login-microsoft`` seeds the refresh token from; the Outlook data
+# parameters ``login microsoft`` signs in with; the Outlook data
 # itself is served by the ``outlook_calendar`` and ``outlook_mail`` products,
 # which have their own tables and share the ``microsoft`` keychain token.
 _PENDING_TABLES: frozenset[str] = frozenset({"microsoft"})
@@ -404,6 +404,26 @@ def max_results(raw: dict[str, Any], table: str, default: int) -> int:
     if isinstance(value, bool) or not isinstance(value, int) or value < 1:
         raise ConfigError(f"Config key '{table}.default_max_results' must be a positive integer.")
     return value
+
+
+def login_timeout(raw: dict[str, Any], table: str, default: float) -> float:
+    """Read how long a browser sign-in waits for the user.
+
+    Args:
+        raw: The table's parsed contents.
+        table: Name of the table, for error messages.
+        default: Seconds used when the key is absent.
+
+    Returns:
+        The wait in seconds.
+
+    Raises:
+        ConfigError: If the value is not a positive number.
+    """
+    value = raw.get("login_timeout_seconds", default)
+    if isinstance(value, bool) or not isinstance(value, int | float) or value <= 0:
+        raise ConfigError(f"Config key '{table}.login_timeout_seconds' must be a positive number.")
+    return float(value)
 
 
 def _connection_overrides(raw: dict[str, Any], table: str) -> dict[str, Any]:

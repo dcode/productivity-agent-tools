@@ -123,13 +123,14 @@ current-sprint = "assignee = currentUser() AND sprint in openSprints() ORDER BY 
 
 # Optional: Microsoft 365 calendar and mail over the Outlook REST API, read-only
 # (a stopgap while the Microsoft Graph client awaits admin consent; see
-# docs/ROADMAP.md). There is no password: sign in to webmail, then seed the
-# refresh token with `productivity-agent-tools login-microsoft` (it is kept in
-# the Keychain and renewed silently). The OAuth values below are
+# docs/ROADMAP.md). There is no password: run `productivity-agent-tools login
+# microsoft`, sign in in the browser window it opens, and the refresh token is
+# kept in the Keychain and renewed silently until the sign-in window ends
+# (about 18 hours). The OAuth values below are
 # environment-specific and not secret; DoD / OWA-webmail users can copy the
 # ready-made block from contrib/microsoft-dod.toml.
 #
-# [microsoft] is read only by login-microsoft (it is not a served product). The
+# [microsoft] is read only by `login microsoft` (it is not a served product). The
 # tools are the two products below; they share the Outlook host through a group
 # so the base_url is written once, and that host has no consent banner, so keep
 # your Atlassian cookie out of its group.
@@ -141,6 +142,10 @@ current-sprint = "assignee = currentUser() AND sprint in openSprints() ORDER BY 
 # redirect_uri = "<a registered redirect URI under that origin>"
 # scope = "<resource>/.default, e.g. https://outlook-dod.office365.us/.default"
 # base_url = "https://outlook-dod.office365.us/api/v2.0"
+# Browser that `login microsoft` starts. Default: Chrome, then Edge.
+# browser = "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"
+# How long `login microsoft` waits for you to finish signing in.
+# login_timeout_seconds = 300
 #
 # [group.microsoft]
 # base_url = "https://outlook-dod.office365.us/api/v2.0"

@@ -3,7 +3,7 @@
 Read this first when coming back to the project. The design and the reasons behind it are in
 [DESIGN.md](DESIGN.md). Update this file in the same commit as the work it describes.
 
-Last updated: 2026-11-15.
+Last updated: 2026-11-18.
 
 ## Where things stand
 
@@ -12,6 +12,16 @@ Last updated: 2026-11-15.
   `v0.5.0` at 804f319, `v0.6.0` at 9be367b, `v0.7.0` at 0235736. Release tags go on the
   commit that changes `__version__`; `v0.1.0`-`v0.4.0` predate that rule and stay where
   they are. Cloud sessions cannot push tags, so tag from the laptop.
+- **`login microsoft` (new, 2026-11-18, branch `claude/zealous-mendel-ny1eml`, not yet
+  merged or run live):** the Outlook sign-in now works like `login servicenow`. It opens
+  Chrome/Edge on a temporary profile at the Microsoft authorize page (PKCE + `state`), the
+  user signs in as usual (smart card stays in the browser), and the tool reads the
+  redirect's `code` from the tab list over the DevTools pipe (no page attach), redeems it
+  itself, and stores the refresh token. Replaces "capture the token in DevTools and paste
+  it" for the daily ~18 h re-sign-in; `login-microsoft` (paste) stays as the fallback.
+  The browser driver moved to `productivity_agent_tools/browser.py`, shared by both.
+  **Next action: run it on the work laptop** (checks under "Confirm against the real
+  servers", Outlook REST). No version bump yet; do it with the merge (0.8.0).
 - **Config groups (new, 2026-11-15):** a `[group.<name>]` table holds shared connection
   values (`base_url`, `ca_bundle`, `timeout_seconds`, cookies) and a product joins it with
   `group = "<name>"`; resolution is product → group → top level. This came out of the first
@@ -47,7 +57,7 @@ Last updated: 2026-11-15.
   spikes and version 0.4.0 (built on `claude/servicenow-credential-seam`).
 - **Also on `main`, in 0.5.0:** the Outlook REST spikes and the Microsoft
   refresh-token lifecycle (`login-microsoft`).
-- **Tests:** 494 passing, about 99.98% branch coverage. All hooks clean.
+- **Tests:** 543 passing, about 99.98% branch coverage. All hooks clean.
 - **In use:** Goose on the work laptop, against Jira 11.3.12, Bitbucket 10.2.8 and Confluence
   10.2.19. No CI
   server (Bamboo or other) reports builds or deployments to this Bitbucket.
@@ -219,8 +229,23 @@ chance comes up and tick it here.
         in `servicenow_status`) and interval, to state the lifetime as a number.
   - [ ] With a top-level `[cookies]` table, add an empty `[servicenow.cookies]` so those
         cookies are not sent to the helpdesk
-- [ ] Outlook REST (`outlook_calendar`/`outlook_mail`), after `login-microsoft` on the
-      work laptop. First live run 2026-11-15: `login-microsoft` seeded and the token is
+- [ ] `login microsoft` (browser sign-in) on the work laptop, with
+      `--log-level debug`. The unknowns, in the order they would bite:
+  - [ ] Conditional Access accepts a sign-in from a **fresh temporary profile** (the
+        ServiceNow SSO did, but AAD may want a compliant/registered device, which an
+        empty profile cannot prove). Failure shows as an `AADSTS53000`/`53003` error in
+        the redirect, reported as "The Microsoft sign-in failed: …".
+  - [ ] The authorize page accepts our request for the OWA client (`response_mode=fragment`,
+        PKCE S256, `openid profile offline_access` + the Outlook `.default`).
+  - [ ] `Target.getTargets` / `Target.setDiscoverTargets` show the redirect **with its
+        fragment** before `oauthRedirect.html` rewrites it. If the debug log shows only
+        "no tab came back", this is the suspect.
+  - [ ] The code redeems (Origin header, same as the refresh) and the message names you
+        from the ID token; then `doctor` works without any paste.
+  - [ ] A second `login microsoft` while `serve` runs is picked up without a restart.
+- [ ] Outlook REST (`outlook_calendar`/`outlook_mail`), after `login microsoft` (or the
+      `login-microsoft` paste fallback) on the work laptop. First live run 2026-11-15:
+      `login-microsoft` seeded and the token is
       **accepted** (redemption works, no 401), but `GET /me` returned 404 because both
       Outlook tables were **empty**, so they inherited the top-level Atlassian `base_url`
       (stormwind) and the `dodacknowledged` cookie — the request went to stormwind, not
@@ -245,8 +270,9 @@ chance comes up and tick it here.
         in size), and that Authentication-Results / Received / List-Unsubscribe are present
         and useful for triage. **Open question:** does the DoD Outlook REST v2.0 return the
         full header set, or a subset?
-  - [ ] Confirm a 401 (let the 18 h sign-in window lapse) is reported as "re-seed with
-        login-microsoft", and that re-seeding fixes a running server without a restart.
+  - [ ] Confirm a 401 (let the 18 h sign-in window lapse) is reported as "run
+        login microsoft", and that signing in again fixes a running server without a
+        restart.
 
 ## Next up
 
@@ -424,7 +450,16 @@ Rough order. Each item is one pull request. API references: the Jira 11.0.2 and 
      specifics. `contrib/microsoft-dod.toml` gained the two product tables. Fully unit
      tested against a fake Outlook; **never run against the live tenant yet** (see
      "Confirm against the real servers").
-  3. **Optional: automate the seed** via the debug-bridge pull (machine-specific; deferred).
+  3. ~~**Optional: automate the seed.**~~ **Done (2026-11-18) as `login microsoft`**, the
+     ServiceNow model rather than a debug-bridge pull: the browser drives the sign-in on
+     a throwaway profile, the tool watches tab addresses for the OAuth redirect and
+     redeems the authorization code itself (PKCE, so the code is useless without this
+     process's verifier). `microsoft/signin.py`; `[microsoft]` gained `browser` and
+     `login_timeout_seconds`; `login outlook_mail`/`outlook_calendar` are aliases;
+     `set-token microsoft` points at it. Rejected: reading MSAL's token cache
+     (`localStorage`, maybe encrypted) or intercepting the token response — both need
+     page attach, which the work laptop's Chrome refuses. Unit-tested; **not yet run
+     live** (see "Confirm against the real servers").
 
   Planned order, each a pull request once unblocked:
   1. ~~**The OAuth seam.**~~ **Done**, on `main`, shared with

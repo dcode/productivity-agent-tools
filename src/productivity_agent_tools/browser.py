@@ -1,10 +1,15 @@
-"""Starts the installed browser for a sign-in and asks it for the resulting cookies.
+"""Starts the installed browser for a sign-in and asks it what the sign-in left behind.
+
+Shared by every product that signs in through the browser: ServiceNow reads the
+instance's cookies once the user is in, and Microsoft watches the tabs for the
+sign-in service redirecting back with an authorization code.
 
 The browser is spoken to over the DevTools protocol on a private pipe
 (``--remote-debugging-pipe``), not a TCP port, so no other program on the
 machine can attach while the user is signed in. Only browser-level commands
 are used: a managed browser can refuse to let a tool attach to a page, and
-attaching is not needed to list the open tabs or read the cookie store.
+attaching is not needed to list the open tabs, follow where they go, or read the
+cookie store.
 
 The browser runs on a new, empty profile in a temporary directory, which is
 deleted when the browser closes. The user's everyday profile is not touched.
@@ -21,6 +26,7 @@ import shutil
 import subprocess
 import tempfile
 import time
+from collections import deque
 from collections.abc import Iterator, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -43,6 +49,10 @@ BROWSERS: tuple[str, ...] = (
 )
 REPLY_SECONDS: float = 10.0
 EXIT_SECONDS: float = 10.0
+PROFILE_PREFIX: str = "productivity-agent-tools-login-"
+SEEN_URLS: int = 256
+"""How many tab addresses from target events are kept until the next ``page_urls``."""
+_TARGET_EVENTS: frozenset[str] = frozenset({"Target.targetCreated", "Target.targetInfoChanged"})
 
 
 class BrowserError(AgentToolsError):
@@ -76,12 +86,18 @@ class BrowserCookie:
         return name == self.domain or name.endswith(f".{self.domain}")
 
 
-def find_browser(chosen: str | None = None, candidates: Sequence[str] = BROWSERS) -> str:
+def find_browser(
+    chosen: str | None = None,
+    candidates: Sequence[str] = BROWSERS,
+    *,
+    table: str = "servicenow",
+) -> str:
     """Find the browser to start.
 
     Args:
         chosen: A path or command name from the config, or None to look for one.
         candidates: Paths and command names to try, in order, when none is chosen.
+        table: Config table whose ``browser`` key chooses it, for the error message.
 
     Returns:
         Path of the browser binary.
@@ -98,7 +114,7 @@ def find_browser(chosen: str | None = None, candidates: Sequence[str] = BROWSERS
     if chosen:
         raise ConfigError(f"The configured browser '{chosen}' was not found.")
     raise ConfigError(
-        "No Chrome or Edge was found. Set browser under [servicenow] in the config to the "
+        f"No Chrome or Edge was found. Set browser under [{table}] in the config to the "
         "browser's path."
     )
 
@@ -125,9 +141,10 @@ class Browser:
         Raises:
             BrowserError: If the browser cannot be started.
         """
-        self.profile = tempfile.mkdtemp(prefix="servicenow-login-")
+        self.profile = tempfile.mkdtemp(prefix=PROFILE_PREFIX)
         self._next_id = 0
         self._buffer = b""
+        self._seen: deque[str] = deque(maxlen=SEEN_URLS)
         # The browser reads commands on descriptor 3 and writes replies on 4.
         to_browser, self._write = os.pipe()
         self._read, from_browser = os.pipe()
@@ -213,6 +230,7 @@ class Browser:
         except OSError as exc:
             raise BrowserError("The browser was closed before the sign-in finished.") from exc
         for reply in self._messages(time.monotonic() + REPLY_SECONDS):
+            self._remember(reply)
             if isinstance(reply, dict) and reply.get("id") == self._next_id:
                 if "error" in reply:
                     refusal = text(reply, "error", "message") or "no reason given"
@@ -244,6 +262,19 @@ class Browser:
                 raise BrowserError("The browser was closed before the sign-in finished.")
             self._buffer += chunk
 
+    def _remember(self, message: JsonValue) -> None:
+        """Keep the address of a page a target event reports, until ``page_urls`` reads it.
+
+        Args:
+            message: Any message from the browser; only target events are kept.
+        """
+        if not isinstance(message, dict) or message.get("method") not in _TARGET_EVENTS:
+            return
+        target = value(message, "params", "targetInfo")
+        url = text(target, "url")
+        if url and text(target, "type") == "page":
+            self._seen.append(url)
+
     def version(self) -> str:
         """Return the browser's product and version, such as ``"Chrome/156.0"``."""
         return text(self.call("Browser.getVersion"), "product") or "unknown browser"
@@ -263,6 +294,34 @@ class Browser:
             if text(target, "type") == "page" and url.netloc == host:
                 paths.append(f"{url.path or '/'}{'?' + url.query if url.query else ''}")
         return paths
+
+    def watch_targets(self) -> None:
+        """Ask the browser to report each tab's change of address as it happens.
+
+        Without this, ``page_urls`` sees only where the tabs are when it asks. With
+        it, an address a tab passed through between two looks (a redirect that a
+        page's script then rewrites) is reported too. It does not attach to any page.
+
+        Raises:
+            BrowserError: If the browser refuses.
+        """
+        self.call("Target.setDiscoverTargets", {"discover": True})
+
+    def page_urls(self) -> list[str]:
+        """List the full address of every open tab, and of any passed through since last asked.
+
+        Returns:
+            Addresses from target events since the last call, oldest first, then
+            each open tab's current address, fragment included.
+        """
+        current = [
+            text(target, "url") or ""
+            for target in objects(value(self.call("Target.getTargets"), "targetInfos"))
+            if text(target, "type") == "page"
+        ]
+        seen = list(self._seen)
+        self._seen.clear()
+        return [url for url in (*seen, *current) if url]
 
     def cookies(self, host: str) -> list[BrowserCookie]:
         """Read the cookies the browser would send to a host, HttpOnly ones included.

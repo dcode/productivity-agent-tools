@@ -10,7 +10,9 @@ from productivity_agent_tools.errors import ApiError, AuthenticationError, Conne
 from productivity_agent_tools.microsoft.oauth import (
     RedeemConfig,
     TokenGrant,
+    redeem_authorization_code,
     redeem_refresh_token,
+    with_scopes,
 )
 
 NOW = datetime(2026, 1, 1, 12, 0, tzinfo=UTC)
@@ -104,7 +106,7 @@ async def test_an_expired_refresh_token_asks_to_reseed() -> None:
             "error_description": "AADSTS70043: The refresh token has expired.\nTrace ID: x",
         },
     )
-    with pytest.raises(AuthenticationError, match="login-microsoft"):
+    with pytest.raises(AuthenticationError, match="login microsoft"):
         await redeem_refresh_token(CONFIG, "stale", now=NOW, transport=transport)
 
 
@@ -169,3 +171,61 @@ def test_a_grant_does_not_show_its_tokens() -> None:
     grant = TokenGrant(access_token="s3cret", refresh_token="r3fresh", expires_at=NOW, scope="x")
     assert "s3cret" not in repr(grant)
     assert "r3fresh" not in repr(grant)
+
+
+# --- authorization code ----------------------------------------------------------------
+
+
+async def test_a_code_is_redeemed_with_its_verifier_in_the_spa_shape() -> None:
+    captured: list[httpx.Request] = []
+    transport = _transport(
+        captured,
+        json={
+            "access_token": "access-1",
+            "refresh_token": "refresh-1",
+            "id_token": "header.claims.sig",
+            "expires_in": 3599,
+        },
+    )
+    grant = await redeem_authorization_code(
+        CONFIG, "the-code", "the-verifier", now=NOW, transport=transport
+    )
+    assert grant.refresh_token == "refresh-1"
+    assert grant.id_token == "header.claims.sig"
+    assert "header.claims.sig" not in repr(grant)
+    request = captured[0]
+    assert request.headers["Origin"] == "https://webmail.example.mil"
+    form = {key: values[0] for key, values in parse_qs(request.content.decode()).items()}
+    assert form == {
+        "grant_type": "authorization_code",
+        "client_id": "client-123",
+        "scope": "openid profile offline_access https://outlook.example.us/.default",
+        "code": "the-code",
+        "code_verifier": "the-verifier",
+        "redirect_uri": "https://webmail.example.mil/redirect.html",
+    }
+
+
+async def test_a_code_that_yields_no_refresh_token_is_an_api_error() -> None:
+    transport = _transport([], json={"access_token": "a"})
+    with pytest.raises(ApiError, match="no refresh token"):
+        await redeem_authorization_code(CONFIG, "c", "v", now=NOW, transport=transport)
+
+
+async def test_a_refused_code_says_to_sign_in_again() -> None:
+    transport = _transport(
+        [],
+        status=400,
+        json={"error": "invalid_grant", "error_description": "AADSTS70008: code expired."},
+    )
+    with pytest.raises(AuthenticationError, match=r"sign-in code: AADSTS70008.*login microsoft"):
+        await redeem_authorization_code(CONFIG, "c", "v", now=NOW, transport=transport)
+
+
+def test_scopes_are_added_once_and_in_front() -> None:
+    assert with_scopes("a/.default", ("openid", "offline_access")) == (
+        "openid offline_access a/.default"
+    )
+    assert with_scopes("offline_access a/.default", ("offline_access",)) == (
+        "offline_access a/.default"
+    )

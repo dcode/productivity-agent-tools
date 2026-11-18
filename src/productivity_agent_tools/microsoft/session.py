@@ -21,7 +21,7 @@ from productivity_agent_tools.microsoft.oauth import RESEED_ADVICE, RedeemConfig
 from productivity_agent_tools.tokens import KEYRING_SERVICE
 
 TOKEN_NAME: str = "microsoft"
-SEED_ADVICE: str = "Run 'productivity-agent-tools login-microsoft' to seed it."
+SEED_ADVICE: str = "Run 'productivity-agent-tools login microsoft' to sign in."
 
 _CONFIG_FIELDS = ("client_id", "tenant", "authority", "origin", "redirect_uri", "scope")
 

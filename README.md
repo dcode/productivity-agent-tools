@@ -252,6 +252,48 @@ What `login` does and does not do:
 debugging. Set `browser` under `[servicenow]` if Chrome or Edge is somewhere
 unusual.
 
+### Outlook calendar and mail
+
+The read-only `outlook_calendar_` and `outlook_mail_` tools read Microsoft 365
+over the Outlook REST API. They are off until the config has their tables, and
+they share one Microsoft sign-in. To turn them on:
+
+1. Copy the tables from `contrib/microsoft-dod.toml` (DoD webmail) into your
+   config, or fill in `[microsoft]` from `config.example.toml` for another
+   tenant.
+
+2. Sign in:
+
+   ```bash
+   uv run productivity-agent-tools login microsoft
+   ```
+
+   As with ServiceNow, a Chrome (or Edge) window opens on a new, temporary
+   profile, this time on the Microsoft sign-in page. Sign in as you normally
+   do, smart card included. When the sign-in page hands back to webmail, the
+   window closes by itself and the refresh token is stored in the macOS
+   Keychain. `login outlook_mail` and `login outlook_calendar` do the same.
+
+3. Run `doctor` again; it now checks Outlook too. Restart your agent to load
+   the new tools.
+
+The tools renew their access token silently for as long as the tenant's
+sign-in window allows (about 18 hours on the DoD tenant). After that an
+`outlook_` tool says the sign-in has expired; run `login microsoft` again,
+typically once each morning. A running server picks up the new sign-in without
+a restart.
+
+How it differs from ServiceNow: it collects no cookies. The window opens on the
+sign-in page with a one-time PKCE challenge whose secret half never leaves this
+process. When you are in, the sign-in page sends the tab to webmail's redirect
+address with a one-time code; `login` reads that address from the browser's tab
+list (still without attaching to the page), redeems the code itself, and keeps
+the refresh token that comes back. Set `browser` and `login_timeout_seconds`
+under `[microsoft]` as for ServiceNow.
+
+If the browser sign-in cannot run, `login-microsoft` seeds a refresh token you
+captured by hand (pasted at a hidden prompt, or `--from-response token.json`).
+
 ## Run a tool without an agent
 
 `call` runs one tool directly and prints its result as JSON. It uses the same
