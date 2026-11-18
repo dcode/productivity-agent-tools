@@ -13,7 +13,8 @@ Last updated: 2026-11-18.
   commit that changes `__version__`; `v0.1.0`-`v0.4.0` predate that rule and stay where
   they are. Cloud sessions cannot push tags, so tag from the laptop.
 - **`login microsoft` (new, 2026-11-18, branch `claude/zealous-mendel-ny1eml`, not yet
-  merged; confirmed live on the work laptop the same day):** the Outlook sign-in now works like `login servicenow`. It opens
+  merged; confirmed live on the work laptop the same day):** the Outlook sign-in now works
+  like `login servicenow`. It opens
   Chrome/Edge on a temporary profile at the Microsoft authorize page (PKCE + `state`), the
   user signs in as usual (smart card stays in the browser), and the tool reads the
   redirect's `code` from the tab list over the DevTools pipe (no page attach), redeems it
