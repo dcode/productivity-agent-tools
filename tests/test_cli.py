@@ -12,6 +12,7 @@ from productivity_agent_tools import cli
 from productivity_agent_tools.config import Settings
 from productivity_agent_tools.errors import AgentToolsError, ConfigError
 from productivity_agent_tools.microsoft.oauth import RedeemConfig
+from productivity_agent_tools.microsoft.settings import MicrosoftSettings
 from tests.conftest import FakeJira
 
 PEM = b"-----BEGIN CERTIFICATE-----\nAAAA\n-----END CERTIFICATE-----\n"
@@ -191,6 +192,58 @@ MS_CONFIG = (
     'origin = "https://o"\nredirect_uri = "https://o/r"\n'
     'scope = "https://outlook.example.us/.default"\n'
 )
+
+
+@pytest.mark.parametrize("name", ["microsoft", " Outlook_Mail ", "outlook_calendar"])
+def test_login_microsoft_signs_in_through_the_browser(
+    name: str,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    path = tmp_path / "config.toml"
+    path.write_text(MS_CONFIG + 'browser = "/opt/chrome"\nlogin_timeout_seconds = 60\n')
+    seen: list[MicrosoftSettings] = []
+
+    async def sign_in(settings: MicrosoftSettings) -> str:
+        seen.append(settings)
+        return "Signed in to Microsoft as Pat."
+
+    monkeypatch.setattr(cli, "sign_in_microsoft", sign_in)
+    cli.login(name, config=path)
+    assert "Signed in to Microsoft as Pat." in capsys.readouterr().out
+    assert (seen[0].client_id, seen[0].browser, seen[0].login_timeout_seconds) == (
+        "c",
+        "/opt/chrome",
+        60.0,
+    )
+
+
+def test_login_microsoft_without_its_table_says_what_to_add(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    path = tmp_path / "config.toml"
+    path.write_text('base_url = "https://host.example"\n[jira]\n')
+    with pytest.raises(SystemExit) as info:
+        cli.login("microsoft", config=path)
+    assert info.value.code == 1
+    assert "[microsoft]" in capsys.readouterr().err
+
+
+async def test_other_logins_name_microsoft_among_those_that_sign_in(config_file: Path) -> None:
+    settings = await cli._resolve_settings(config_file, None, None, None)
+    with pytest.raises(ConfigError, match=r"Products that do: microsoft, servicenow\."):
+        await cli._login(settings, "jira")
+
+
+@pytest.mark.parametrize("name", ["microsoft", "outlook_mail"])
+def test_set_token_points_microsoft_at_the_browser_sign_in(
+    name: str, capsys: pytest.CaptureFixture[str]
+) -> None:
+    with pytest.raises(SystemExit) as info:
+        cli.set_token(name)
+    assert info.value.code == 1
+    assert "login microsoft" in capsys.readouterr().err
 
 
 def test_login_microsoft_seeds_from_a_prompt(

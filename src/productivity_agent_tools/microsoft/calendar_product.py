@@ -25,9 +25,9 @@ from productivity_agent_tools.tooling import READ, anticipated
 INSTRUCTIONS: str = (
     "The outlook_calendar_ tools read the user's Microsoft 365 calendar (events and "
     "calendars) read-only over the Outlook REST API. The sign-in is a refresh token seeded "
-    "once per sign-in window; when a tool reports that the token can no longer be redeemed, "
-    "do not retry: ask the user to sign in to webmail again and run "
-    "'productivity-agent-tools login-microsoft', then continue."
+    "once per sign-in window (about 18 hours); when a tool reports that the token can no "
+    "longer be redeemed, do not retry: ask the user to run "
+    "'productivity-agent-tools login microsoft' in a terminal, then continue."
 )
 
 
@@ -49,7 +49,7 @@ def register_calendar_tools(
 
         Call this first if another outlook_calendar tool fails. If it says the
         token can no longer be redeemed, only the user can fix that: ask them to
-        sign in to webmail and run 'productivity-agent-tools login-microsoft'.
+        run 'productivity-agent-tools login microsoft'.
         """
         return status(
             calendar.base_url, await calendar.me(), context.token_source, dry_run=context.dry_run

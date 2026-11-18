@@ -3,8 +3,12 @@
 from dataclasses import dataclass
 from typing import Any
 
-from productivity_agent_tools.config import ProductSettings, as_str, product_overrides
-from productivity_agent_tools.errors import ConfigError
+from productivity_agent_tools.config import (
+    ProductSettings,
+    as_str,
+    login_timeout,
+    product_overrides,
+)
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
@@ -33,13 +37,9 @@ def parse_servicenow_settings(raw: dict[str, Any]) -> ServiceNowSettings:
     Raises:
         ConfigError: If a value has the wrong type.
     """
-    timeout = raw.get("login_timeout_seconds", ServiceNowSettings().login_timeout_seconds)
-    if isinstance(timeout, bool) or not isinstance(timeout, int | float) or timeout <= 0:
-        raise ConfigError(
-            "Config key 'servicenow.login_timeout_seconds' must be a positive number."
-        )
+    default = ServiceNowSettings().login_timeout_seconds
     return ServiceNowSettings(
         browser=(as_str(raw, "browser", None) or "").strip() or None,
-        login_timeout_seconds=float(timeout),
+        login_timeout_seconds=login_timeout(raw, "servicenow", default),
         **product_overrides(raw, "servicenow"),
     )

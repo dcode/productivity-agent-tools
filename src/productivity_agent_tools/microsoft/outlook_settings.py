@@ -5,7 +5,7 @@ share one settings shape and one keychain token (``microsoft``), but each is
 switched on by its own table so a user can enable just one. The table carries
 only the connection values every product has (``base_url`` for the Outlook REST
 API, and the usual overrides) plus a row cap; the OAuth parameters live in the
-separate ``[microsoft]`` table that ``login-microsoft`` reads, not here.
+separate ``[microsoft]`` table that ``login microsoft`` reads, not here.
 """
 
 from dataclasses import dataclass

@@ -16,7 +16,12 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from productivity_agent_tools.config import ProductSettings, as_str, product_overrides
+from productivity_agent_tools.config import (
+    ProductSettings,
+    as_str,
+    login_timeout,
+    product_overrides,
+)
 from productivity_agent_tools.errors import ConfigError
 from productivity_agent_tools.microsoft.oauth import RedeemConfig
 
@@ -39,6 +44,9 @@ class MicrosoftSettings(ProductSettings):
             client type is only redeemed for a cross-origin request matching a registered URI.
         redirect_uri: Redirect URI sent in the body, as the browser's MSAL.js does.
         scope: Space-separated scope requested, usually ``<resource>/.default``.
+        browser: Browser that ``login microsoft`` starts: a path or a command name. None
+            looks for Chrome, then Edge.
+        login_timeout_seconds: How long ``login microsoft`` waits for the sign-in to finish.
     """
 
     client_id: str
@@ -47,6 +55,8 @@ class MicrosoftSettings(ProductSettings):
     origin: str
     redirect_uri: str
     scope: str
+    browser: str | None = None
+    login_timeout_seconds: float = 300.0
 
 
 def _required_str(raw: dict[str, Any], key: str) -> str:
@@ -106,6 +116,8 @@ def parse_microsoft_settings(raw: dict[str, Any]) -> MicrosoftSettings:
         origin=_required_str(raw, "origin"),
         redirect_uri=_required_str(raw, "redirect_uri"),
         scope=_required_str(raw, "scope"),
+        browser=(as_str(raw, "browser", None) or "").strip() or None,
+        login_timeout_seconds=login_timeout(raw, "microsoft", 300.0),
         **product_overrides(raw, "microsoft"),
     )
 
@@ -113,7 +125,7 @@ def parse_microsoft_settings(raw: dict[str, Any]) -> MicrosoftSettings:
 async def load_microsoft_settings(path: Path) -> MicrosoftSettings:
     """Read just the ``[microsoft]`` table from the config file.
 
-    Used by ``login-microsoft`` to seed the credential before the product is
+    Used by ``login microsoft`` and ``login-microsoft`` to sign in before the product is
     wired, so it reads its own table rather than the whole product registry.
 
     Args:

@@ -1,8 +1,9 @@
-"""Seeding the Microsoft refresh token the stopgap renews from.
+"""Seeding a Microsoft refresh token captured by hand (the ``login-microsoft`` fallback).
 
-The user signs in to webmail as usual and captures the token response (or just
-its refresh token) from the browser, then seeds it here once per Conditional-
-Access sign-in window. Seeding verifies the token by redeeming it once, which
+``login microsoft`` (``signin.py``) normally collects the refresh token itself.
+When it cannot run, the user signs in to webmail as usual and captures the token
+response (or just its refresh token) from the browser, then seeds it here once
+per Conditional-Access sign-in window. Seeding verifies the token by redeeming it once, which
 also rotates it, so what is stored is the rotated token, not the pasted one.
 """
 
@@ -82,5 +83,5 @@ async def seed(
     return (
         "Seeded the Microsoft refresh token in the system keychain and verified it: minted "
         f"an access token for scope '{grant.scope}', good for about {minutes} minutes. It "
-        "will renew silently until the sign-in window ends (~18 h), then re-seed."
+        "will renew silently until the sign-in window ends (~18 h), then sign in again."
     )

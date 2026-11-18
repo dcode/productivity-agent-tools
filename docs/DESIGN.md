@@ -288,6 +288,26 @@ keeps writes behind a dry-run switch that is on by default.
   pipe, and stores them with the page's request token in the Keychain (see ROADMAP.md,
   ServiceNow, for what was probed and what was rejected). Its credential provider reads
   the Keychain before every request, so a running server picks up a new sign-in.
+- **The browser driver is shared** (`browser.py`): a throwaway profile, the DevTools
+  protocol on a private pipe, and browser-level commands only (never attaching to a
+  page). ServiceNow reads cookies with it; Microsoft reads tab addresses with it
+  (`Target.getTargets`, plus `Target.setDiscoverTargets` events so an address a tab only
+  passes through is still seen).
+- **`login microsoft` is the same model for an OAuth client** (`microsoft/signin.py`).
+  The Outlook products share one sign-in, so `login microsoft` (also accepted as
+  `login outlook_mail`/`outlook_calendar`) reads the `[microsoft]` table rather than a
+  product's `Product.login`. It opens the browser on the authorize page of the configured
+  single-page client with a PKCE S256 challenge and a random `state`, watches the tab
+  list for the client's `redirect_uri` carrying that `state`, takes the `code` from the
+  fragment, and redeems it in Python with the verifier and the SPA `Origin` header (the
+  same cross-origin shape the refresh needs). The refresh token that comes back is stored
+  exactly as a seeded one. The verifier never leaves the process, so the code in the tab
+  is useless to the redirect page or anyone else; a redirect with another `state` is
+  ignored, and one carrying `error` fails the sign-in with the first line of its
+  description. Chosen over reading MSAL's cache from the page (needs page attach, refused
+  on the work laptop, and the cache may be encrypted) and over intercepting the token
+  response (needs `Fetch`/`Network` on the page). `login-microsoft` (paste a captured
+  token) remains as the fallback.
 - **An adapter is never handed a secret.** `credentials.py` defines `HeaderProvider`, an
   async callable returning the authentication *headers*, and the adapter asks it before
   every request. A credential that changes while the server runs (a refreshed OAuth token,
@@ -561,7 +581,7 @@ keeps writes behind a dry-run switch that is on by default.
   session. Each is switched on by its own table (`[outlook_calendar]`, `[outlook_mail]`),
   so a user can enable just one; they share one host through a `[group.microsoft]` table
   (see Configuration) so the Outlook REST base URL is written once; and the OAuth parameters
-  stay in the separate `[microsoft]` table that `login-microsoft` reads (never a served
+  stay in the separate `[microsoft]` table that `login microsoft` reads (never a served
   product). This mirrors the planned GitLab split (`gitlab_wiki`/`gitlab_scm` sharing a
   `gitlab` token). Chosen over one
   `microsoft` product with many tools for independent enablement and cleaner tool
@@ -576,7 +596,8 @@ keeps writes behind a dry-run switch that is on by default.
   `_interpret`). It is a public-cloud host, so there is no consent banner, no cookie
   session and no sign-in redirect to read: a 401 means the minted token was refused,
   which for the stopgap means the refresh token can no longer be redeemed, so the message
-  says to re-seed. Errors are read from Outlook's `{"error": {"code", "message"}}` shape;
+  says to run `login microsoft` again. Errors are read from Outlook's
+  `{"error": {"code", "message"}}` shape;
   429 is called out as rate limiting with "do not loop".
 - **Two `Prefer` headers on every request:** `outlook.body-content-type="text"` so event
   and message bodies arrive as plain text (smaller, no markup for the model), and

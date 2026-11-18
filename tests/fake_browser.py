@@ -1,6 +1,6 @@
 """A stand-in browser for tests: speaks the DevTools pipe protocol on descriptors 3 and 4.
 
-Run as the "browser binary" by the tests of ``servicenow.browser``. Its
+Run as the "browser binary" by the tests of ``productivity_agent_tools.browser``. Its
 behaviour is chosen with the FAKE_BROWSER environment variable.
 """
 
@@ -37,6 +37,8 @@ def answer(request: dict[str, object]) -> dict[str, object] | None:
                 "not an object",
             ]
         }
+    if method == "Target.setDiscoverTargets":
+        return None if MODE == "refuse" else {}
     if method == "Storage.getCookies":
         if MODE == "refuse":
             return None
@@ -73,6 +75,12 @@ def main() -> None:
                 send({"id": request["id"], "result": {}})
                 return
             send({"method": "Target.targetCreated", "params": {}})
+            if request["method"] == "Target.setDiscoverTargets" and MODE != "refuse":
+                # A redirect a tab passed through, then a worker that is not a page.
+                fleeting = {"type": "page", "url": "https://app.example/back#code=fleeting"}
+                worker = {"type": "service_worker", "url": "https://app.example/sw.js"}
+                send({"method": "Target.targetInfoChanged", "params": {"targetInfo": fleeting}})
+                send({"method": "Target.targetCreated", "params": {"targetInfo": worker}})
             result = answer(request)
             if result is None:
                 send({"id": request["id"], "error": {"code": -32000, "message": "Not allowed"}})

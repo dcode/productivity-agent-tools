@@ -155,7 +155,7 @@ async def test_a_reseed_while_running_is_picked_up() -> None:
 async def test_no_session_is_an_authentication_error() -> None:
     clock = Clock()
     provider = make_provider(clock, session=None, grants=[], stored=[], redeems=[])
-    with pytest.raises(AuthenticationError, match="login-microsoft"):
+    with pytest.raises(AuthenticationError, match="login microsoft"):
         await provider()
 
 
@@ -193,5 +193,5 @@ async def test_resolver_without_a_session_raises(monkeypatch: pytest.MonkeyPatch
         return None
 
     monkeypatch.setattr("productivity_agent_tools.microsoft.credentials.load_session", load)
-    with pytest.raises(AuthenticationError, match="login-microsoft"):
+    with pytest.raises(AuthenticationError, match="login microsoft"):
         await microsoft_token("microsoft", None)

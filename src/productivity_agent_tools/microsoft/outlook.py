@@ -6,8 +6,8 @@ banner, no cookie session and no sign-in redirect to interpret: this is a
 public-cloud host reached with a bearer access token that the
 ``MicrosoftCredential`` keeps fresh. A 401 therefore means the token the
 credential minted was not accepted, which for this stopgap almost always means
-the seeded refresh token can no longer be redeemed, so the message says to
-re-seed.
+the stored refresh token can no longer be redeemed, so the message says to
+sign in again.
 
 Two ``Prefer`` headers are sent on every request so the data that reaches the
 agent is small and unambiguous: bodies come back as plain text rather than
