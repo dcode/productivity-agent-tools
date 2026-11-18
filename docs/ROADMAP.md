@@ -13,15 +13,18 @@ Last updated: 2026-11-18.
   commit that changes `__version__`; `v0.1.0`-`v0.4.0` predate that rule and stay where
   they are. Cloud sessions cannot push tags, so tag from the laptop.
 - **`login microsoft` (new, 2026-11-18, branch `claude/zealous-mendel-ny1eml`, not yet
-  merged or run live):** the Outlook sign-in now works like `login servicenow`. It opens
+  merged; confirmed live on the work laptop the same day):** the Outlook sign-in now works like `login servicenow`. It opens
   Chrome/Edge on a temporary profile at the Microsoft authorize page (PKCE + `state`), the
   user signs in as usual (smart card stays in the browser), and the tool reads the
   redirect's `code` from the tab list over the DevTools pipe (no page attach), redeems it
   itself, and stores the refresh token. Replaces "capture the token in DevTools and paste
   it" for the daily ~18 h re-sign-in; `login-microsoft` (paste) stays as the fallback.
   The browser driver moved to `productivity_agent_tools/browser.py`, shared by both.
-  **Next action: run it on the work laptop** (checks under "Confirm against the real
-  servers", Outlook REST). No version bump yet; do it with the merge (0.8.0).
+  **Confirmed on the work laptop (2026-11-18):** `login microsoft` signed in from the
+  temporary profile, `doctor` passed, and Goose answered "how many unread email messages
+  do I have" by picking `outlook_mail_list_messages` on its own (10 unread, correct).
+  **Next action: open the pull request and bump to 0.8.0 with the merge**, then work
+  through the remaining Outlook read checks under "Confirm against the real servers".
 - **Config groups (new, 2026-11-15):** a `[group.<name>]` table holds shared connection
   values (`base_url`, `ca_bundle`, `timeout_seconds`, cookies) and a product joins it with
   `group = "<name>"`; resolution is product → group → top level. This came out of the first
@@ -229,19 +232,19 @@ chance comes up and tick it here.
         in `servicenow_status`) and interval, to state the lifetime as a number.
   - [ ] With a top-level `[cookies]` table, add an empty `[servicenow.cookies]` so those
         cookies are not sent to the helpdesk
-- [ ] `login microsoft` (browser sign-in) on the work laptop, with
-      `--log-level debug`. The unknowns, in the order they would bite:
-  - [ ] Conditional Access accepts a sign-in from a **fresh temporary profile** (the
+- [ ] `login microsoft` (browser sign-in) on the work laptop. **Worked first time
+      (2026-11-18)**; only the running-server check is left:
+  - [x] Conditional Access accepts a sign-in from a **fresh temporary profile** (the
         ServiceNow SSO did, but AAD may want a compliant/registered device, which an
         empty profile cannot prove). Failure shows as an `AADSTS53000`/`53003` error in
         the redirect, reported as "The Microsoft sign-in failed: …".
-  - [ ] The authorize page accepts our request for the OWA client (`response_mode=fragment`,
+  - [x] The authorize page accepts our request for the OWA client (`response_mode=fragment`,
         PKCE S256, `openid profile offline_access` + the Outlook `.default`).
-  - [ ] `Target.getTargets` / `Target.setDiscoverTargets` show the redirect **with its
+  - [x] `Target.getTargets` / `Target.setDiscoverTargets` show the redirect **with its
         fragment** before `oauthRedirect.html` rewrites it. If the debug log shows only
         "no tab came back", this is the suspect.
-  - [ ] The code redeems (Origin header, same as the refresh) and the message names you
-        from the ID token; then `doctor` works without any paste.
+  - [x] The code redeems (Origin header, same as the refresh) and `doctor` works without
+        any paste.
   - [ ] A second `login microsoft` while `serve` runs is picked up without a restart.
 - [ ] Outlook REST (`outlook_calendar`/`outlook_mail`), after `login microsoft` (or the
       `login-microsoft` paste fallback) on the work laptop. First live run 2026-11-15:
@@ -251,7 +254,8 @@ chance comes up and tick it here.
       (stormwind) and the `dodacknowledged` cookie — the request went to stormwind, not
       Outlook. **Fixed by the group layer:** put the Outlook host in `[group.microsoft]`
       and `group = "microsoft"` on each product (contrib updated), so the top-level
-      Atlassian settings no longer leak. Re-run pending with the corrected config.
+      Atlassian settings no longer leak. **Re-run 2026-11-18 after `login microsoft`:**
+      `doctor` passed and a Goose session read the mailbox (below).
   - [ ] `doctor`: both products authenticate `GET /me` and name you (one seeded
         `[microsoft]` token, shared). Confirm the shared-credential path mints the Outlook
         token once, not once per product. (Note: `doctor` redeems per product in sequence,
@@ -263,6 +267,9 @@ chance comes up and tick it here.
         week: times come back in UTC (the `Prefer` header), recurrences are expanded, and
         the count matches the browser. Then `outlook_calendar_get_event` on one, with
         attendees and a text body.
+  - [x] Under Goose, "how many unread email messages do I have" chose
+        `outlook_mail_list_messages` unprompted and answered 10, which was correct
+        (2026-11-18).
   - [ ] `outlook_mail_list_messages` (and `unread_only=true`), `outlook_mail_search_messages`
         on a known term, and `outlook_mail_get_message` on one (text body, truncation).
   - [ ] `outlook_mail_get_message_headers` on a real message: confirm
@@ -458,8 +465,8 @@ Rough order. Each item is one pull request. API references: the Jira 11.0.2 and 
      `login_timeout_seconds`; `login outlook_mail`/`outlook_calendar` are aliases;
      `set-token microsoft` points at it. Rejected: reading MSAL's token cache
      (`localStorage`, maybe encrypted) or intercepting the token response — both need
-     page attach, which the work laptop's Chrome refuses. Unit-tested; **not yet run
-     live** (see "Confirm against the real servers").
+     page attach, which the work laptop's Chrome refuses. **Confirmed live
+     (2026-11-18)**: sign-in, `doctor` and a Goose mail query all worked.
 
   Planned order, each a pull request once unblocked:
   1. ~~**The OAuth seam.**~~ **Done**, on `main`, shared with
