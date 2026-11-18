@@ -113,8 +113,8 @@ def register_calendar_tools(
         what is on the calendar on given days, use outlook_calendar_list_events.
         The options go to the Outlook REST API as written. Property names are
         PascalCase (Subject, Start/DateTime, End/DateTime, Organizer, Location,
-        IsAllDay, ShowAs, Importance, Categories, Type); string values go in single
-        quotes. Examples:
+        IsAllDay, ShowAs, Importance, Categories, Type), as results name them;
+        camelCase is accepted too. String values go in single quotes. Examples:
 
         - Meetings a person organized: filter="Organizer/EmailAddress/Address eq
           'pat@example.mil'"
