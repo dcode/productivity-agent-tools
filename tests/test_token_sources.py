@@ -236,3 +236,50 @@ def test_an_unset_variable_outside_single_quotes_is_still_an_error(
     monkeypatch.delenv("NOT_SET_ANYWHERE", raising=False)
     with pytest.raises(ConfigError, match=r"'token_cmd' uses \$NOT_SET_ANYWHERE"):
         parse_settings({"base_url": "https://host.example", "token_cmd": "cat $NOT_SET_ANYWHERE"})
+
+
+async def test_one_env_file_path_can_serve_every_product(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("HOME", str(tmp_path))
+    secrets = tmp_path / ".secrets"
+    secrets.mkdir()
+    (secrets / "jira_token.env").write_text('export JIRA_TOKEN="abc123=="\n')
+    (secrets / "bitbucket_token.env").write_text("# no token here yet\n")
+    found = parse_settings(
+        {
+            "base_url": "https://host.example",
+            "token_env_file": "~/.secrets/{product}_token.env",
+            "jira": {},
+            "bitbucket": {},
+        }
+    )
+    jira = await resolve_token("jira", found.token_sources_for(found.products["jira"]), {})
+    assert jira.value == "abc123=="  # the whole value, padding included
+    assert jira.source == f"env file {secrets / 'jira_token.env'}"
+    with pytest.raises(TokenNotFoundError, match=r"bitbucket_token\.env \(no BITBUCKET_TOKEN"):
+        await resolve_token("bitbucket", found.token_sources_for(found.products["bitbucket"]), {})
+
+
+async def test_a_product_with_no_file_of_its_own_falls_through_to_the_keychain(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    sources = TokenSources(env_file=tmp_path / "{product}_token.env")
+    monkeypatch.setattr(tokens.keyring, "get_password", lambda service, name: "from-keychain")
+    found = await resolve_token("confluence", sources, {})
+    assert found.source == "the system keychain"
+    monkeypatch.setattr(tokens.keyring, "get_password", lambda service, name: None)
+    with pytest.raises(TokenNotFoundError, match=r"confluence_token\.env \(no such file\)"):
+        await resolve_token("confluence", sources, {})
+
+
+async def test_a_fixed_env_file_that_is_missing_is_still_an_error(tmp_path: Path) -> None:
+    with pytest.raises(ConfigError, match="Could not read token env file"):
+        await resolve_token("jira", TokenSources(env_file=tmp_path / "typo.env"), {})
+
+
+async def test_an_unreadable_env_file_is_an_error_even_as_a_template(tmp_path: Path) -> None:
+    (tmp_path / "jira_token.env").mkdir()  # exists, but cannot be read as a file
+    sources = TokenSources(env_file=tmp_path / "{product}_token.env")
+    with pytest.raises(ConfigError, match=r"Could not read token env file .*jira_token\.env"):
+        await resolve_token("jira", sources, {})

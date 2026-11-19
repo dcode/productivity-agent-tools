@@ -26,7 +26,7 @@ from productivity_agent_tools.errors import ConfigError, TokenNotFoundError
 KEYRING_SERVICE: str = "productivity-agent-tools"
 COMMAND_TIMEOUT_SECONDS: float = 30.0
 PRODUCT_PLACEHOLDER: str = "{product}"
-"""Replaced, in each word of ``token_cmd``, by the token name (``jira``, ``bitbucket``)."""
+"""Replaced, in each word of ``token_cmd`` and in ``token_env_file``, by the token name."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -47,7 +47,8 @@ class TokenSources:
     """Where, besides the environment and the keychain, a product's token may be found.
 
     Attributes:
-        env_file: An env file defining ``<PRODUCT>_TOKEN``, or None.
+        env_file: An env file defining ``<PRODUCT>_TOKEN``, or None. ``{product}`` in
+            the path is replaced by the token name.
         command: A command (program and arguments) that prints the token, or None.
             ``{product}`` in any word is replaced by the token name.
         command_timeout: How long the command may run, in seconds.
@@ -144,21 +145,26 @@ async def _from_command(command: Sequence[str], product: str, limit_seconds: flo
     return token
 
 
-async def _from_env_file(path: Path, name: str) -> str | None:
+async def _from_env_file(path: Path, name: str, *, missing_ok: bool = False) -> str | None:
     """Look up a variable in an env file.
 
     Args:
         path: Path of the env file.
         name: Variable to look up.
+        missing_ok: Treat a file that does not exist as one without the variable.
 
     Returns:
         The value, or None if the file does not define it.
 
     Raises:
-        ConfigError: If the file cannot be read.
+        ConfigError: If the file cannot be read (or, unless ``missing_ok``, is missing).
     """
     try:
         text = await asyncio.to_thread(path.read_text, "utf-8")
+    except FileNotFoundError as exc:
+        if missing_ok:
+            return None
+        raise ConfigError(f"Could not read token env file {path}: {exc.strerror}.") from exc
     except OSError as exc:
         raise ConfigError(f"Could not read token env file {path}: {exc.strerror}.") from exc
     return parse_env_file(text).get(name) or None
@@ -207,14 +213,24 @@ async def resolve_token(
         token = await _from_command(found.command, product, found.command_timeout)
         program = found.command[0].replace(PRODUCT_PLACEHOLDER, product)
         return ResolvedToken(value=token, source=f"token_cmd ({program})")
-    if found.env_file is not None:
-        if from_file := await _from_env_file(found.env_file, name):
-            return ResolvedToken(value=from_file, source=f"env file {found.env_file}")
+    # A path with {product} in it is one file per product, and a product without a
+    # file of its own is normal (its token is elsewhere), so that is not an error.
+    # A fixed path that is missing is, since it is most likely a typo.
+    templated = found.env_file is not None and PRODUCT_PLACEHOLDER in str(found.env_file)
+    env_file = (
+        Path(str(found.env_file).replace(PRODUCT_PLACEHOLDER, product))
+        if found.env_file is not None
+        else None
+    )
+    if env_file is not None:
+        if from_file := await _from_env_file(env_file, name, missing_ok=templated):
+            return ResolvedToken(value=from_file, source=f"env file {env_file}")
     if from_keychain := await _from_keychain(product):
         return ResolvedToken(value=from_keychain, source="the system keychain")
     looked = [f"environment variable {name}"]
-    if found.env_file is not None:
-        looked.append(f"env file {found.env_file} (no {name} in it)")
+    if env_file is not None:
+        absent = templated and not await asyncio.to_thread(env_file.exists)
+        looked.append(f"env file {env_file} ({'no such file' if absent else f'no {name} in it'})")
     looked.append("the system keychain")
     raise TokenNotFoundError(
         f"No {product} token found (looked in: {'; '.join(looked)}). Store one with "

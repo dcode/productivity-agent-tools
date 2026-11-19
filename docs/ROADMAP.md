@@ -38,8 +38,15 @@ Last updated: 2026-11-19.
     because every word was expanded after splitting, by which point the single quotes
     were gone. A string is now expanded the way a shell would (nothing inside single
     quotes) before splitting, and a list is taken exactly as written.
-  - **Still to check live:** that `awk` line on the fixed build, a real `sops` setup,
-    and `set-token` with no argument in a real terminal.
+    The `awk` line was only a test that `token_cmd` works; it would also have cut a
+    token at its first `=` padding character. Asked for after it: **`{product}` in
+    `token_env_file`** (done the same day), so one line,
+    `token_env_file = "~/.secrets/{product}_token.env"`, serves every product; a
+    product with no file of its own falls through to the keychain.
+  - **In use now (2026-11-19): all tokens are in the keychain** on the work laptop, so
+    neither `token_cmd` nor `token_env_file` is needed there day to day.
+  - **Still to check live:** a real `sops` setup (waiting on helpdesk approval to allow
+    it), and `set-token` with no argument in a real terminal.
   - **Next action: review and merge
     [#18](https://github.com/dcode/productivity-agent-tools/pull/18) with "Squash and
     merge"** (not rebase: the branch still carries the old copies of the 0.8.0 commits,
@@ -130,7 +137,7 @@ Last updated: 2026-11-19.
   spikes and version 0.4.0 (built on `claude/servicenow-credential-seam`).
 - **Also on `main`, in 0.5.0:** the Outlook REST spikes and the Microsoft
   refresh-token lifecycle (`login-microsoft`).
-- **Tests:** 595 passing, about 99.98% branch coverage. All hooks clean.
+- **Tests:** 607 passing, about 99.98% branch coverage. All hooks clean.
 - **In use:** Goose on the work laptop, against Jira 11.3.12, Bitbucket 10.2.8 and Confluence
   10.2.19. No CI
   server (Bamboo or other) reports builds or deployments to this Bitbucket.

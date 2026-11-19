@@ -41,7 +41,10 @@ dry_run = true
 #
 # An env file with lines such as JIRA_TOKEN=... and BITBUCKET_TOKEN=...
 # (checked after token_cmd). --token-env-file overrides it everywhere.
+# {product} works here too, for one file per product; a product with no file of
+# its own is then skipped rather than an error.
 # token_env_file = "${HOME}/.secrets/tokens.env"
+# token_env_file = "~/.secrets/{product}_token.env"
 
 timeout_seconds = 30
 

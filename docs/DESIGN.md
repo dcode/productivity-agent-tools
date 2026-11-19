@@ -371,9 +371,16 @@ keeps writes behind a dry-run switch that is on by default.
 - `token_cmd` and `token_env_file` resolve like the connection values (product, group, top
   level), but each separately, so a product can take its command from the top and its env
   file from its group. `--token-env-file` overrides the env file at every level.
-- Paths (`ca_bundle`, `token_env_file`) and `token_cmd` words expand `~` and environment
-  variables (`$HOME`, `${HOME}`). An unset variable is a config error naming the key, so a
-  typo is caught at load rather than surfacing as a missing file.
+- Paths (`ca_bundle`, `token_env_file`) and a `token_cmd` string expand `~` and environment
+  variables (`$HOME`, `${HOME}`); a `token_cmd` list does not (see Authentication). An
+  unset variable is a config error naming the key, so a typo is caught at load rather than
+  surfacing as a missing file.
+- `{product}` in `token_cmd` or `token_env_file` becomes the token name at lookup. It is a
+  literal 9-character match, not a template language, so braces a program needs (awk's
+  `{ print $2 }`, jq filters) are left alone. A templated `token_env_file` that does not
+  exist for one product is skipped (that product's token is elsewhere); a fixed path that
+  does not exist is an error, since it is most likely a typo. A file that exists but
+  cannot be read is an error either way.
 - `[microsoft]` is a sign-in table, not a product: it holds the OAuth client for
   `login microsoft`. The Outlook products take their host from their own tables or group.
 - Jira presets live under `[jira.presets]`. Bitbucket's `default_project` lives under

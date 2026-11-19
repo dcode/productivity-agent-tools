@@ -196,7 +196,10 @@ checked in order and the first one found wins:
    limit, and its output is never logged. `{product}` in it is replaced by the
    product name, so one command can serve every product.
 3. `token_env_file`: an env file with lines such as `JIRA_TOKEN=...`
-   (`--token-env-file` on the command line overrides it).
+   (`--token-env-file` on the command line overrides it). `{product}` works here
+   too, for one file per product: `~/.secrets/{product}_token.env`. With
+   `{product}` in the path, a product with no file of its own is skipped; a fixed
+   path that does not exist is an error, since it is probably a typo.
 4. The system keychain, where `set-token` stores it.
 
 `token_cmd` and `token_env_file` can be set at the top of the config, in a
@@ -209,6 +212,12 @@ token_cmd = "sops -d --extract '[\"{product}\"]' ~/.secrets/tokens.yaml"
 [jira]
 # Jira's token from somewhere else.
 token_env_file = "${HOME}/.secrets/jira_token.env"
+```
+
+Or one env file per product, with no command at all:
+
+```toml
+token_env_file = "~/.secrets/{product}_token.env"
 ```
 
 If no source has a token, the error lists where it looked.
