@@ -7,8 +7,8 @@ Last updated: 2026-11-19.
 
 ## Where things stand
 
-- **Version:** 0.8.0 on branch `claude/zealous-mendel-ny1eml`, in review (pull request
-  opened 2026-11-19); `main` is still 0.7.0, via
+- **Version:** 0.8.0 on branch `claude/zealous-mendel-ny1eml`, in review as
+  [#17](https://github.com/dcode/productivity-agent-tools/pull/17) (opened 2026-11-19); `main` is still 0.7.0, via
   [#15](https://github.com/dcode/productivity-agent-tools/pull/15) (2026-11-15). **After
   the merge, tag `v0.8.0` on the commit that bumps `__version__`** (from the laptop). Tags:
   `v0.5.0` at 804f319, `v0.6.0` at 9be367b, `v0.7.0` at 0235736. Release tags go on the
@@ -52,7 +52,8 @@ Last updated: 2026-11-19.
   no right answer (filter plus a non-leading `orderby`) as "observed". New `.env` value:
   `OUTLOOK_SEARCH`. **Run on the work laptop (2026-11-19): every check passed**, with the
   expected skips (products not configured there).
-  **Next action: review and merge the 0.8.0 pull request, then tag `v0.8.0`.** Open
+  **Next action: review and merge
+  [#17](https://github.com/dcode/productivity-agent-tools/pull/17), then tag `v0.8.0`.** Open
   checks that remain are not blockers: the 18 h expiry (needs a lapsed window), the
   observed filter-plus-orderby result (read it off the smoke summary), and whether the
   header set is complete.
