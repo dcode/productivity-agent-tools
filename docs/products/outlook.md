@@ -11,47 +11,53 @@ for the background.
 
 ## Setup
 
-1. Add the tables. For the DoD webmail tenant, copy them from
-   [`contrib/microsoft-dod.toml`](https://github.com/dcode/productivity-agent-tools/blob/main/contrib/microsoft-dod.toml).
-   For another tenant, fill in `[microsoft]` from
-   [`config.example.toml`](https://github.com/dcode/productivity-agent-tools/blob/main/config.example.toml):
+### Add the tables
 
-    ```toml
-    [microsoft]   # how `login microsoft` signs in; not a served product
-    client_id = "<the sign-in app's client id>"
-    tenant = "<your tenant id, or organizations>"
-    authority = "login.microsoftonline.com"
-    origin = "<the webmail origin>"
-    redirect_uri = "<a registered redirect URI under that origin>"
-    scope = "<resource>/.default"
-    sign_in_hours = 18   # optional: your tenant's sign-in window
+For the DoD webmail tenant, copy them from
+[`contrib/microsoft-dod.toml`](https://github.com/dcode/productivity-agent-tools/blob/main/contrib/microsoft-dod.toml).
+For another tenant, fill in `[microsoft]` from
+[`config.example.toml`](https://github.com/dcode/productivity-agent-tools/blob/main/config.example.toml):
 
-    [group.microsoft]
-    base_url = "https://outlook.office365.com/api/v2.0"
+```toml
+[microsoft]   # how `login microsoft` signs in; not a served product
+client_id = "<the sign-in app's client id>"
+tenant = "<your tenant id, or organizations>"
+authority = "login.microsoftonline.com"
+origin = "<the webmail origin>"
+redirect_uri = "<a registered redirect URI under that origin>"
+scope = "<resource>/.default"
+sign_in_hours = 18   # optional: your tenant's sign-in window
 
-    [outlook_mail]
-    group = "microsoft"
+[group.microsoft]
+base_url = "https://outlook.office365.com/api/v2.0"
 
-    [outlook_calendar]
-    group = "microsoft"
-    ```
+[outlook_mail]
+group = "microsoft"
 
-    The Outlook host has no consent banner, so keep cookies meant for other
-    hosts out of its group. Remove either product's table to turn it off.
+[outlook_calendar]
+group = "microsoft"
+```
 
-2. Sign in:
+The Outlook host has no consent banner, so keep cookies meant for other hosts
+out of its group. Remove either product's table to turn it off.
 
-    ```bash
-    uv run productivity-agent-tools login microsoft
-    ```
+### Sign in
 
-    A Chrome (or Edge) window opens on a new, temporary profile, on the
-    Microsoft sign-in page. Sign in as you normally do, smart card included.
-    When the sign-in page hands back to webmail, the window closes by itself and
-    the refresh token is stored in the system keychain. `login outlook_mail` and
-    `login outlook_calendar` do the same.
+```bash
+uv run productivity-agent-tools login microsoft
+```
 
-3. Run `doctor`, then restart your agent to load the tools.
+A Chrome (or Edge) window opens on a new, temporary profile, on the Microsoft
+sign-in page. Sign in as you normally do, smart card included. When the sign-in
+page hands back to webmail, the window closes by itself and the refresh token is
+stored in the system keychain. `login outlook_mail` and `login outlook_calendar`
+do the same.
+
+### Check it
+
+Run `doctor`, then restart your agent to load the tools.
+
+### Settings
 
 `[microsoft]` keys:
 

@@ -95,11 +95,11 @@ updates.
 1. Bump the version: `hatch version minor` (or `patch`, `major`), then commit.
 2. Once it is on `main`, tag that commit with the same version, prefixed with
    `v`, and push the tag. A pull request merged by rebase gets new commit ids on
-   `main`, so tag the commit there, not the one on the branch:
+   `main`, so tag the commit there, not the one on the branch.
 
-    ```bash
-    git tag v0.2.0 <commit-on-main> && git push origin v0.2.0
-    ```
+```bash
+git tag v0.2.0 <commit-on-main> && git push origin v0.2.0
+```
 
 The release workflow checks that the tag matches `__version__`, runs the full
 CI suite, and publishes a GitHub release with the sdist and wheel attached and
