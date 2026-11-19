@@ -312,13 +312,98 @@ def _as_path(raw: dict[str, Any], key: str, label: str | None = None) -> Path | 
     return Path(expand(value, label or key)) if value else None
 
 
+_VARIABLE = re.compile(r"\$(?:\{(?P<braced>[^}]*)\}|(?P<bare>\w+))")
+
+
+def _variable(match: re.Match[str], label: str) -> str:
+    """Return an environment variable's value for a ``$NAME`` or ``${NAME}`` match.
+
+    Args:
+        match: A ``_VARIABLE`` match.
+        label: Name of the config key, for the error message.
+
+    Returns:
+        The variable's value.
+
+    Raises:
+        ConfigError: If the variable is not set.
+    """
+    name = match.group("braced") or match.group("bare") or ""
+    found = os.environ.get(name)
+    if found is None:
+        raise ConfigError(
+            f"Config key '{label}' uses {match.group(0)}, which is not set in the environment."
+        )
+    return found
+
+
+def _expand_command_line(line: str, label: str) -> str:
+    """Expand ``~`` and environment variables in a command line the way a shell would.
+
+    Nothing inside single quotes is touched, so ``awk '{ print $2 }'`` keeps its
+    ``$2``. Variables expand outside quotes and inside double quotes; ``~``
+    expands at the start of an unquoted word. A backslash outside single quotes
+    keeps the next character literal. Each expanded value is re-quoted, so a
+    value with spaces or quotes stays part of the one word it was in.
+
+    Args:
+        line: The command line as written.
+        label: Name of the config key, for error messages.
+
+    Returns:
+        The line with expansions made, ready for ``shlex.split``.
+
+    Raises:
+        ConfigError: If it names an environment variable that is not set.
+    """
+    out: list[str] = []
+    quote = ""
+    at, length = 0, len(line)
+    while at < length:
+        char = line[at]
+        if quote == "'":
+            out.append(char)
+            quote = "" if char == "'" else quote
+            at += 1
+            continue
+        if char == "\\" and at + 1 < length:
+            out.append(line[at : at + 2])
+            at += 2
+            continue
+        if char in "'\"" and (not quote or char == quote):
+            quote = "" if quote else char
+            out.append(char)
+            at += 1
+            continue
+        if char == "$" and (match := _VARIABLE.match(line, at)):
+            found = _variable(match, label)
+            if quote == '"':
+                out.append(found.replace("\\", "\\\\").replace('"', '\\"'))
+            else:
+                out.append(shlex.quote(found))
+            at = match.end()
+            continue
+        starts_word = at == 0 or (not quote and line[at - 1].isspace())
+        if char == "~" and not quote and starts_word:
+            rest = line[at + 1 : at + 2]
+            if rest in ("", "/") or rest.isspace():
+                out.append(shlex.quote(os.path.expanduser("~")))
+                at += 1
+                continue
+        out.append(char)
+        at += 1
+    return "".join(out)
+
+
 def _token_cmd(raw: dict[str, Any], label: str) -> tuple[str, ...] | None:
     """Read an optional ``token_cmd``: a command line, or a list of program and arguments.
 
-    A string is split the way a shell splits words (quotes group, nothing else is
-    interpreted: no pipes, no globs). Each word has ``~`` and environment variables
-    expanded. The command is run without a shell, so ``sh -c '...'`` is the way to
-    use a pipe.
+    A command line is read the way a shell reads one: ``~`` and environment
+    variables are expanded except inside single quotes, then it is split into
+    words (quotes group; pipes, globs and redirections mean nothing). A list is
+    taken exactly as written, with no expansion at all, for when a ``$`` must
+    reach the program untouched. Either way the command runs without a shell, so
+    ``sh -c '...'`` is the way to use a pipe.
 
     Args:
         raw: Parsed TOML table.
@@ -336,7 +421,7 @@ def _token_cmd(raw: dict[str, Any], label: str) -> tuple[str, ...] | None:
         return None
     if isinstance(value, str):
         try:
-            words = shlex.split(value)
+            words = shlex.split(_expand_command_line(value, label))
         except ValueError as exc:
             raise ConfigError(f"Config key '{label}' is not a valid command line: {exc}.") from exc
     elif isinstance(value, list) and all(isinstance(word, str) for word in value):
@@ -345,7 +430,7 @@ def _token_cmd(raw: dict[str, Any], label: str) -> tuple[str, ...] | None:
         raise ConfigError(f"Config key '{label}' must be a command line or a list of strings.")
     if not words or not words[0].strip():
         raise ConfigError(f"Config key '{label}' must name a program.")
-    return tuple(expand(word, label) for word in words)
+    return tuple(words)
 
 
 def log_level_name(value: str) -> str:

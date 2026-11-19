@@ -29,10 +29,13 @@ dry_run = true
 # environment (JIRA_TOKEN and so on, checked first) and the system keychain
 # (where `productivity-agent-tools set-token` puts them, checked last). Both can
 # also go in a [group.<name>] table or a product's own table; the most specific
-# wins. Paths and commands may use ~, $HOME or ${HOME}.
+# wins. Paths may use ~, $HOME or ${HOME}.
 #
 # A command that prints the token, run without a shell (use sh -c '...' for a
 # pipe), with a 30-second limit. {product} becomes jira, bitbucket or confluence.
+# As a string it is read like a shell command line: ~ and $VARS expand, except
+# inside single quotes (so awk's '{ print $2 }' is safe). As a list it is used
+# exactly as written.
 # token_cmd = "sops -d --extract '[\"{product}\"]' ~/.secrets/tokens.yaml"
 # token_cmd = ["pass", "show", "work/{product}"]
 #

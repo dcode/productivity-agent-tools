@@ -188,9 +188,13 @@ checked in order and the first one found wins:
 
 1. The environment variable, such as `JIRA_TOKEN`.
 2. `token_cmd`: a command that prints the token, such as a `sops`, `pass` or
-   `op` call. It runs without a shell (so no pipes; use `sh -c '...'` for one),
-   with a 30-second limit, and its output is never logged. `{product}` in it is
-   replaced by the product name, so one command can serve every product.
+   `op` call. Written as one string, it is read the way a shell reads a command
+   line: `~`, `$HOME` and `${HOME}` expand, except inside single quotes, so
+   `awk -F= '{ print $2 }' ~/.secrets/t.env` works. Written as a list
+   (`["jq", "-r", "$x"]`), it is used exactly as written. Either way it runs
+   without a shell (so no pipes; use `sh -c '...'` for one), with a 30-second
+   limit, and its output is never logged. `{product}` in it is replaced by the
+   product name, so one command can serve every product.
 3. `token_env_file`: an env file with lines such as `JIRA_TOKEN=...`
    (`--token-env-file` on the command line overrides it).
 4. The system keychain, where `set-token` stores it.

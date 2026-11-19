@@ -30,9 +30,16 @@ Last updated: 2026-11-19.
     Deliberately left: the status models' field names (`token_source`, and
     `session_source` for ServiceNow) since agents and scripts read them, and the
     `scripts/*_probe.py` spikes, which are history.
-  - **Not yet checked live:** `token_cmd` with your real `sops` setup, and
-    `token_env_file = "${HOME}/..."` (the case that failed). `set-token` with no argument
-    in a real terminal.
+  - **Checked live (2026-11-19, `doctor` on the work laptop):** every product passed.
+    `token_env_file = "${HOME}/.secrets/jira_token.env"` (the case that failed) and
+    `"~/.secrets/bitbucket_token.env"` both found their tokens, and `token_cmd` (a `cut`
+    over an env file) supplied Confluence's. **Bug found and fixed the same day:**
+    `token_cmd = "awk -F= '{ print $2 }' ${HOME}/..."` was refused as "$2 is not set",
+    because every word was expanded after splitting, by which point the single quotes
+    were gone. A string is now expanded the way a shell would (nothing inside single
+    quotes) before splitting, and a list is taken exactly as written.
+  - **Still to check live:** that `awk` line on the fixed build, a real `sops` setup,
+    and `set-token` with no argument in a real terminal.
   - **Next action: review and merge
     [#18](https://github.com/dcode/productivity-agent-tools/pull/18) with "Squash and
     merge"** (not rebase: the branch still carries the old copies of the 0.8.0 commits,

@@ -191,3 +191,48 @@ def test_the_command_line_env_file_overrides_every_level() -> None:
     )
     forced = apply_overrides(found, token_env_file=Path("/flag.env"))
     assert forced.token_sources_for(forced.products["jira"]).env_file == Path("/flag.env")
+
+
+@pytest.mark.parametrize(
+    ("line", "words"),
+    [
+        # Single quotes keep their contents literal, as in a shell: awk's $2 is not a variable.
+        (
+            "awk -F= '{ print $2 }' ${HOME}/.secrets/c.env",
+            ("awk", "-F=", "{ print $2 }", "/home/pat/.secrets/c.env"),
+        ),
+        # Double quotes expand variables but keep a value with spaces as one word.
+        ('cat "$SPACED/t.env"', ("cat", "/srv/my secrets/t.env")),
+        ("cat $SPACED/t.env", ("cat", "/srv/my secrets/t.env")),
+        # ~ expands only at the start of an unquoted word.
+        ("x ~/a '~/b' c~/d ~other ~", ("x", "/home/pat/a", "~/b", "c~/d", "~other", "/home/pat")),
+        # A quote or backslash in a value stays part of it.
+        ('echo "$ODD" $ODD', ("echo", 'it\'s "x" \\ y', 'it\'s "x" \\ y')),
+        # A backslash keeps a dollar sign literal outside single quotes too.
+        (r"echo \$HOME", ("echo", "$HOME")),
+    ],
+)
+def test_token_cmd_expands_like_a_shell(
+    line: str, words: tuple[str, ...], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("HOME", "/home/pat")
+    monkeypatch.setenv("SPACED", "/srv/my secrets")
+    monkeypatch.setenv("ODD", 'it\'s "x" \\ y')
+    found = parse_settings({"base_url": "https://host.example", "token_cmd": line})
+    assert found.token_cmd == words
+
+
+def test_a_token_cmd_list_is_taken_exactly_as_written(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("NOT_SET_ANYWHERE", raising=False)
+    found = parse_settings(
+        {"base_url": "https://host.example", "token_cmd": ["jq", "-r", "$NOT_SET_ANYWHERE", "~/x"]}
+    )
+    assert found.token_cmd == ("jq", "-r", "$NOT_SET_ANYWHERE", "~/x")
+
+
+def test_an_unset_variable_outside_single_quotes_is_still_an_error(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.delenv("NOT_SET_ANYWHERE", raising=False)
+    with pytest.raises(ConfigError, match=r"'token_cmd' uses \$NOT_SET_ANYWHERE"):
+        parse_settings({"base_url": "https://host.example", "token_cmd": "cat $NOT_SET_ANYWHERE"})

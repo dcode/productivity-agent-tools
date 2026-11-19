@@ -390,8 +390,14 @@ keeps writes behind a dry-run switch that is on by default.
   `token_cmd`, then an env file, then the system keychain (through `keyring`, written by
   `set-token`). Explicit before implicit: a value set for this run beats configuration,
   and configuration beats what was stored earlier.
-- `token_cmd` runs without a shell (`shlex`-split, or a TOML list), with no input and a
-  30-second limit. Its output must be one line and is never logged; a failure reports the
+- `token_cmd` runs without a shell, with no input and a 30-second limit. A string is read
+  the way a shell reads a command line: `~` and `$VAR` expand outside quotes, `$VAR` also
+  inside double quotes, nothing inside single quotes, and a backslash escapes; expanded
+  values are re-quoted so a value with spaces stays one word; then it is `shlex`-split.
+  This came from a live config: `awk -F= '{ print $2 }' ${HOME}/...` failed when every word
+  was expanded after splitting, because the quotes that protect `$2` were already gone. A
+  TOML list is taken exactly as written, the escape hatch when a `$` must reach the
+  program. Its output must be one line and is never logged; a failure reports the
   exit status and the first line of its error output. `{product}` in any word becomes the
   token name, so one top-level command (say, `sops --extract '["{product}"]'`) serves every
   product. Chosen over a shell string, which would make quoting and injection the user's
