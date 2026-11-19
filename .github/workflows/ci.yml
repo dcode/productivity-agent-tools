@@ -45,6 +45,19 @@ jobs:
       - name: Run tests with coverage (fails below the threshold in pyproject.toml)
         run: uv run pytest
 
+  docs:
+    name: Docs build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@v10.3.3
+        with:
+          enable-cache: true
+      - name: Build the documentation site (fails on a broken link or a page left out)
+        env:
+          NO_MKDOCS_2_WARNING: "1"
+        run: uv run --locked --only-group docs mkdocs build --strict
+
   build:
     name: Build sdist and wheel
     runs-on: ubuntu-latest

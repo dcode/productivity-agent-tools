@@ -1,0 +1,82 @@
+# The documentation site: `uv run --group docs mkdocs serve` to preview, published to
+# GitHub Pages by .github/workflows/docs.yml.
+site_name: productivity-agent-tools
+site_description: >-
+  An MCP server that gives an AI agent tools for Jira, Bitbucket, Confluence,
+  ServiceNow and Outlook.
+site_url: https://dcode.github.io/productivity-agent-tools/
+repo_url: https://github.com/dcode/productivity-agent-tools
+repo_name: dcode/productivity-agent-tools
+edit_uri: edit/main/docs/
+copyright: Licensed under the AGPL-3.0-or-later.
+
+# DESIGN.md and ROADMAP.md are the project's working documents. They record facts
+# about the deployment this was built against, so they stay in the repository and
+# off the published site; site pages link to them on GitHub instead.
+exclude_docs: |
+  DESIGN.md
+  ROADMAP.md
+
+theme:
+  name: material
+  features:
+    - navigation.sections
+    - navigation.top
+    - navigation.footer
+    - navigation.indexes
+    - search.suggest
+    - search.highlight
+    - content.code.copy
+    - content.action.edit
+    - toc.follow
+  palette:
+    - media: "(prefers-color-scheme: light)"
+      scheme: default
+      toggle:
+        icon: material/weather-night
+        name: Switch to dark mode
+    - media: "(prefers-color-scheme: dark)"
+      scheme: slate
+      toggle:
+        icon: material/weather-sunny
+        name: Switch to light mode
+  icon:
+    repo: fontawesome/brands/github
+
+markdown_extensions:
+  - admonition
+  - attr_list
+  - tables
+  - toc:
+      permalink: true
+  - pymdownx.highlight:
+      anchor_linenums: true
+  - pymdownx.inlinehilite
+  - pymdownx.superfences
+  - pymdownx.details
+
+# Fail the build (CI runs it with --strict) on a broken link or a page left out.
+validation:
+  nav:
+    omitted_files: warn
+    not_found: warn
+  links:
+    not_found: warn
+    anchors: warn
+    unrecognized_links: warn
+
+nav:
+  - Home: index.md
+  - Getting started: getting-started.md
+  - Configuration: configuration.md
+  - Authentication: authentication.md
+  - Products:
+      - products/index.md
+      - Jira: products/jira.md
+      - Bitbucket: products/bitbucket.md
+      - Confluence: products/confluence.md
+      - ServiceNow: products/servicenow.md
+      - Outlook mail and calendar: products/outlook.md
+  - Command line: cli.md
+  - Agents: agents.md
+  - Development: development.md

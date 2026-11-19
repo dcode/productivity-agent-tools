@@ -47,6 +47,22 @@ Last updated: 2026-11-19.
     neither `token_cmd` nor `token_env_file` is needed there day to day.
   - **Still to check live:** a real `sops` setup (waiting on helpdesk approval to allow
     it), and `set-token` with no argument in a real terminal.
+  - **Documentation site (2026-11-19, same branch):** the README had grown to ~760
+    lines, so it now covers only what this is, a quickstart and pointers, and the rest
+    moved to a Material for MkDocs site built from `docs/` (`mkdocs.yml`): getting
+    started, configuration, authentication, a page per product with its tools, the
+    command line, agents and development. CI builds it with `--strict` on every pull
+    request; `.github/workflows/docs.yml` publishes it to GitHub Pages on pushes to
+    `main`. `DESIGN.md` and this file stay in `docs/` but are **excluded from the
+    site** (`exclude_docs`), because they record facts about the work deployment
+    (internal host name, banner cookie, tenant); site pages link to them on GitHub.
+    **To do (you):** the repository is private, so Pages needs a paid plan, and on
+    GitHub Pro the published site is public even though the repo is not. If that is
+    fine, turn Pages on (Settings, Pages, Source: GitHub Actions); until then the docs
+    workflow fails at the deploy step and the README's site link is dead, though
+    `docs/` reads fine on GitHub. **Later:** Material for MkDocs reaches end of life on
+    2027-05-05; its successor, Zensical (same team, reads `mkdocs.yml`), was at 0.1.2
+    when this was set up. Revisit before then.
   - **Next action: review and merge
     [#18](https://github.com/dcode/productivity-agent-tools/pull/18) with "Squash and
     merge"** (not rebase: the branch still carries the old copies of the 0.8.0 commits,

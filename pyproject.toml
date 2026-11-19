@@ -45,6 +45,13 @@ dev = [
     "ty>=0.0.100",
 ]
 
+# The documentation site (mkdocs.yml, published to GitHub Pages). Kept apart from dev
+# so the app and its tests never depend on it: `uv run --group docs mkdocs serve`.
+docs = [
+    "mkdocs>=1.6,<2",
+    "mkdocs-material>=9.8",
+]
+
 [build-system]
 requires = ["hatchling"]
 build-backend = "hatchling.build"
@@ -68,6 +75,17 @@ check = [
     "hooks",
     "pytest",
 ]
+
+# `hatch run docs:serve` previews the documentation site; `hatch run docs:build` builds it
+# the way CI does, failing on a broken link or a page left out of the navigation.
+[tool.hatch.envs.docs]
+installer = "uv"
+dependency-groups = ["docs"]
+detached = true
+
+[tool.hatch.envs.docs.scripts]
+serve = "mkdocs serve {args}"
+build = "mkdocs build --strict {args}"
 
 # `hatch test`: coverage comes from pytest-cov (see [tool.pytest.ini_options]),
 # so plain runs and `--cover` runs behave the same and both enforce the threshold.
