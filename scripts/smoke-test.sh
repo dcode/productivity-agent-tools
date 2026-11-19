@@ -416,8 +416,9 @@ if offers outlook_mail_status; then
     "every message on the page carries its headers" \
     'r["items"] and all(isinstance(i.get("InternetMessageHeaders"), list) for i in r["items"])'
   check "mail query junk folder" -- outlook_mail_query_messages folder=junkemail top=2
-  # Does the API refuse a sort on a property the filter does not start with?
-  observe "mail query filter plus orderby" -- outlook_mail_query_messages \
+  # A filter and a sort on different properties: accepted on the DoD tenant (2026-11-19),
+  # though Graph documents refusing it. A failure here means that changed.
+  check "mail query filter plus orderby" -- outlook_mail_query_messages \
     "filter=IsRead eq false" "orderby=ReceivedDateTime desc" top=2
 else
   printf '\n== outlook mail\n   skipped: no [outlook_mail] table in the config\n'

@@ -637,8 +637,10 @@ keeps writes behind a dry-run switch that is on by default.
   `InternetMessageId` and filtering on any filterable property. Decisions:
   - Options are not parsed or rewritten here; the API validates them and its error
     message (an `InefficientFilter`, an unknown property) reaches the agent unchanged.
-    The tool docstrings carry the rules the agent most often trips on: PascalCase names,
-    single-quoted strings, and `$orderby` properties having to lead the `$filter`.
+    The tool docstrings carry the rules the agent most often trips on: PascalCase names
+    and single-quoted strings, plus what to do on an `InefficientFilter`. (Graph documents
+    that `$orderby` properties must lead the `$filter`; on the DoD Outlook REST a filter
+    and a sort on different properties were accepted, so that is advice, not a rule.)
   - Without `$select` a compact default is sent (no body, no headers), so a broad query
     cannot pull every body by accident; any string longer than `max_chars` is cut wherever
     it is in an item, and `values_truncated` says how many were.
@@ -655,7 +657,9 @@ keeps writes behind a dry-run switch that is on by default.
   - Confirmed on the DoD tenant (2026-11-18): an `InternetMessageId` filter finds the
     message; option property names are case-insensitive (Graph's camelCase works), while
     results always come back PascalCase; a collection `$select` of
-    `InternetMessageHeaders` returns them for every item.
+    `InternetMessageHeaders` returns them for every item, and the whole header set, not
+    only the well-known names; `IsRead` filter with `ReceivedDateTime` sort is accepted
+    (2026-11-19).
 - **Outlook REST v2.0 answers in PascalCase** (`Subject`, `ReceivedDateTime`,
   `EmailAddress`); the fixed tools normalize that to the snake_case models so the agent
   sees one vocabulary. OData collections are `{"value": [...]}` with `@odata.nextLink` for more.

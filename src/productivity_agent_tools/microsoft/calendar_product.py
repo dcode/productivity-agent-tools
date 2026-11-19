@@ -122,8 +122,8 @@ def register_calendar_tools(
         - Recurring series only: filter="Type eq 'SeriesMaster'"
         - With attendees: select="Subject,Start,Attendees"
 
-        With both filter and orderby, every orderby property must also appear in
-        the filter, first and in the same order.
+        If the API answers "InefficientFilter" to a filter plus an orderby, put the
+        orderby property first in the filter as well.
 
         Args:
             filter: OData $filter expression.
