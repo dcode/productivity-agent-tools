@@ -7,15 +7,14 @@ Last updated: 2026-11-19.
 
 ## Where things stand
 
-- **Version:** 0.8.0 on branch `claude/zealous-mendel-ny1eml`, in review as
-  [#17](https://github.com/dcode/productivity-agent-tools/pull/17) (opened 2026-11-19); `main` is still 0.7.0, via
-  [#15](https://github.com/dcode/productivity-agent-tools/pull/15) (2026-11-15). **After
-  the merge, tag `v0.8.0` on the commit that bumps `__version__`** (from the laptop). Tags:
+- **Version:** 0.8.0, on `main` via
+  [#17](https://github.com/dcode/productivity-agent-tools/pull/17) (2026-11-19, rebase
+  merge, so the branch's commit ids differ from `main`'s). **To do: tag `v0.8.0` at
+  f45647f** (the bump commit on `main`), from the laptop. Tags:
   `v0.5.0` at 804f319, `v0.6.0` at 9be367b, `v0.7.0` at 0235736. Release tags go on the
   commit that changes `__version__`; `v0.1.0`-`v0.4.0` predate that rule and stay where
   they are. Cloud sessions cannot push tags, so tag from the laptop.
-- **0.8.0 (branch `claude/zealous-mendel-ny1eml`, in review), all confirmed live on the
-  work laptop. `login microsoft` (2026-11-18):** the Outlook sign-in now works
+- **0.8.0 (on `main` via #17), all confirmed live on the work laptop. `login microsoft` (2026-11-18):** the Outlook sign-in now works
   like `login servicenow`. It opens
   Chrome/Edge on a temporary profile at the Microsoft authorize page (PKCE + `state`), the
   user signs in as usual (smart card stays in the browser), and the tool reads the
@@ -53,9 +52,8 @@ Last updated: 2026-11-19.
   value:
   `OUTLOOK_SEARCH`. **Run on the work laptop (2026-11-19): every check passed**, with the
   expected skips (products not configured there).
-  **Next action: review and merge
-  [#17](https://github.com/dcode/productivity-agent-tools/pull/17), then tag `v0.8.0`.** Open
-  check that remains is not a blocker: the 18 h expiry (needs a lapsed window). Settled
+  **Next action: tag `v0.8.0` at f45647f.** The one open check is the 18 h expiry
+  (needs a lapsed window; see "Confirm against the real servers"). Settled
   2026-11-19: a filter plus a sort on another property is accepted (now a normal smoke
   check), and the full header set comes back.
 - **Config groups (new, 2026-11-15):** a `[group.<name>]` table holds shared connection
