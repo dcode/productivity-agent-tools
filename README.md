@@ -1,15 +1,23 @@
 # productivity-agent-tools
 
 An MCP server that gives an AI agent (Goose first, Claude Code later) tools for
-daily work against a **self-hosted Atlassian Data Center** deployment. It covers
-Jira (read and write) and, when configured, Bitbucket (reads, plus pull-request
-comments and reviews) and Confluence (reads and search, plus creating and editing
-pages).
+daily work. Each product is switched on by its own table in the config:
+
+| Product | Tools | Sign-in |
+|---|---|---|
+| Jira (Data Center) | reads, plus comments, transitions, worklogs, edits, new issues, links | personal access token |
+| Bitbucket (Data Center) | reads, plus branches, pull-request comments and reviews | personal access token |
+| Confluence (Data Center) | reads and search, plus creating and editing pages | personal access token |
+| ServiceNow | status (more to come) | browser sign-in (`login servicenow`) |
+| Outlook mail and calendar | reads only | browser sign-in (`login microsoft`) |
+
+Writes are blocked until you turn `dry_run` off.
 
 ## Quickstart
 
-You need Python 3.14+, [uv](https://docs.astral.sh/uv/), a Jira personal access
-token, and your VPN connected if Jira needs it.
+You need Python 3.14+, [uv](https://docs.astral.sh/uv/), a way to sign in to each
+product you turn on (see the table above), and your VPN connected if your servers
+need it. These steps set up Jira; the other products are under [Setup](#setup).
 
 1. Install:
 
@@ -26,10 +34,10 @@ token, and your VPN connected if Jira needs it.
    cp config.example.toml ~/.config/productivity-agent-tools/config.toml
    ```
 
-3. Store your token (hidden prompt) and check the connection:
+3. Store your Jira token (hidden prompt) and check the connection:
 
    ```bash
-   uv run productivity-agent-tools set-token
+   uv run productivity-agent-tools set-token jira
    uv run productivity-agent-tools doctor
    ```
 
@@ -44,9 +52,15 @@ step and what to do when one fails.
 
 ## How it authenticates
 
-Every request carries your Jira **personal access token** as
-`Authorization: Bearer ...`. Nothing else is needed for a Jira you can reach
-directly.
+- **Jira, Bitbucket and Confluence** send your **personal access token** as
+  `Authorization: Bearer ...`; each product has its own (see
+  [Token sources](#token-sources)).
+- **ServiceNow** uses the browser session from `login servicenow`.
+- **Outlook** uses a refresh token from `login microsoft`, renewing short-lived
+  access tokens from it as needed.
+
+None of them asks for or stores a password. Whatever they keep is in the system
+keychain (the macOS Keychain, or the Secret Service on Linux).
 
 TLS is always verified. By default it uses the operating system's trust store, so
 internal CAs your browser already trusts work without extra setup; `ca_bundle`
@@ -100,9 +114,10 @@ Edit `base_url` to your host (scheme and host, plus a path only if every product
 shares a prefix such as `/atlassian`), and set `[jira] path` to
 the sub-path Jira is served under, or `""` if it is at the root of the host.
 
-A product is switched on by having its table in the config. With no `[jira]`
-table the Jira tools are not offered and no Jira token is needed; the same goes
-for `[bitbucket]`. An empty table is enough to turn a product on with its
+A product is switched on by having its table in the config: `[jira]`,
+`[bitbucket]`, `[confluence]`, `[servicenow]`, `[outlook_mail]` or
+`[outlook_calendar]`. Without its table a product's tools are not offered and it
+needs no credential. An empty table is enough to turn a product on with its
 defaults, and at least one product must be configured.
 
 ### One host or several
@@ -130,7 +145,27 @@ A product's own `[jira.cookies]` table replaces the top-level `[cookies]` for
 that product instead of adding to it, so a cookie meant for one host is not
 sent to another. `--cookie` on the command line adds to both.
 
-Store your token:
+When several products share a host but others do not (Atlassian on one host,
+Outlook on another), put the shared values in a group and have the products
+join it, so the top level stays neutral:
+
+```toml
+[group.atlassian]
+base_url = "https://atlassian.example.com"
+[group.atlassian.cookies]
+consent_accepted = "1"
+
+[jira]
+group = "atlassian"
+path = "/jira"
+```
+
+Each value resolves from the product's own table, then its group, then the top
+level. Paths in the config (`ca_bundle`, `token_env_file`) may use `~`, `$HOME`
+or `${HOME}`; a variable that is not set is reported as an error.
+
+Store your token. With no product named, `set-token` lists the tokens it can
+store and asks which one:
 
 ```bash
 uv run productivity-agent-tools set-token
@@ -147,15 +182,32 @@ what the server answered (see [Logging](#logging)).
 
 ### Token sources
 
-Checked in this order; the first one found wins:
+Jira, Bitbucket and Confluence each have their own token, named after the
+product: `JIRA_TOKEN`, `BITBUCKET_TOKEN`, `CONFLUENCE_TOKEN`. For each, these are
+checked in order and the first one found wins:
 
-1. Environment variable `JIRA_TOKEN`
-2. `JIRA_TOKEN=...` inside the env file named by `token_env_file` or `--token-env-file`
-   (for example `.env` or `~/.secrets/jira_token.env`)
-3. macOS Keychain (written by `set-token`)
+1. The environment variable, such as `JIRA_TOKEN`.
+2. `token_cmd`: a command that prints the token, such as a `sops`, `pass` or
+   `op` call. It runs without a shell (so no pipes; use `sh -c '...'` for one),
+   with a 30-second limit, and its output is never logged. `{product}` in it is
+   replaced by the product name, so one command can serve every product.
+3. `token_env_file`: an env file with lines such as `JIRA_TOKEN=...`
+   (`--token-env-file` on the command line overrides it).
+4. The system keychain, where `set-token` stores it.
 
-Bitbucket and Confluence use their own tokens, found the same way under the
-names `BITBUCKET_TOKEN` and `CONFLUENCE_TOKEN`.
+`token_cmd` and `token_env_file` can be set at the top of the config, in a
+`[group.<name>]` table, or in a product's own table; the most specific wins:
+
+```toml
+# One encrypted file for every product's token.
+token_cmd = "sops -d --extract '[\"{product}\"]' ~/.secrets/tokens.yaml"
+
+[jira]
+# Jira's token from somewhere else.
+token_env_file = "${HOME}/.secrets/jira_token.env"
+```
+
+If no source has a token, the error lists where it looked.
 
 ### Bitbucket
 
@@ -227,7 +279,7 @@ tool keeps the resulting session. To turn it on:
 
    A Chrome (or Edge) window opens on a new, temporary profile. Sign in there as
    you normally do, smart card included. When the helpdesk has loaded, the
-   window closes by itself and the session is stored in the macOS Keychain.
+   window closes by itself and the session is stored in the system keychain.
 
 3. Run `doctor` again; it now checks ServiceNow too. Restart your agent to load
    the new tools.
@@ -271,8 +323,8 @@ they share one Microsoft sign-in. To turn them on:
    As with ServiceNow, a Chrome (or Edge) window opens on a new, temporary
    profile, this time on the Microsoft sign-in page. Sign in as you normally
    do, smart card included. When the sign-in page hands back to webmail, the
-   window closes by itself and the refresh token is stored in the macOS
-   Keychain. `login outlook_mail` and `login outlook_calendar` do the same.
+   window closes by itself and the refresh token is stored in the system
+   keychain. `login outlook_mail` and `login outlook_calendar` do the same.
 
 3. Run `doctor` again; it now checks Outlook too. Restart your agent to load
    the new tools.
@@ -286,7 +338,7 @@ a restart, at its next hourly access-token renewal.
 To see when you signed in and when to sign in again, ask your agent (it calls
 `outlook_mail_status`), or run `call outlook_mail_status`. The estimate needs
 `sign_in_hours` under `[microsoft]` (18 in the DoD block); the status is read
-from the Keychain each time, so it reflects a sign-in done while the server runs.
+from the keychain each time, so it reflects a sign-in done while the server runs.
 
 How it differs from ServiceNow: it collects no cookies. The window opens on the
 sign-in page with a one-time PKCE challenge whose secret half never leaves this
@@ -312,8 +364,9 @@ Graph-style camelCase. Header contents (`Authentication-Results`,
 `List-Unsubscribe`) cannot be filtered on, but `select=Subject,InternetMessageHeaders`
 returns the headers for a whole page of messages to read through.
 
-If the browser sign-in cannot run, `login-microsoft` seeds a refresh token you
-captured by hand (pasted at a hidden prompt, or `--from-response token.json`).
+If the browser sign-in cannot run, `set-token microsoft` stores a refresh token
+you captured by hand (pasted at a hidden prompt, or `--from-response token.json`).
+The older `login-microsoft` does the same and is deprecated.
 
 ## Run a tool without an agent
 
@@ -355,8 +408,8 @@ stderr, because the MCP protocol owns stdout. They are readable lines in a
 terminal and one JSON object per line otherwise, such as in an agent host's log
 file.
 
-Set the level with `log_level` in the config or `--log-level` on `serve` and
-`doctor`: `debug`, `info` (default), `warning` or `error`.
+Set the level with `log_level` in the config or `--log-level` on `serve`,
+`doctor`, `call` and `login`: `debug`, `info` (default), `warning` or `error`.
 
 At `debug` every HTTP exchange is logged as an `http_request` and an
 `http_response` event: method, path, status, content type, size, duration, the
@@ -467,7 +520,21 @@ tool approval on so you see each comment or transition before it is sent.
 | `confluence_list_child_pages` | read | Pages directly under a page |
 | `confluence_create_page` | write | Create a page from Markdown or storage format, optionally under a parent |
 | `confluence_update_page` | write | Replace, append to, prepend to or find-and-replace in a page's body, or retitle or move it |
-| `servicenow_status` | read | Who is signed in to ServiceNow, when the session was saved, dry-run |
+| `servicenow_status` | read | Who is signed in to ServiceNow, when they signed in, dry-run |
+| `outlook_mail_status` | read | Who is signed in, when, and until about when the sign-in lasts |
+| `outlook_mail_list_messages` | read | Messages newest first, optionally only unread |
+| `outlook_mail_search_messages` | read | Outlook's own relevance search across subject, sender and body |
+| `outlook_mail_query_messages` | read | OData query (`filter`, `select`, `orderby`, ...), such as a lookup by Message-ID |
+| `outlook_mail_get_message` | read | One message with recipients and its body as text |
+| `outlook_mail_get_message_headers` | read | A message's internet headers (Received, Authentication-Results, List-Unsubscribe, ...) |
+| `outlook_calendar_status` | read | Who is signed in, when, and until about when the sign-in lasts |
+| `outlook_calendar_list_calendars` | read | Your calendars, with their ids |
+| `outlook_calendar_list_events` | read | Events in a date range (default the next seven days), recurrences expanded, times in UTC |
+| `outlook_calendar_query_events` | read | OData query over events (recurring meetings as one series) |
+| `outlook_calendar_get_event` | read | One event with attendees, their responses and the body as text |
+
+Each tool is offered only when its product is configured. The Outlook tools only
+ever read; there are no Outlook writes.
 
 The `bitbucket_` tools appear only when Bitbucket is configured. Only the three
 write tools change anything in Bitbucket, and `dry_run` blocks them just as it
@@ -574,9 +641,9 @@ needs checking against real servers, and what comes next.
 
 ## Data handling
 
-Whatever these tools return is sent to the model your agent is configured with.
-Confirm that model is approved for the data in your Jira before using this on
-real tickets.
+Whatever these tools return is sent to the model your agent is configured with:
+issues, code, pages, helpdesk records, mail and calendar entries. Confirm that
+model is approved for that data before using this on real work.
 
 ## Development
 
@@ -597,7 +664,10 @@ uv run pre-commit run --all-files
 uv run pytest
 ```
 
-Tests run against a fake Jira and proxy; nothing here contacts a real server.
+Tests run against fakes of each server (and a stand-in browser); nothing here
+contacts a real server. `scripts/smoke-test.sh` is the opposite: it runs every
+tool once against your real servers through `call`, read-only or in dry-run (copy
+`.env.example` to `.env` first).
 
 ### How the code is laid out
 
@@ -606,14 +676,14 @@ Product modules never make HTTP calls themselves. They talk to an `ApiClient`
 `dry_run`), and each kind of service has one adapter that implements it.
 `HttpAdapter` in `transport.py` holds what every adapter shares: TLS trust,
 extra cookies, dry-run, logging and connectivity errors. `AtlassianClient` in
-`http.py` and `ServiceNowClient` in `servicenow/http.py` add how their servers
-report results and failures. An adapter is never handed a secret: it asks a
-credential provider (`credentials.py`) for the authentication headers before
-every request, which is a fixed bearer token for the Atlassian products and
-the stored browser session for ServiceNow. A new service with different
-sign-in, such as Microsoft Graph, is a new adapter and a new product module;
-the Jira code does not change. Every adapter must honor `dry_run` in
-`write`.
+`http.py`, `ServiceNowClient` in `servicenow/http.py` and `OutlookClient` in
+`microsoft/outlook.py` add how their servers report results and failures. An
+adapter is never handed a secret: it asks a credential provider
+(`credentials.py`) for the authentication headers before every request: a fixed
+bearer token for the Atlassian products, the stored browser session for
+ServiceNow, and a renewed OAuth access token for Outlook. A new service with
+different sign-in is a new adapter and a new product module; the existing
+products do not change. Every adapter must honor `dry_run` in `write`.
 
 ### Continuous integration
 
@@ -630,10 +700,12 @@ Dependabot opens weekly pull requests for GitHub Actions and Python dependency u
 ### Releasing
 
 1. Bump the version: `hatch version minor` (or `patch`, `major`), then commit.
-2. Tag the commit with the same version, prefixed with `v`, and push the tag:
+2. Once it is on `main`, tag that commit with the same version, prefixed with
+   `v`, and push the tag. A pull request merged by rebase gets new commit ids on
+   `main`, so tag the commit there, not the one on the branch:
 
    ```bash
-   git tag v0.2.0 && git push origin v0.2.0
+   git tag v0.2.0 <commit-on-main> && git push origin v0.2.0
    ```
 
 The release workflow checks that the tag matches `__version__`, runs the full
@@ -657,16 +729,18 @@ manage their own environments:
 | `hatch run doctor` | The read-only connection check |
 | `hatch build` | Build the sdist and wheel into `dist/` |
 
-`pytest` measures branch coverage and fails below 90%; the suite currently
-sits at 100%. Tool settings live in `pyproject.toml`, except taplo's, which it
+`pytest` measures branch coverage and fails below 90%; the suite sits just
+under 100%. Tool settings live in `pyproject.toml`, except taplo's, which it
 only reads from `.taplo.toml`.
 
-Layout: `http.py`, `config.py`, `tokens.py` and `products.py` are the shared
-core. Each product is a sub-package (`jira/`, `bitbucket/`) whose `product.py`
-exposes a `Product` object, listed under the `productivity_agent_tools.products`
-entry-point group in `pyproject.toml`. Nothing in the shared core names a
-product: `server.py`, `config.py` and the CLI find them through the entry
-points. Tools that need two products at once are an `Integration` (`links.py`),
+Layout: `transport.py`, `http.py`, `config.py`, `tokens.py`, `credentials.py`,
+`browser.py` (the DevTools driver both browser sign-ins use) and `products.py`
+are the shared core. Each product lives in a sub-package (`jira/`, `bitbucket/`,
+`confluence/`, `servicenow/`, and `microsoft/` for the two Outlook products)
+whose product module exposes a `Product` object, listed under the
+`productivity_agent_tools.products` entry-point group in `pyproject.toml`.
+Nothing in the shared core names a product: `server.py`, `config.py` and the CLI
+find them through the entry points. Tools that need two products at once are an `Integration` (`links.py`),
 listed under `productivity_agent_tools.integrations`. To add a product, write
 the sub-package, add its entry point, and run `uv sync` so the entry point is
 installed.

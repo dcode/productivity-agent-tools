@@ -1,7 +1,7 @@
 [project]
 name = "productivity-agent-tools"
 dynamic = ["version"]
-description = "MCP server giving an agent daily-productivity tools for self-hosted Atlassian Data Center: Jira, Bitbucket and Confluence."
+description = "MCP server giving an agent daily-productivity tools: Jira, Bitbucket and Confluence (Data Center), ServiceNow, and Outlook mail and calendar."
 readme = "README.md"
 license = "AGPL-3.0-or-later"
 license-files = ["LICENSE"]
