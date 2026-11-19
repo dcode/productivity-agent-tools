@@ -3,17 +3,19 @@
 Read this first when coming back to the project. The design and the reasons behind it are in
 [DESIGN.md](DESIGN.md). Update this file in the same commit as the work it describes.
 
-Last updated: 2026-11-18.
+Last updated: 2026-11-19.
 
 ## Where things stand
 
-- **Version:** 0.7.0, on `main` via
-  [#15](https://github.com/dcode/productivity-agent-tools/pull/15) (2026-11-15). Tags:
+- **Version:** 0.8.0 on branch `claude/zealous-mendel-ny1eml`, in review (pull request
+  opened 2026-11-19); `main` is still 0.7.0, via
+  [#15](https://github.com/dcode/productivity-agent-tools/pull/15) (2026-11-15). **After
+  the merge, tag `v0.8.0` on the commit that bumps `__version__`** (from the laptop). Tags:
   `v0.5.0` at 804f319, `v0.6.0` at 9be367b, `v0.7.0` at 0235736. Release tags go on the
   commit that changes `__version__`; `v0.1.0`-`v0.4.0` predate that rule and stay where
   they are. Cloud sessions cannot push tags, so tag from the laptop.
-- **`login microsoft` (new, 2026-11-18, branch `claude/zealous-mendel-ny1eml`, not yet
-  merged; confirmed live on the work laptop the same day):** the Outlook sign-in now works
+- **0.8.0 (branch `claude/zealous-mendel-ny1eml`, in review), all confirmed live on the
+  work laptop. `login microsoft` (2026-11-18):** the Outlook sign-in now works
   like `login servicenow`. It opens
   Chrome/Edge on a temporary profile at the Microsoft authorize page (PKCE + `state`), the
   user signs in as usual (smart card stays in the browser), and the tool reads the
@@ -48,9 +50,12 @@ Last updated: 2026-11-18.
   message's `InternetMessageId` is looked up again, PascalCase and camelCase; page 2 is
   checked against page 1), asserts results with `expect`, and records API behaviour with
   no right answer (filter plus a non-leading `orderby`) as "observed". New `.env` value:
-  `OUTLOOK_SEARCH`. Tested here against a stub `call`, **not yet run on the laptop**.
-  **Next action: run `./scripts/smoke-test.sh` on the work laptop, then open the pull
-  request and bump to 0.8.0 with the merge.**
+  `OUTLOOK_SEARCH`. **Run on the work laptop (2026-11-19): every check passed**, with the
+  expected skips (products not configured there).
+  **Next action: review and merge the 0.8.0 pull request, then tag `v0.8.0`.** Open
+  checks that remain are not blockers: the 18 h expiry (needs a lapsed window), the
+  observed filter-plus-orderby result (read it off the smoke summary), and whether the
+  header set is complete.
 - **Config groups (new, 2026-11-15):** a `[group.<name>]` table holds shared connection
   values (`base_url`, `ca_bundle`, `timeout_seconds`, cookies) and a product joins it with
   `group = "<name>"`; resolution is product → group → top level. This came out of the first
@@ -90,8 +95,9 @@ Last updated: 2026-11-18.
 - **In use:** Goose on the work laptop, against Jira 11.3.12, Bitbucket 10.2.8 and Confluence
   10.2.19. No CI
   server (Bamboo or other) reports builds or deployments to this Bitbucket.
-- **Last smoke run:** build `v0.2.0-3-g721e8b3`, 2026-11-12: all 41 calls answered, none
-  failed. The dry-run branch create and the dry-run Epic create both work.
+- **Last smoke run:** 2026-11-19 on the 0.8.0 branch, with the Outlook and ServiceNow
+  checks: all passed, the skips expected. Before that, build `v0.2.0-3-g721e8b3`
+  (2026-11-12): all 41 Atlassian calls answered, none failed.
 - **Microsoft Graph (new):** design settled and the sign-in probe passed against the real
   tenant (the public client authenticates and is not Conditional-Access blocked).
   **Waiting on admin consent** for the read-only delegated scopes before any build. The
@@ -290,20 +296,20 @@ chance comes up and tick it here.
         token once, not once per product. (Note: `doctor` redeems per product in sequence,
         so the two "seeded at" times differ by the rotation between them — that is expected
         and confirms the token is shared.)
-  - [ ] `call outlook_calendar_status` and `outlook_mail_status`: `user_name`/`email` match
-        the mailbox.
+  - [x] `call outlook_calendar_status` and `outlook_mail_status` (smoke test, 2026-11-19;
+        both report a live "signed in at").
   - [x] Calendar via Goose (2026-11-18): found the 3 meetings in the next 7 days.
-  - [ ] `outlook_calendar_list_calendars`, then `outlook_calendar_list_events` for the next
-        week: times come back in UTC (the `Prefer` header), recurrences are expanded, and
-        the count matches the browser. Then `outlook_calendar_get_event` on one, with
-        attendees and a text body.
+  - [x] `outlook_calendar_list_calendars`, `outlook_calendar_list_events` (every start in
+        UTC, asserted) and `outlook_calendar_get_event` (smoke test, 2026-11-19); the
+        3-meeting count matched through Goose the day before.
   - [x] Under Goose, "how many unread email messages do I have" chose
         `outlook_mail_list_messages` unprompted and answered 10, which was correct
         (2026-11-18).
   - [x] Mail via Goose (2026-11-18): found messages from a named sender and showed the
         most recent one's body.
-  - [ ] `outlook_mail_list_messages` (and `unread_only=true`), `outlook_mail_search_messages`
-        on a known term, and `outlook_mail_get_message` on one (text body, truncation).
+  - [x] `outlook_mail_list_messages` (unread filter asserted), `outlook_mail_search_messages`
+        on a known term, and `outlook_mail_get_message` with truncation asserted (smoke
+        test, 2026-11-19).
   - [x] `outlook_mail_get_message_headers` through Goose (2026-11-18): the `Received`
         chain came back and named the first receiving server, and messages with
         `Authentication-Results` and `List-Unsubscribe` were found by iterating messages
@@ -314,22 +320,24 @@ chance comes up and tick it here.
         in size), and that Authentication-Results / Received / List-Unsubscribe are present
         and useful for triage. **Open question:** does the DoD Outlook REST v2.0 return the
         full header set, or a subset?
-  - [ ] OData query tools (`scripts/smoke-test.sh` runs and asserts all of these):
+  - [x] OData query tools (`scripts/smoke-test.sh` runs and asserts these; passed
+        2026-11-19):
     - [x] `outlook_mail_query_messages` with
           `filter=InternetMessageId eq '<a real Message-ID>'` found the message
           (2026-11-18). The result had `returned`, `total`, `more_available`,
           `next_skip`, `values_truncated` and `items`, as designed.
-    - [ ] `count=true` reports `total`; `top=5` then `skip=<next_skip>` gives the next page
-          with no overlap (add `orderby=ReceivedDateTime desc` for a stable order).
-    - [ ] `folder=junkemail` reads the Junk folder.
-    - [ ] A filter plus a non-leading `orderby` returns the API's `InefficientFilter`
-          message, readable as is.
+    - [x] `count=true` reports `total`; `skip=<next_skip>` gives a next page with no
+          overlap.
+    - [x] `folder=junkemail` reads the Junk folder.
+    - [ ] A filter plus a non-leading `orderby`: accepted or refused? The smoke test
+          records it under "observed" (not a pass/fail); note the answer here.
     - [x] camelCase (`internetMessageId`, as in Graph) is accepted too (2026-11-18);
           results still come back PascalCase (`Id`, `Subject`, `InternetMessageHeaders`).
     - [x] `select=Subject,InternetMessageHeaders` on a collection returns the headers for
           every item (2026-11-18), so triage pages through mail reading headers in one
           request per page. The extended-property fallback (`String 0x007D`) is not needed.
-    - [ ] `outlook_calendar_query_events` with `filter=Type eq 'SeriesMaster'`.
+    - [x] `outlook_calendar_query_events` with `filter=Type eq 'SeriesMaster'` returns
+          only series.
   - [ ] Confirm a 401 (let the 18 h sign-in window lapse) is reported as "run
         login microsoft", and that signing in again fixes a running server without a
         restart.
