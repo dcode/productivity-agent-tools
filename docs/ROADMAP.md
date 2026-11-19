@@ -7,6 +7,34 @@ Last updated: 2026-11-19.
 
 ## Where things stand
 
+- **0.9.0, in review (branch `claude/zealous-mendel-ny1eml`, 2026-11-19). Start here.**
+  Asked for on 2026-11-19: make credentials and the user-facing text match what the project
+  has become. All defaults below were agreed before the work started.
+  - **`token_cmd`** (new): a command that prints a token (`sops`, `pass`, `op`), at the
+    top level, in a group or in a product table; no shell, 30 s limit, output never
+    logged, `{product}` replaced by the token name. Lookup order is now environment,
+    `token_cmd`, env file, keychain; the not-found error lists where it looked.
+  - **`token_env_file` per product and per group**, not only at the top; each source
+    resolves from the most specific level. **`$HOME` / `${VAR}` now expand** in paths and
+    commands (the cause of `${HOME}/.secrets/jira_token.env` not being found); an unset
+    variable is an error naming the key.
+  - **`set-token` with no name** lists the tokens and asks (number or name); without a
+    terminal it fails with the list. It no longer defaults to Jira.
+  - **`set-token microsoft`** stores a hand-captured refresh token (`--from-response`,
+    `--verify`); **`login-microsoft` is deprecated** (hidden, prints a note). Remove it in a
+    later release.
+  - **Text audit:** CLI help (one placeholder was being swallowed by the help renderer),
+    error messages, agent instructions (Atlassian products now say what to do on a bad
+    token, as ServiceNow and Outlook already did), the six status tools, README, DESIGN,
+    config examples and package metadata. "macOS Keychain" became "the system keychain".
+    Deliberately left: the status models' field names (`token_source`, and
+    `session_source` for ServiceNow) since agents and scripts read them, and the
+    `scripts/*_probe.py` spikes, which are history.
+  - **Not yet checked live:** `token_cmd` with your real `sops` setup, and
+    `token_env_file = "${HOME}/..."` (the case that failed). `set-token` with no argument
+    in a real terminal.
+  - **Next action: review and merge the 0.9.0 pull request, then tag `v0.9.0` on the
+    bump commit as it lands on `main`.** Also still to do: tag `v0.8.0` at f45647f.
 - **Version:** 0.8.0, on `main` via
   [#17](https://github.com/dcode/productivity-agent-tools/pull/17) (2026-11-19, rebase
   merge, so the branch's commit ids differ from `main`'s). **To do: tag `v0.8.0` at
@@ -92,7 +120,7 @@ Last updated: 2026-11-19.
   spikes and version 0.4.0 (built on `claude/servicenow-credential-seam`).
 - **Also on `main`, in 0.5.0:** the Outlook REST spikes and the Microsoft
   refresh-token lifecycle (`login-microsoft`).
-- **Tests:** 568 passing, about 99.98% branch coverage. All hooks clean.
+- **Tests:** 595 passing, about 99.98% branch coverage. All hooks clean.
 - **In use:** Goose on the work laptop, against Jira 11.3.12, Bitbucket 10.2.8 and Confluence
   10.2.19. No CI
   server (Bamboo or other) reports builds or deployments to this Bitbucket.
@@ -140,8 +168,10 @@ Last updated: 2026-11-19.
       generic extra cookies, per-product hosts and paths behind the `ApiClient` protocol
 - [x] Diagnostics: structlog, debug HTTP logging without secrets, explained redirects and
       suspicious paths, `doctor` per product
-- [x] CLI: `serve`, `doctor`, `set-token`, `export-ca`, `call` (with `--field`),
-      `configure-agent` (Goose)
+- [x] CLI: `serve`, `doctor`, `set-token` (asks which when unnamed), `login`, `export-ca`,
+      `call` (with `--field`), `configure-agent` (Goose)
+- [x] Token sources: environment, `token_cmd`, env file, keychain; command and file set
+      per product, per group or at the top; `$VAR` and `~` expanded
 - [x] Project: hatch, uv, ruff, ty, rumdl, taplo, pre-commit, CI on Linux and macOS, tag
       releases, Dependabot, `scripts/smoke-test.sh`
 - [x] Products as plugins: `Product` objects found through the
