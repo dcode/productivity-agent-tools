@@ -33,8 +33,11 @@ Last updated: 2026-11-19.
   - **Not yet checked live:** `token_cmd` with your real `sops` setup, and
     `token_env_file = "${HOME}/..."` (the case that failed). `set-token` with no argument
     in a real terminal.
-  - **Next action: review and merge the 0.9.0 pull request, then tag `v0.9.0` on the
-    bump commit as it lands on `main`.** Also still to do: tag `v0.8.0` at f45647f.
+  - **Next action: review and merge
+    [#18](https://github.com/dcode/productivity-agent-tools/pull/18) with "Squash and
+    merge"** (not rebase: the branch still carries the old copies of the 0.8.0 commits,
+    whose content is already on `main`), **then tag `v0.9.0` on the squash commit.** Also
+    still to do: tag `v0.8.0` at f45647f.
 - **Version:** 0.8.0, on `main` via
   [#17](https://github.com/dcode/productivity-agent-tools/pull/17) (2026-11-19, rebase
   merge, so the branch's commit ids differ from `main`'s). **To do: tag `v0.8.0` at
