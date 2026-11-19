@@ -48,15 +48,16 @@ Last updated: 2026-11-19.
   **Smoke test covers Outlook and ServiceNow (2026-11-18):** `scripts/smoke-test.sh` now
   runs every Outlook tool and `servicenow_status`, chaining real values (an inbox
   message's `InternetMessageId` is looked up again, PascalCase and camelCase; page 2 is
-  checked against page 1), asserts results with `expect`, and records API behaviour with
-  no right answer (filter plus a non-leading `orderby`) as "observed". New `.env` value:
+  checked against page 1), asserts results with `expect`, and can record API behaviour
+  with no right answer as "observed" (`observe`; none left after 2026-11-19). New `.env`
+  value:
   `OUTLOOK_SEARCH`. **Run on the work laptop (2026-11-19): every check passed**, with the
   expected skips (products not configured there).
   **Next action: review and merge
   [#17](https://github.com/dcode/productivity-agent-tools/pull/17), then tag `v0.8.0`.** Open
-  checks that remain are not blockers: the 18 h expiry (needs a lapsed window), the
-  observed filter-plus-orderby result (read it off the smoke summary), and whether the
-  header set is complete.
+  check that remains is not a blocker: the 18 h expiry (needs a lapsed window). Settled
+  2026-11-19: a filter plus a sort on another property is accepted (now a normal smoke
+  check), and the full header set comes back.
 - **Config groups (new, 2026-11-15):** a `[group.<name>]` table holds shared connection
   values (`base_url`, `ca_bundle`, `timeout_seconds`, cookies) and a product joins it with
   `group = "<name>"`; resolution is product → group → top level. This came out of the first
@@ -314,13 +315,9 @@ chance comes up and tick it here.
   - [x] `outlook_mail_get_message_headers` through Goose (2026-11-18): the `Received`
         chain came back and named the first receiving server, and messages with
         `Authentication-Results` and `List-Unsubscribe` were found by iterating messages
-        and reading their headers. So the DoD API returns those headers (whether it
-        returns the *full* set is still open, below).
-  - [ ] `outlook_mail_get_message_headers` on a real message: confirm
-        `InternetMessageHeaders` actually comes back (it is `$select`-only and may be capped
-        in size), and that Authentication-Results / Received / List-Unsubscribe are present
-        and useful for triage. **Open question:** does the DoD Outlook REST v2.0 return the
-        full header set, or a subset?
+        and reading their headers.
+  - [x] `outlook_mail_get_message_headers` returns the **full header set** (every header,
+        not just the well-known names), confirmed 2026-11-19.
   - [x] OData query tools (`scripts/smoke-test.sh` runs and asserts these; passed
         2026-11-19):
     - [x] `outlook_mail_query_messages` with
@@ -330,8 +327,10 @@ chance comes up and tick it here.
     - [x] `count=true` reports `total`; `skip=<next_skip>` gives a next page with no
           overlap.
     - [x] `folder=junkemail` reads the Junk folder.
-    - [ ] A filter plus a non-leading `orderby`: accepted or refused? The smoke test
-          records it under "observed" (not a pass/fail); note the answer here.
+    - [x] A filter plus a sort on another property (`IsRead eq false` with
+          `ReceivedDateTime desc`) is **accepted** (2026-11-19), despite Graph's documented
+          rule; the tool docstrings now give it as advice for an `InefficientFilter`, and
+          the smoke test checks it as a normal call.
     - [x] camelCase (`internetMessageId`, as in Graph) is accepted too (2026-11-18);
           results still come back PascalCase (`Id`, `Subject`, `InternetMessageHeaders`).
     - [x] `select=Subject,InternetMessageHeaders` on a collection returns the headers for

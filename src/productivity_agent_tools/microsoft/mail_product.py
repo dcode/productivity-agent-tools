@@ -117,9 +117,9 @@ def register_mail_tools(server: MCPServer, mail: OutlookMailClient, context: Too
         - Internet headers for a whole page of messages in one request:
           select="Subject,InternetMessageHeaders", top=25
 
-        Rules the API enforces: with both filter and orderby, every orderby
-        property must also appear in the filter, first and in the same order (an
-        "InefficientFilter" error means this). Header contents
+        A filter and an orderby on different properties work together (unread,
+        newest first is fine). If the API ever answers "InefficientFilter", put
+        the orderby property first in the filter as well. Header contents
         (InternetMessageHeaders) cannot be filtered on: to find mailing-list mail
         (List-Unsubscribe) or failed sender checks (Authentication-Results), page
         through messages with the headers selected, narrowing first with any
