@@ -88,11 +88,12 @@ def register_confluence_tools(
     @server.tool(annotations=READ)
     @anticipated
     async def confluence_status() -> ConfluenceStatus:
-        """Check the Confluence connection: who is signed in, their personal space, and dry-run.
+        """Check the Confluence connection: the account, where its token comes from, and dry-run.
 
-        Call this first if another Confluence tool fails, to see what is wrong.
-        The personal_space key is where the user's own pages, such as an
-        "About me" page, usually go.
+        Call this first if another confluence_ tool fails, to see what is wrong. If
+        the token is rejected or missing, only the user can fix that: ask them to
+        run 'productivity-agent-tools set-token confluence'. The personal_space key
+        is where the user's own pages, such as an "About me" page, usually go.
         """
         profile = await confluence.myself()
         username = text(profile, "username")

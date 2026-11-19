@@ -67,7 +67,8 @@ def _no_products() -> str:
 
 app = App(
     name="productivity-agent-tools",
-    help="MCP server and setup commands for self-hosted Atlassian tools.",
+    help="MCP server and setup commands for work tools: Jira, Bitbucket and Confluence "
+    "(Data Center), ServiceNow, and Outlook mail and calendar.",
     version=__version__,
 )
 
@@ -95,7 +96,8 @@ TokenEnvFileOption = Annotated[
     Path | None,
     Parameter(
         name="--token-env-file",
-        help="Env file defining <PRODUCT>_TOKEN, such as JIRA_TOKEN. Overrides the config file.",
+        help="Env file of token lines such as JIRA_TOKEN=... (the product name in capitals, "
+        "then _TOKEN). Overrides token_env_file at every level of the config file.",
     ),
 ]
 LogLevelOption = Annotated[
@@ -468,7 +470,7 @@ def serve(
     token_env_file: TokenEnvFileOption = None,
     log_level: LogLevelOption = None,
 ) -> None:
-    """Run the MCP server over stdio (this is what Goose launches)."""
+    """Run the MCP server over stdio. This is what an agent such as Goose starts."""
 
     async def run() -> None:
         await _serve(await _resolve_settings(config, dry_run, cookie, token_env_file, log_level))
@@ -488,7 +490,10 @@ def doctor(
     token_env_file: TokenEnvFileOption = None,
     log_level: LogLevelOption = None,
 ) -> None:
-    """Check configuration, token, TLS trust and login. Read-only."""
+    """Check the config, then each configured product: its credential, connection and a read.
+
+    Read-only. Exits non-zero if any check fails.
+    """
     expanded = config.expanduser()
 
     async def run() -> bool:
@@ -791,7 +796,7 @@ def login(
     config: ConfigOption = DEFAULT_CONFIG_PATH,
     log_level: LogLevelOption = None,
 ) -> None:
-    """Sign in to a product through the browser and store the session in the keychain.
+    """Sign in to a product through the browser and store the result in the system keychain.
 
     'microsoft' (or either Outlook product) signs in to Microsoft once for both
     Outlook products, using the client in the [microsoft] table.
@@ -836,7 +841,7 @@ def login_microsoft(
 
 @app.command(name="export-ca")
 def export_ca(output: Path = Path("~/ca-bundle.pem")) -> None:
-    """Export the keychain's trusted root certificates to a PEM bundle.
+    """Export the macOS keychain's trusted root certificates to a PEM bundle.
 
     Args:
         output: Where to write the bundle.

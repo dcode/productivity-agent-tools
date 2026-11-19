@@ -31,10 +31,13 @@ from productivity_agent_tools.tooling import READ, anticipated
 
 INSTRUCTIONS: str = (
     "The outlook_mail_ tools read the user's Microsoft 365 mailbox (list, search and read "
-    "messages) read-only over the Outlook REST API. The sign-in is a refresh token seeded "
-    "once per sign-in window (about 18 hours); when a tool reports that the token can no "
-    "longer be redeemed, do not retry: ask the user to run "
-    "'productivity-agent-tools login microsoft' in a terminal, then continue."
+    "messages) read-only over the Outlook REST API. For exact lookups (a Message-ID, a "
+    "sender, a date range) use outlook_mail_query_messages. The user signs in with "
+    "'productivity-agent-tools login microsoft', which lasts for the tenant's sign-in "
+    "window (about 18 hours on some tenants); outlook_mail_status says when it ends. When "
+    "an outlook_mail_ tool reports that the sign-in has expired or cannot be found, do not "
+    "retry: ask the user to run 'productivity-agent-tools login microsoft' in a terminal, "
+    "then continue."
 )
 
 
@@ -50,10 +53,11 @@ def register_mail_tools(server: MCPServer, mail: OutlookMailClient, context: Too
     @server.tool(annotations=READ)
     @anticipated
     async def outlook_mail_status() -> OutlookStatus:
-        """Check the Outlook mail connection: who is signed in, and the token source.
+        """Check the Outlook mail connection: who is signed in, when, and until when.
 
-        Call this first if another outlook_mail tool fails. If it says the token
-        can no longer be redeemed, only the user can fix that: ask them to run
+        Call this first if another outlook_mail_ tool fails, to see what is wrong,
+        or to tell the user when they must sign in again. If the sign-in has
+        expired, only the user can fix that: ask them to run
         'productivity-agent-tools login microsoft'.
         """
         return status(

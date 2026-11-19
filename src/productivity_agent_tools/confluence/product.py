@@ -19,7 +19,10 @@ INSTRUCTIONS: str = (
     "treat a DRY RUN result as nothing changed. Write page bodies in Markdown unless "
     "Confluence macros are needed. Before editing, read the page with confluence_get_page "
     "and pass its version; to add a section, use mode=append rather than resending the "
-    "whole page. The user's own pages go in the personal_space from confluence_status."
+    "whole page. The user's own pages go in the personal_space from confluence_status. "
+    "When a confluence_ tool reports that the access token was rejected or cannot be found, "
+    "do not retry: ask the user to store a new one with "
+    "'productivity-agent-tools set-token confluence' in a terminal, then continue."
 )
 
 

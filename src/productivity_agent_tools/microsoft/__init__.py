@@ -1,8 +1,9 @@
-"""Microsoft 365 (Outlook REST) stopgap: the OAuth token lifecycle.
+"""Microsoft 365 over the Outlook REST API: sign-in, credential, and the Outlook products.
 
 While the proper Microsoft Graph client waits on admin consent, this package
-authenticates against the gov-cloud Outlook REST API with a refresh token
-harvested from a browser sign-in: it is seeded once per Conditional-Access
-sign-in window, then renewed silently. The adapter and tools that use it are
-added separately; this package is only the credential.
+reads mail and calendar through the Outlook REST API v2.0 with the refresh token
+of the webmail single-page app. ``login microsoft`` (``signin.py``) gets one by
+driving a browser sign-in, once per Conditional-Access sign-in window; the
+credential (``credentials.py``) renews access tokens from it silently. The
+``outlook_calendar`` and ``outlook_mail`` products share that one credential.
 """

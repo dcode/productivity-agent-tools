@@ -1,10 +1,11 @@
-"""Seeding a Microsoft refresh token captured by hand (the ``login-microsoft`` fallback).
+"""Storing a Microsoft refresh token captured by hand (``set-token microsoft``).
 
 ``login microsoft`` (``signin.py``) normally collects the refresh token itself.
-When it cannot run, the user signs in to webmail as usual and captures the token
-response (or just its refresh token) from the browser, then seeds it here once
-per Conditional-Access sign-in window. Seeding verifies the token by redeeming it once, which
-also rotates it, so what is stored is the rotated token, not the pasted one.
+When it cannot run, the user signs in to webmail as usual, captures the token
+response (or just its refresh token) from the browser, and stores it with
+``set-token microsoft`` once per Conditional-Access sign-in window. Storing
+verifies the token by redeeming it once, which also rotates it, so what is
+stored is the rotated token, not the pasted one.
 """
 
 from __future__ import annotations
@@ -85,7 +86,8 @@ async def seed(
     await store(session, "microsoft")
     minutes = max(0, int((grant.expires_at - now()).total_seconds()) // 60)
     return (
-        "Seeded the Microsoft refresh token in the system keychain and verified it: minted "
+        "Stored the Microsoft refresh token in the system keychain and verified it: it gave "
         f"an access token for scope '{grant.scope}', good for about {minutes} minutes. It "
-        "will renew silently until the sign-in window ends (~18 h), then sign in again."
+        "renews silently until the tenant's sign-in window ends; then run "
+        "'productivity-agent-tools login microsoft' again."
     )

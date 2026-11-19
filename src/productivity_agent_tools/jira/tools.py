@@ -75,9 +75,11 @@ def register_jira_tools(
     @server.tool(annotations=_READ)
     @_anticipated
     async def jira_status() -> ServerStatus:
-        """Check the Jira connection and report who is logged in and whether writes are blocked.
+        """Check the Jira connection: the account, where its token comes from, and dry-run.
 
-        Call this first if another Jira tool fails, to see what is wrong.
+        Call this first if another jira_ tool fails, to see what is wrong. If the
+        token is rejected or missing, only the user can fix that: ask them to run
+        'productivity-agent-tools set-token jira'.
         """
         profile = await jira.myself()
         name = profile.get("name")

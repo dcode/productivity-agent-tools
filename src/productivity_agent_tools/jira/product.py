@@ -16,6 +16,9 @@ INSTRUCTIONS: str = (
     "DRY RUN, nothing was changed; tell the user so and do not claim the update was made. "
     "Make each write call exactly once; if a script calls a tool, do not run the script's "
     "body twice. "
+    "When a jira_ tool reports that the access token was rejected or cannot be found, "
+    "do not retry: ask the user to store a new one with "
+    "'productivity-agent-tools set-token jira' in a terminal, then continue. "
     "Jira text uses wiki markup, not Markdown. An Epic is created with epic_name; other "
     "issues join an epic with epic (the epic's key)."
 )

@@ -77,9 +77,11 @@ def register_bitbucket_tools(
     @server.tool(annotations=READ)
     @anticipated
     async def bitbucket_status() -> BitbucketStatus:
-        """Check the Bitbucket connection, the access token, who is signed in, and dry-run.
+        """Check the Bitbucket connection: the account, where its token comes from, and dry-run.
 
-        Call this first if another Bitbucket tool fails, to see what is wrong.
+        Call this first if another bitbucket_ tool fails, to see what is wrong. If
+        the token is rejected or missing, only the user can fix that: ask them to
+        run 'productivity-agent-tools set-token bitbucket'.
         """
         version = await bitbucket.server_version()
         await bitbucket.list_pull_requests(max_results=1)

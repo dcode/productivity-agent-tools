@@ -109,8 +109,8 @@ class MicrosoftCredential:
             The bearer header for a request made now.
 
         Raises:
-            AuthenticationError: If nothing is seeded, or the refresh token can no
-                longer be redeemed (the user must sign in again and re-seed).
+            AuthenticationError: If nothing is stored, or the refresh token can no
+                longer be redeemed (the user must sign in again).
             ApiError, ConnectivityError: If the token endpoint refuses or cannot be reached.
         """
         if header := self._fresh_header():
@@ -163,10 +163,10 @@ async def microsoft_token(name: str, sources: TokenSources) -> Credential:
         sources: Unused; the refresh-token session is only ever in the keychain.
 
     Returns:
-        The credential, described by when the session was seeded.
+        The credential, described by when the user signed in.
 
     Raises:
-        AuthenticationError: If no session is seeded yet.
+        AuthenticationError: If no session is stored yet.
     """
     del sources
     session = await load_session(name)

@@ -14,12 +14,14 @@ INSTRUCTIONS: str = (
     "bitbucket_review_pull_request change team-visible data: confirm the exact branch "
     "name, comment text or review with the user before calling them, and treat a DRY RUN "
     "result as nothing changed. To start work on a Jira issue, call bitbucket_create_branch "
-    "with its issue_key and a branch_type. Most take a "
-    "project key and a "
+    "with its issue_key and a branch_type. Most tools take a project key and a "
     "repository slug; when the user names the project they work in, call "
     "bitbucket_set_default_project once and leave project out afterwards. To say what "
     "still blocks a pull request, use bitbucket_get_pull_request_merge_status. Bitbucket "
-    "text uses Markdown."
+    "text uses Markdown. "
+    "When a bitbucket_ tool reports that the access token was rejected or cannot be found, "
+    "do not retry: ask the user to store a new one with "
+    "'productivity-agent-tools set-token bitbucket' in a terminal, then continue."
 )
 
 

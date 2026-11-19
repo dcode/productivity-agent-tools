@@ -94,8 +94,8 @@ class OutlookClient(HttpAdapter):
         suffix = f" ({detail})" if detail else ""
         if status == 401:
             raise AuthenticationError(
-                "Outlook rejected the access token (HTTP 401). The seeded refresh token can "
-                f"probably no longer be redeemed. {RESEED_ADVICE}{suffix}"
+                "Outlook rejected the access token (HTTP 401). The stored sign-in can probably "
+                f"no longer be renewed. {RESEED_ADVICE}{suffix}"
             )
         if status in (301, 302, 303, 307, 308):
             target = without_query(response.url.join(response.headers.get("location", "")))
