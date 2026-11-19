@@ -168,7 +168,9 @@ class AtlassianClient(HttpAdapter):
         if status == 401:
             raise AuthenticationError(
                 "The server rejected the access token (HTTP 401). It may have expired or "
-                f"been revoked; create a new one and run set-token.{suffix}"
+                "been revoked: create a new personal access token and store it with "
+                "'productivity-agent-tools set-token', or update it wherever it comes from "
+                f"(the environment, token_cmd or token_env_file).{suffix}"
             )
         if status == 403:
             raise PermissionDeniedError(f"You do not have permission for this action.{suffix}")

@@ -8,10 +8,10 @@
 #
 #   productivity-agent-tools login microsoft
 #
-# If the browser sign-in cannot run, seed a refresh token captured by hand:
+# If the browser sign-in cannot run, store a refresh token captured by hand:
 #
-#   productivity-agent-tools login-microsoft          # paste the refresh token, or
-#   productivity-agent-tools login-microsoft --from-response token.json
+#   productivity-agent-tools set-token microsoft      # paste the refresh token, or
+#   productivity-agent-tools set-token microsoft --from-response token.json
 #
 # Observed from a real DoD webmail sign-in (2026-11-14). This is a stopgap over
 # the Outlook REST API while the proper Microsoft Graph client awaits admin
@@ -33,9 +33,6 @@ origin = "https://webmail.apps.mil"
 redirect_uri = "https://webmail.apps.mil/mail/oauthRedirect.html"
 # The Outlook resource; .default asks for everything the client is consented for.
 scope = "https://outlook-dod.office365.us/.default"
-# The Outlook REST API the token is for (read by the login commands only; the
-# products share the base_url set under [group.microsoft] below).
-base_url = "https://outlook-dod.office365.us/api/v2.0"
 # How long the tenant lets one sign-in be renewed: the DoD Conditional Access
 # sign-in frequency, observed as 18 h (AADSTS70043 after that). Only used to tell
 # you (and the status tools) when to run `login microsoft` again.

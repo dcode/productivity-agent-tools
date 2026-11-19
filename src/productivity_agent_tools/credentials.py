@@ -12,10 +12,9 @@ the product is connected and says where it came from.
 
 from collections.abc import Awaitable, Callable, Mapping
 from dataclasses import dataclass, field
-from pathlib import Path
 from typing import Protocol
 
-from productivity_agent_tools.tokens import resolve_token
+from productivity_agent_tools.tokens import TokenSources, resolve_token
 
 
 class HeaderProvider(Protocol):
@@ -55,12 +54,13 @@ class Credential:
 class CredentialResolver(Protocol):
     """Finds a product's credential when the product is connected."""
 
-    async def __call__(self, name: str, env_file: Path | None) -> Credential:
+    async def __call__(self, name: str, sources: TokenSources) -> Credential:
         """Find the credential stored under a name.
 
         Args:
             name: Name the credential is stored under, such as ``"jira"``.
-            env_file: The configured token env file, for resolvers that read one.
+            sources: The ``token_cmd`` and ``token_env_file`` that apply to the product,
+                for resolvers that read a token; others ignore them.
 
         Returns:
             The credential and where it was found.
@@ -88,19 +88,19 @@ def bearer_token(token: str) -> HeaderProvider:
     return provide
 
 
-async def personal_access_token(name: str, env_file: Path | None) -> Credential:
-    """Resolve a personal access token from the environment, an env file or the keychain.
+async def personal_access_token(name: str, sources: TokenSources) -> Credential:
+    """Resolve a personal access token: environment, token_cmd, env file, then keychain.
 
     Args:
         name: Name the token is stored under, such as ``"jira"``.
-        env_file: Optional env file to consult after the environment.
+        sources: The ``token_cmd`` and ``token_env_file`` that apply to the product.
 
     Returns:
         A bearer credential built from the token, and where the token was found.
 
     Raises:
         TokenNotFoundError: If no source holds a token.
-        ConfigError: If a configured env file cannot be read.
+        ConfigError: If a configured env file cannot be read or the command fails.
     """
-    token = await resolve_token(name, env_file)
+    token = await resolve_token(name, sources)
     return Credential(headers=bearer_token(token.value), source=token.source)

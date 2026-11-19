@@ -24,7 +24,7 @@ from productivity_agent_tools.http import AtlassianClient
 from productivity_agent_tools.jira.client import JiraClient
 from productivity_agent_tools.jira.settings import JiraSettings
 from productivity_agent_tools.server import Connected, build_server
-from productivity_agent_tools.tokens import resolve_token, store_token
+from productivity_agent_tools.tokens import TokenSources, resolve_token, store_token
 from tests.conftest import FakeJira
 
 API = "/jira/rest/api/2"
@@ -204,8 +204,8 @@ async def test_keychain_fallbacks_and_store(
 
     other = tmp_path / "other.env"
     other.write_text("SOMETHING_ELSE=1\n")
-    token = await resolve_token("jira", other, {})
-    assert (token.value, token.source) == ("kept", "macOS Keychain")
+    token = await resolve_token("jira", TokenSources(env_file=other), {})
+    assert (token.value, token.source) == ("kept", "the system keychain")
 
     def broken(service: str, user: str) -> str:
         raise keyring.errors.KeyringError("locked")

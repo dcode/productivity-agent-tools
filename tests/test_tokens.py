@@ -4,7 +4,12 @@ import keyring
 import pytest
 
 from productivity_agent_tools.errors import ConfigError, TokenNotFoundError
-from productivity_agent_tools.tokens import ResolvedToken, parse_env_file, resolve_token
+from productivity_agent_tools.tokens import (
+    ResolvedToken,
+    TokenSources,
+    parse_env_file,
+    resolve_token,
+)
 
 
 @pytest.fixture(autouse=True)
@@ -26,15 +31,15 @@ async def test_precedence_env_then_file_then_keychain(
     env_file.write_text("JIRA_TOKEN=from-file\n")
     keychain[("productivity-agent-tools", "jira")] = "from-keychain"
 
-    token = await resolve_token("jira", env_file, {"JIRA_TOKEN": "from-env"})
+    token = await resolve_token("jira", TokenSources(env_file=env_file), {"JIRA_TOKEN": "from-env"})
     assert (token.value, token.source) == ("from-env", "environment variable JIRA_TOKEN")
 
-    token = await resolve_token("jira", env_file, {})
+    token = await resolve_token("jira", TokenSources(env_file=env_file), {})
     assert token.value == "from-file"
     assert str(env_file) in token.source
 
     token = await resolve_token("jira", None, {})
-    assert (token.value, token.source) == ("from-keychain", "macOS Keychain")
+    assert (token.value, token.source) == ("from-keychain", "the system keychain")
 
 
 async def test_no_token_anywhere_explains_the_options() -> None:
@@ -44,7 +49,7 @@ async def test_no_token_anywhere_explains_the_options() -> None:
 
 async def test_unreadable_env_file_is_a_config_error(tmp_path: Path) -> None:
     with pytest.raises(ConfigError):
-        await resolve_token("jira", tmp_path / "missing.env", {})
+        await resolve_token("jira", TokenSources(env_file=tmp_path / "missing.env"), {})
 
 
 def test_token_value_is_not_in_repr() -> None:

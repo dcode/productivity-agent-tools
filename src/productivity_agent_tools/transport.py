@@ -52,7 +52,8 @@ def build_ssl_context(ca_bundle: Path | None) -> ssl.SSLContext:
         return ssl.create_default_context(cafile=str(ca_bundle))
     except (OSError, ssl.SSLError) as exc:
         raise ConfigError(
-            f"Could not load CA bundle {ca_bundle}. Run 'productivity-agent-tools export-ca'."
+            f"Could not load CA bundle {ca_bundle}: it must be a readable PEM file. On macOS, "
+            "'productivity-agent-tools export-ca' writes one from the system keychain."
         ) from exc
 
 

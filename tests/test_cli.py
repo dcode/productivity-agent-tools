@@ -156,26 +156,100 @@ def test_doctor_command_exits_cleanly_on_bad_config(tmp_path: Path) -> None:
     assert info.value.code == 1
 
 
+class Keychain:
+    def __init__(self) -> None:
+        self.stored: list[tuple[str, str]] = []
+
+    async def store(self, product: str, token: str) -> None:
+        self.stored.append((product, token))
+
+
+@pytest.fixture
+def keychain(monkeypatch: pytest.MonkeyPatch) -> Keychain:
+    found = Keychain()
+    monkeypatch.setattr(cli, "store_token", found.store)
+    return found
+
+
+def answer_prompts(monkeypatch: pytest.MonkeyPatch, token: str, *, tty: bool = True) -> list[str]:
+    """Type ``token`` at the hidden prompt; record each prompt shown."""
+    prompts: list[str] = []
+
+    def typed(prompt: str) -> str:
+        prompts.append(prompt)
+        return token
+
+    monkeypatch.setattr(cli.getpass, "getpass", typed)
+    monkeypatch.setattr(cli.sys.stdin, "isatty", lambda: tty, raising=False)
+    return prompts
+
+
 def test_set_token_stores_what_was_typed(
-    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], keychain: Keychain
 ) -> None:
-    stored: list[tuple[str, str]] = []
+    prompts = answer_prompts(monkeypatch, "  s3cret \n")
+    cli.set_token("Bitbucket")
+    assert keychain.stored == [("bitbucket", "s3cret")]
+    assert prompts == ["Bitbucket personal access token for bitbucket (hidden): "]
+    out = capsys.readouterr().out
+    assert "Stored the bitbucket token in the system keychain" in out
+    assert "BITBUCKET_TOKEN" in out and "s3cret" not in out
 
-    async def store(product: str, token: str) -> None:
-        stored.append((product, token))
 
-    monkeypatch.setattr(cli.getpass, "getpass", lambda prompt: "  s3cret \n")
-    monkeypatch.setattr(cli, "store_token", store)
+@pytest.mark.parametrize("answer", ["3", "jira", " JIRA "])
+def test_set_token_with_no_name_asks_which_one(
+    answer: str,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    keychain: Keychain,
+) -> None:
+    answer_prompts(monkeypatch, "tok")
+    monkeypatch.setattr("builtins.input", lambda prompt: answer)
     cli.set_token()
-    assert stored == [("jira", "s3cret")]
-    assert "s3cret" not in capsys.readouterr().out
+    assert keychain.stored == [("jira", "tok")]
+    listing = capsys.readouterr().out
+    assert "1. bitbucket: Bitbucket personal access token" in listing
+    assert "4. microsoft: Outlook Calendar, Outlook Mail: a refresh token" in listing
+    assert "servicenow" not in listing  # signs in through the browser; nothing to store
 
 
-def test_set_token_refuses_empty_input(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(cli.getpass, "getpass", lambda prompt: "   ")
+@pytest.mark.parametrize("answer", ["9", "gitlab", ""])
+def test_set_token_refuses_an_answer_off_the_list(
+    answer: str, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    answer_prompts(monkeypatch, "tok")
+    monkeypatch.setattr("builtins.input", lambda prompt: answer)
     with pytest.raises(SystemExit) as info:
         cli.set_token()
     assert info.value.code == 1
+    assert "is not one of the tokens listed; nothing was stored" in capsys.readouterr().err
+
+
+def test_set_token_without_a_terminal_lists_instead_of_asking(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    answer_prompts(monkeypatch, "tok", tty=False)
+    with pytest.raises(SystemExit):
+        cli.set_token()
+    err = capsys.readouterr().err
+    assert "Name the token to store, such as 'set-token bitbucket'" in err
+    assert "3. jira: Jira personal access token" in err
+
+
+def test_set_token_refuses_empty_input(monkeypatch: pytest.MonkeyPatch, keychain: Keychain) -> None:
+    answer_prompts(monkeypatch, "   ")
+    with pytest.raises(SystemExit) as info:
+        cli.set_token("jira")
+    assert info.value.code == 1
+    assert keychain.stored == []
+
+
+def test_the_response_file_is_only_for_microsoft(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    with pytest.raises(SystemExit):
+        cli.set_token("jira", from_response=tmp_path / "token.json")
+    assert "--from-response is for 'set-token microsoft' only" in capsys.readouterr().err
 
 
 def test_export_ca_command_reports_count(
@@ -237,13 +311,28 @@ async def test_other_logins_name_microsoft_among_those_that_sign_in(config_file:
 
 
 @pytest.mark.parametrize("name", ["microsoft", "outlook_mail"])
-def test_set_token_points_microsoft_at_the_browser_sign_in(
-    name: str, capsys: pytest.CaptureFixture[str]
+def test_set_token_microsoft_stores_a_refresh_token(
+    name: str,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
 ) -> None:
-    with pytest.raises(SystemExit) as info:
-        cli.set_token(name)
-    assert info.value.code == 1
-    assert "login microsoft" in capsys.readouterr().err
+    path = tmp_path / "config.toml"
+    path.write_text(MS_CONFIG + "sign_in_hours = 18\n")
+    prompts = answer_prompts(monkeypatch, " 0.refresh ")
+    seen: dict[str, object] = {}
+
+    async def seed(
+        config: RedeemConfig, token: str, *, verify: bool = True, window_hours: float | None = None
+    ) -> str:
+        seen.update(token=token, verify=verify, hours=window_hours)
+        return "Seeded the Microsoft refresh token."
+
+    monkeypatch.setattr(cli, "seed_microsoft", seed)
+    cli.set_token(name, config=path, verify=False)
+    assert seen == {"token": "0.refresh", "verify": False, "hours": 18.0}
+    assert "'login microsoft' collects one for you" in prompts[0]
+    assert "Seeded the Microsoft refresh token." in capsys.readouterr().out
 
 
 def test_login_microsoft_seeds_from_a_prompt(
@@ -266,7 +355,9 @@ def test_login_microsoft_seeds_from_a_prompt(
     monkeypatch.setattr(cli, "seed_microsoft", seed)
     cli.login_microsoft(config=path)
     assert seen == {"token": "0.refresh", "client_id": "c", "verify": True, "hours": 18.0}
-    assert "Seeded the Microsoft refresh token." in capsys.readouterr().out
+    shown = capsys.readouterr()
+    assert "Seeded the Microsoft refresh token." in shown.out
+    assert "'login-microsoft' is deprecated" in shown.err and "set-token microsoft" in shown.err
 
 
 def test_login_microsoft_reads_a_response_file(

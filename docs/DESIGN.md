@@ -1,9 +1,10 @@
-# productivity-agent-tools — MCP server for daily work against self-hosted Atlassian
+# productivity-agent-tools — MCP server for daily work: Atlassian, ServiceNow and Outlook
 
 ## Problem Statement
 
-On a regulated enterprise network, the daily tools (Jira, Bitbucket and Confluence, and
-later Microsoft 365 calendar and mail) are self-hosted and reachable only over a VPN. People
+On a regulated enterprise network, the daily tools (Jira, Bitbucket and Confluence, a
+ServiceNow helpdesk, and Microsoft 365 calendar and mail) sit behind a VPN, single sign-on
+or both. People
 sign in to them in a browser with a smart card. An AI agent on the same laptop, such as Goose
 or Claude Code, has no way to read today's tickets, check a pull request, or post a status
 update for its user. Earlier attempts to call the Jira API with a personal access token
@@ -17,9 +18,9 @@ reach development only as script output that the user pastes back.
 ## Solution
 
 `productivity-agent-tools` is one Python MCP server over stdio. It gives an agent typed tools
-for Jira and Bitbucket (reads of issues, code, pull requests, builds and deployments, plus a
-narrow set of writes in each), and has a CLI for setup,
-diagnosis and running a tool directly.
+for Jira, Bitbucket and Confluence (reads, plus a narrow set of writes in each), ServiceNow,
+and Outlook mail and calendar (read-only), and has a CLI for setup, sign-in, diagnosis and
+running a tool directly. Each product is a module switched on by its own config table.
 
 Probing the real deployment showed that smart-card authentication is not required. The
 token failures were caused by a reverse proxy that answers every request on the host, API
@@ -55,18 +56,19 @@ keeps writes behind a dry-run switch that is on by default.
 
 ### Authentication and trust
 
-9. As a user, I want to store a token once with `set-token` (or `set-token bitbucket`) at a
-   hidden prompt, so that it is kept in the macOS Keychain and never in a file or in the
-   agent's config.
-10. As a user, I want the token to be looked up from the `JIRA_TOKEN` environment variable,
-    then a `JIRA_TOKEN=` line in an env file (`token_env_file` or `--token-env-file`, for
-    example `.env` or `~/.secrets/jira_token.env`), then the Keychain, so that I can choose
-    how to provide it. Bitbucket does the same with `BITBUCKET_TOKEN`.
+9. As a user, I want to store a token once with `set-token jira` (or, with no name, pick
+   from a list) at a hidden prompt, so that it is kept in the system keychain and never in a
+   file or in the agent's config.
+10. As a user, I want each product's token looked up from its environment variable
+    (`JIRA_TOKEN`), then a command that prints it (`token_cmd`, such as a `sops` call), then
+    a line in an env file (`token_env_file`, `${HOME}` and `~` expanded), then the keychain,
+    with the command and file settable at the top level, per group or per product, so that
+    I can keep tokens wherever my secrets already live.
 11. As a user, I want TLS always verified against the operating system's trust store, so
     that internal CAs my browser already trusts work without setup, even when a
     non-system `curl` or OpenSSL earlier on my `PATH` ignores the Keychain.
-12. As a user, I want `ca_bundle` to pin trust to a specific PEM file, and `export-ca` to
-    write one from the macOS Keychain, so that I can still pin trust when I need to.
+12. As a user, I want `ca_bundle` to pin trust to a specific PEM file, and on macOS
+    `export-ca` to write one from the Keychain, so that I can still pin trust when I need to.
 13. As a user behind a consent-banner proxy, I want to supply any cookies under `[cookies]`
     or per run with `--cookie name=value` (repeatable, overriding the file's values by name),
     so that API calls get past the banner. Adding the cookie is my own deliberate acceptance
@@ -285,9 +287,9 @@ keeps writes behind a dry-run switch that is on by default.
 - **A product that signs in interactively offers `Product.login`**, which the generic
   `login <product>` verb calls. ServiceNow's opens the installed browser on a temporary
   profile, waits for the user to sign in, reads the instance's cookies over a DevTools
-  pipe, and stores them with the page's request token in the Keychain (see ROADMAP.md,
+  pipe, and stores them with the page's request token in the keychain (see ROADMAP.md,
   ServiceNow, for what was probed and what was rejected). Its credential provider reads
-  the Keychain before every request, so a running server picks up a new sign-in.
+  the keychain before every request, so a running server picks up a new sign-in.
 - **The browser driver is shared** (`browser.py`): a throwaway profile, the DevTools
   protocol on a private pipe, and browser-level commands only (never attaching to a
   page). ServiceNow reads cookies with it; Microsoft reads tab addresses with it
@@ -312,12 +314,12 @@ keeps writes behind a dry-run switch that is on by default.
   fixed when the server starts, which goes stale once a new sign-in can replace the
   credential underneath a running server. Such a credential also offers
   `Credential.describe`, an async callable that `ToolContext.current_source()` uses, so
-  `outlook_*_status` and `servicenow_status` read the Keychain when called. The Microsoft
+  `outlook_*_status` and `servicenow_status` read the keychain when called. The Microsoft
   session keeps `signed_in_at` (the interactive sign-in, unchanged by rotation) apart
   from `obtained_at` (last rotation), and the optional `sign_in_hours` from `[microsoft]`,
   so the status can say "usable until about …" and when the access token in use expires.
 - **A renewal never overwrites a newer sign-in.** After redeeming, the provider re-reads
-  the Keychain and writes the rotated token back only if the stored one is still the one
+  the keychain and writes the rotated token back only if the stored one is still the one
   it redeemed; otherwise `login microsoft` stored a new sign-in meanwhile, and that wins.
 - **An adapter is never handed a secret.** `credentials.py` defines `HeaderProvider`, an
   async callable returning the authentication *headers*, and the adapter asks it before
@@ -329,7 +331,7 @@ keeps writes behind a dry-run switch that is on by default.
 - Each `Product` names a `resolve_credential` (a `CredentialResolver`), which finds the
   credential under the product's token name when it is connected and reports where it came
   from. The default, `personal_access_token`, wraps the token from the environment, env
-  file or Keychain in `bearer_token`, so the Atlassian products behave exactly as before.
+  file or keychain in `bearer_token`, so the Atlassian products behave exactly as before.
 - Each `Product` names its adapter (`Product.adapter`, matching the `Adapter` protocol in
   `api.py`); Jira and Bitbucket use `AtlassianClient.from_connection`. A GitLab product
   would bring its own adapter, since its errors and authentication differ.
@@ -364,8 +366,23 @@ keeps writes behind a dry-run switch that is on by default.
   (top level, each group, each product).
 - `base_url` is scheme and host, plus a path only when a shared prefix applies. Each
   product's sub-path goes in its own `path` (`""` for the host root).
-- `dry_run` (default `true`), `token_env_file`, `log_level` (default `info`) and per-product
+- `dry_run` (default `true`), `log_level` (default `info`) and per-product
   `default_max_results` (25) are config keys. Results are capped at 100 per call.
+- `token_cmd` and `token_env_file` resolve like the connection values (product, group, top
+  level), but each separately, so a product can take its command from the top and its env
+  file from its group. `--token-env-file` overrides the env file at every level.
+- Paths (`ca_bundle`, `token_env_file`) and a `token_cmd` string expand `~` and environment
+  variables (`$HOME`, `${HOME}`); a `token_cmd` list does not (see Authentication). An
+  unset variable is a config error naming the key, so a typo is caught at load rather than
+  surfacing as a missing file.
+- `{product}` in `token_cmd` or `token_env_file` becomes the token name at lookup. It is a
+  literal 9-character match, not a template language, so braces a program needs (awk's
+  `{ print $2 }`, jq filters) are left alone. A templated `token_env_file` that does not
+  exist for one product is skipped (that product's token is elsewhere); a fixed path that
+  does not exist is an error, since it is most likely a typo. A file that exists but
+  cannot be read is an error either way.
+- `[microsoft]` is a sign-in table, not a product: it holds the OAuth client for
+  `login microsoft`. The Outlook products take their host from their own tables or group.
 - Jira presets live under `[jira.presets]`. Bitbucket's `default_project` lives under
   `[bitbucket]`.
 - CLI parsing uses cyclopts, which also brings in `rich` (now listed directly). Command-line
@@ -373,11 +390,26 @@ keeps writes behind a dry-run switch that is on by default.
 
 ### Authentication
 
-- Personal access tokens or HTTP access tokens, sent as `Authorization: Bearer`. Jira and
-  Bitbucket each have their own token.
-- Token sources, first match wins: the environment variable (`JIRA_TOKEN` /
-  `BITBUCKET_TOKEN`), then an env file, then the macOS Keychain (through `keyring`, written by
-  `set-token`).
+- Personal access tokens or HTTP access tokens, sent as `Authorization: Bearer`. Jira,
+  Bitbucket and Confluence each have their own token. ServiceNow and Outlook sign in
+  through the browser instead (see Connection layer).
+- Token sources, first match wins: the environment variable (`JIRA_TOKEN`), then
+  `token_cmd`, then an env file, then the system keychain (through `keyring`, written by
+  `set-token`). Explicit before implicit: a value set for this run beats configuration,
+  and configuration beats what was stored earlier.
+- `token_cmd` runs without a shell, with no input and a 30-second limit. A string is read
+  the way a shell reads a command line: `~` and `$VAR` expand outside quotes, `$VAR` also
+  inside double quotes, nothing inside single quotes, and a backslash escapes; expanded
+  values are re-quoted so a value with spaces stays one word; then it is `shlex`-split.
+  This came from a live config: `awk -F= '{ print $2 }' ${HOME}/...` failed when every word
+  was expanded after splitting, because the quotes that protect `$2` were already gone. A
+  TOML list is taken exactly as written, the escape hatch when a `$` must reach the
+  program. Its output must be one line and is never logged; a failure reports the
+  exit status and the first line of its error output. `{product}` in any word becomes the
+  token name, so one top-level command (say, `sops --extract '["{product}"]'`) serves every
+  product. Chosen over a shell string, which would make quoting and injection the user's
+  problem for no gain: `sh -c` is there for the rare pipe.
+- When no source has a token, the error lists where it looked and every way to supply one.
 - Extra cookies are generic (`[cookies]` and `--cookie`) and not tied to any one banner. The
   consent-banner case is documented as a use case, and finding the right cookie is left to the
   user, because it differs from site to site.
@@ -677,8 +709,16 @@ keeps writes behind a dry-run switch that is on by default.
 - `serve`: runs the MCP server (`--dry-run/--no-dry-run`, `--cookie`, `--log-level`,
   `--config`, `--token-env-file`).
 - `doctor`: read-only check, one per configured product.
-- `set-token [jira|bitbucket]`: hidden prompt, stored in the Keychain.
-- `export-ca`: exports the macOS Keychain CAs to a PEM file (default `~/ca-bundle.pem`).
+- `set-token [name]`: hidden prompt, stored in the system keychain. With no name it lists
+  the tokens (one entry per token name, so the Outlook pair shows once) and asks; without a
+  terminal it fails with the list instead. `set-token microsoft` stores an Outlook refresh
+  token captured by hand (`--from-response`, `--verify`); a product that only signs in
+  through the browser points at `login`.
+- `login <product>`: browser sign-in. `login microsoft` (or either Outlook product) uses the
+  `[microsoft]` table; other products use their own `Product.login`.
+- `login-microsoft`: deprecated, hidden alias of `set-token microsoft`; prints a note.
+- `export-ca` (macOS): exports the Keychain's trusted roots to a PEM file (default
+  `~/ca-bundle.pem`).
 - `call [tool] [name=value ...] [--field NAME]`: runs a tool directly.
 - `configure-agent [--agent goose] [--name productivity] [--config] [--agent-config]
   [--show]`: registers the server with Goose by absolute path, using `ruamel.yaml` to keep
@@ -709,8 +749,9 @@ Designed for but deferred. [ROADMAP.md](ROADMAP.md) has the ordered backlog and 
   need.
 - **More Confluence:** labels, attachments (for an "About me" photo, say), page comments,
   blog posts, and `@` mentions or user macros written from Markdown.
-- **Custom Jira fields:** reading and setting `customfield_*` values (such as story points or
-  epic links), whose shapes vary by field type.
+- **Other custom Jira fields:** reading and setting `customfield_*` values beyond the agile
+  ones already handled (epic name, epic link, story points), whose shapes vary by field
+  type.
 - **More Bitbucket writes:** comments on a file or line of the diff, resolving tasks, and
   editing or deleting the user's own comments.
 - **Microsoft Graph (Microsoft 365 calendar and mail):** a new adapter implementing

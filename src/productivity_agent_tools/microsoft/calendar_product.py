@@ -31,10 +31,12 @@ from productivity_agent_tools.tooling import READ, anticipated
 
 INSTRUCTIONS: str = (
     "The outlook_calendar_ tools read the user's Microsoft 365 calendar (events and "
-    "calendars) read-only over the Outlook REST API. The sign-in is a refresh token seeded "
-    "once per sign-in window (about 18 hours); when a tool reports that the token can no "
-    "longer be redeemed, do not retry: ask the user to run "
-    "'productivity-agent-tools login microsoft' in a terminal, then continue."
+    "calendars) read-only over the Outlook REST API. The user signs in with "
+    "'productivity-agent-tools login microsoft', which lasts for the tenant's sign-in "
+    "window (about 18 hours on some tenants); outlook_calendar_status says when it ends. "
+    "When an outlook_calendar_ tool reports that the sign-in has expired or cannot be found, "
+    "do not retry: ask the user to run 'productivity-agent-tools login microsoft' in a "
+    "terminal, then continue."
 )
 
 
@@ -52,11 +54,12 @@ def register_calendar_tools(
     @server.tool(annotations=READ)
     @anticipated
     async def outlook_calendar_status() -> OutlookStatus:
-        """Check the Outlook calendar connection: who is signed in, and the token source.
+        """Check the Outlook calendar connection: who is signed in, when, and until when.
 
-        Call this first if another outlook_calendar tool fails. If it says the
-        token can no longer be redeemed, only the user can fix that: ask them to
-        run 'productivity-agent-tools login microsoft'.
+        Call this first if another outlook_calendar_ tool fails, to see what is wrong,
+        or to tell the user when they must sign in again. If the sign-in has
+        expired, only the user can fix that: ask them to run
+        'productivity-agent-tools login microsoft'.
         """
         source = await context.current_source()
         return status(calendar.base_url, await calendar.me(), source, dry_run=context.dry_run)

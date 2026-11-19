@@ -742,7 +742,7 @@ def test_set_token_rejects_unknown_products(capsys: pytest.CaptureFixture[str]) 
     with pytest.raises(SystemExit) as info:
         cli.set_token("gitlab")
     assert info.value.code == 1
-    assert "Use one of: bitbucket, confluence, jira" in capsys.readouterr().err
+    assert "Tokens: bitbucket, confluence, jira, microsoft." in capsys.readouterr().err
 
 
 async def test_projects_can_be_listed_and_filtered_by_name(

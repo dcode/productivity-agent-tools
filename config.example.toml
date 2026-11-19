@@ -1,8 +1,8 @@
 # Copy to ~/.config/productivity-agent-tools/config.toml and edit.
 # This file names your internal host, so the real one must never be committed.
 
-# base_url, ca_bundle, timeout_seconds and [cookies] at the top of this file are
-# the defaults for every product. A product's own table (such as [jira]) can set
+# base_url, ca_bundle, timeout_seconds, token_cmd, token_env_file and [cookies] at
+# the top of this file are the defaults for every product. A product's own table (such as [jira]) can set
 # any of them again to override it for that product alone. Between the two, a
 # [group.<name>] table holds shared connection values for the products that name
 # it with group = "<name>" (see [group.atlassian] below): each value resolves
@@ -25,9 +25,26 @@ base_url = "https://atlassian.example.com"
 # Override per run with --dry-run / --no-dry-run.
 dry_run = true
 
-# Optional: an env file defining JIRA_TOKEN=... (checked after the JIRA_TOKEN
-# environment variable and before the macOS Keychain).
-# token_env_file = "~/.secrets/jira_token.env"
+# Where the Jira, Bitbucket and Confluence tokens come from, besides the
+# environment (JIRA_TOKEN and so on, checked first) and the system keychain
+# (where `productivity-agent-tools set-token` puts them, checked last). Both can
+# also go in a [group.<name>] table or a product's own table; the most specific
+# wins. Paths may use ~, $HOME or ${HOME}.
+#
+# A command that prints the token, run without a shell (use sh -c '...' for a
+# pipe), with a 30-second limit. {product} becomes jira, bitbucket or confluence.
+# As a string it is read like a shell command line: ~ and $VARS expand, except
+# inside single quotes (so awk's '{ print $2 }' is safe). As a list it is used
+# exactly as written.
+# token_cmd = "sops -d --extract '[\"{product}\"]' ~/.secrets/tokens.yaml"
+# token_cmd = ["pass", "show", "work/{product}"]
+#
+# An env file with lines such as JIRA_TOKEN=... and BITBUCKET_TOKEN=...
+# (checked after token_cmd). --token-env-file overrides it everywhere.
+# {product} works here too, for one file per product; a product with no file of
+# its own is then skipped rather than an error.
+# token_env_file = "${HOME}/.secrets/tokens.env"
+# token_env_file = "~/.secrets/{product}_token.env"
 
 timeout_seconds = 30
 
@@ -66,12 +83,14 @@ timeout_seconds = 30
 path = "/jira"
 default_max_results = 25
 
-# Optional: Jira on a host of its own. These override the top-level values for
-# Jira only.
+# Optional: Jira on a host of its own, or with its own token source. These
+# override the top-level (and group) values for Jira only.
 # base_url = "https://jira.example.com"
 # path = ""
 # ca_bundle = "~/jira-ca.pem"
 # timeout_seconds = 60
+# token_env_file = "~/.secrets/jira_token.env"
+# group = "atlassian"
 
 # Optional: cookies for Jira only. This table replaces the top-level [cookies]
 # for Jira instead of adding to it, so a cookie meant for one host is not sent
@@ -86,8 +105,8 @@ updated-since-yesterday = "assignee = currentUser() AND updated >= startOfDay(-1
 current-sprint = "assignee = currentUser() AND sprint in openSprints() ORDER BY status ASC, updated DESC"
 
 # Optional: Bitbucket tools (reads, plus pull-request comments and reviews,
-# which dry_run blocks like Jira's writes). They are off until this table exists. Bitbucket needs its own token: run
-# `productivity-agent-tools set-token bitbucket`.
+# which dry_run blocks like Jira's writes). They are off until this table exists.
+# Bitbucket needs its own token: run `productivity-agent-tools set-token bitbucket`.
 # [bitbucket]
 # Sub-path Bitbucket is served under. Use "" when it is at the root of its host.
 # path = "/bitbucket"
@@ -101,8 +120,8 @@ current-sprint = "assignee = currentUser() AND sprint in openSprints() ORDER BY 
 # Set to false when no CI or CD server reports builds or deployments to this
 # Bitbucket: the build and deployment tools are then not offered to the agent.
 # ci = false
-# Like [jira], this table can set its own base_url, ca_bundle, timeout_seconds
-# and a [bitbucket.cookies] table.
+# Like [jira], this table can set its own base_url, ca_bundle, timeout_seconds,
+# token_cmd, token_env_file, group and a [bitbucket.cookies] table.
 # base_url = "https://bitbucket.example.com"
 
 # Optional: Confluence tools (reads, plus creating and editing pages, which
@@ -117,23 +136,23 @@ current-sprint = "assignee = currentUser() AND sprint in openSprints() ORDER BY 
 # (~ followed by your username). The agent can also choose one for a session
 # with the confluence_set_default_space tool.
 # default_space = "~jdoe"
-# Like [jira], this table can set its own base_url, ca_bundle, timeout_seconds
-# and a [confluence.cookies] table.
+# Like [jira], this table can set its own base_url, ca_bundle, timeout_seconds,
+# token_cmd, token_env_file, group and a [confluence.cookies] table.
 # base_url = "https://confluence.example.com"
 
 # Optional: Microsoft 365 calendar and mail over the Outlook REST API, read-only
 # (a stopgap while the Microsoft Graph client awaits admin consent; see
 # docs/ROADMAP.md). There is no password: run `productivity-agent-tools login
 # microsoft`, sign in in the browser window it opens, and the refresh token is
-# kept in the Keychain and renewed silently until the sign-in window ends
-# (about 18 hours). The OAuth values below are
+# kept in the system keychain and renewed silently until the tenant's sign-in
+# window ends (about 18 hours on the DoD tenant). The OAuth values below are
 # environment-specific and not secret; DoD / OWA-webmail users can copy the
 # ready-made block from contrib/microsoft-dod.toml.
 #
-# [microsoft] is read only by `login microsoft` (it is not a served product). The
+# [microsoft] says how `login microsoft` signs in; it is not a served product. The
 # tools are the two products below; they share the Outlook host through a group
-# so the base_url is written once, and that host has no consent banner, so keep
-# your Atlassian cookie out of its group.
+# so the base_url is written once there, and that host has no consent banner, so
+# keep your Atlassian cookie out of its group.
 # [microsoft]
 # client_id = "<the sign-in app's client id>"
 # tenant = "<your tenant id, or organizations>"
@@ -141,7 +160,6 @@ current-sprint = "assignee = currentUser() AND sprint in openSprints() ORDER BY 
 # origin = "<the webmail origin, e.g. https://webmail.example.mil>"
 # redirect_uri = "<a registered redirect URI under that origin>"
 # scope = "<resource>/.default, e.g. https://outlook-dod.office365.us/.default"
-# base_url = "https://outlook-dod.office365.us/api/v2.0"
 # Browser that `login microsoft` starts. Default: Chrome, then Edge.
 # browser = "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"
 # How long `login microsoft` waits for you to finish signing in.
@@ -160,7 +178,7 @@ current-sprint = "assignee = currentUser() AND sprint in openSprints() ORDER BY 
 # Optional: ServiceNow (a helpdesk behind single sign-on). Off until this table
 # exists. There is no token: run `productivity-agent-tools login servicenow`,
 # sign in in the browser window it opens, and the session is kept in the
-# Keychain until ServiceNow times it out.
+# system keychain until ServiceNow times it out.
 # [servicenow]
 # base_url = "https://helpdesk.example.com"
 # Browser that `login servicenow` starts. Default: Chrome, then Edge.

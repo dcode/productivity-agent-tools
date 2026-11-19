@@ -6,7 +6,9 @@ Command-line flags, when given, win over the file.
 """
 
 import asyncio
+import os
 import re
+import shlex
 import tomllib
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field, replace
@@ -15,19 +17,21 @@ from typing import Any
 
 from productivity_agent_tools.errors import ConfigError
 from productivity_agent_tools.logs import DEFAULT_LOG_LEVEL, LOG_LEVELS
+from productivity_agent_tools.tokens import TokenSources
 
 DEFAULT_CONFIG_PATH: Path = Path("~/.config/productivity-agent-tools/config.toml")
 
 _COOKIE_NAME = re.compile(r"[!#$%&'*+\-.^_`|~0-9A-Za-z]+")
 _COOKIE_VALUE = re.compile(r"[\x21\x23-\x2B\x2D-\x3A\x3C-\x5B\x5D-\x7E]*")
+_UNEXPANDED = re.compile(r"\$(\w+|\{[^}]*\})")
 # Tables at the top of the config that are not products.
 _TOP_LEVEL_TABLES: frozenset[str] = frozenset({"cookies", "group"})
-# Tables that configure a module but are not themselves served products, so the
-# server ignores them rather than rejecting them. ``[microsoft]`` holds the OAuth
-# parameters ``login microsoft`` signs in with; the Outlook data
-# itself is served by the ``outlook_calendar`` and ``outlook_mail`` products,
-# which have their own tables and share the ``microsoft`` keychain token.
-_PENDING_TABLES: frozenset[str] = frozenset({"microsoft"})
+# Tables that configure a sign-in rather than a served product, so the server
+# skips them rather than rejecting them. ``[microsoft]`` holds the OAuth client
+# ``login microsoft`` signs in with; the Outlook data is served by the
+# ``outlook_calendar`` and ``outlook_mail`` products, which have their own tables
+# and share the ``microsoft`` keychain token.
+_SIGN_IN_TABLES: frozenset[str] = frozenset({"microsoft"})
 
 
 @dataclass(frozen=True, slots=True)
@@ -63,12 +67,16 @@ class GroupSettings:
         ca_bundle: The group's PEM file of trusted roots, or None.
         cookies: The group's extra cookies, replacing the top-level ones, or None.
         timeout_seconds: The group's per-request timeout, or None.
+        token_env_file: The group's env file of ``<PRODUCT>_TOKEN`` lines, or None.
+        token_cmd: The group's command that prints a token, or None.
     """
 
     base_url: str | None = None
     ca_bundle: Path | None = None
     cookies: dict[str, str] | None = None
     timeout_seconds: float | None = None
+    token_env_file: Path | None = None
+    token_cmd: tuple[str, ...] | None = None
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
@@ -83,6 +91,8 @@ class ProductSettings:
         ca_bundle: The product's own PEM file of trusted roots, or None.
         cookies: The product's own extra cookies, replacing the inherited ones, or None.
         timeout_seconds: The product's own per-request timeout, or None.
+        token_env_file: The product's own env file defining its ``<PRODUCT>_TOKEN``, or None.
+        token_cmd: The product's own command that prints its token, or None.
         group: Name of the ``[group.<name>]`` table this product draws shared defaults from,
             or None for the top-level defaults only.
     """
@@ -91,6 +101,8 @@ class ProductSettings:
     ca_bundle: Path | None = None
     cookies: dict[str, str] | None = None
     timeout_seconds: float | None = None
+    token_env_file: Path | None = None
+    token_cmd: tuple[str, ...] | None = None
     group: str | None = None
 
 
@@ -112,7 +124,9 @@ class Settings:
         ca_bundle: PEM file of trusted roots, or None for the operating system's trust store.
         dry_run: When True, write tools describe the request but send nothing.
         cookies: Extra cookies sent with every request, by name. Empty by default.
-        token_env_file: Optional env file holding ``<PRODUCT>_TOKEN=...``.
+        token_env_file: Default env file holding ``<PRODUCT>_TOKEN=...`` lines, or None.
+        token_cmd: Default command that prints a product's token (``{product}`` in it is
+            replaced by the token name), or None.
         timeout_seconds: Per-request timeout.
         log_level: Least severe log level written to stderr.
         products: Settings of each configured product, and so each one switched on, by name,
@@ -125,6 +139,7 @@ class Settings:
     dry_run: bool = True
     cookies: dict[str, str] = field(default_factory=dict)
     token_env_file: Path | None = None
+    token_cmd: tuple[str, ...] | None = None
     timeout_seconds: float = 30.0
     log_level: str = DEFAULT_LOG_LEVEL
     products: Mapping[str, ProductSettings] = field(default_factory=dict)
@@ -149,6 +164,27 @@ class Settings:
         if not isinstance(found, kind):
             raise ConfigError(f"The settings of '{name}' are not {kind.__name__}.")
         return found
+
+    def token_sources_for(self, product: ProductSettings) -> TokenSources:
+        """Resolve where a product's token may be found: its own table, its group, the top.
+
+        ``token_cmd`` and ``token_env_file`` are resolved separately, each from the
+        most specific level that sets it.
+
+        Args:
+            product: The product's settings.
+
+        Returns:
+            The command and env file that apply to the product.
+        """
+        group = self.groups.get(product.group) if product.group else None
+        command = product.token_cmd or (group.token_cmd if group else None) or self.token_cmd
+        env_file = (
+            product.token_env_file
+            or (group.token_env_file if group else None)
+            or self.token_env_file
+        )
+        return TokenSources(env_file=env_file, command=command)
 
     def connection_for(self, product: ProductSettings) -> Connection:
         """Resolve one product's connection: its own values, then its group's, then the defaults.
@@ -237,18 +273,164 @@ def as_str(raw: dict[str, Any], key: str, default: str | None) -> str | None:
     raise ConfigError(f"Config key '{key}' must be a string, got {value!r}.")
 
 
-def _as_path(raw: dict[str, Any], key: str) -> Path | None:
-    """Read an optional path value, expanding ``~``.
+def expand(value: str, label: str) -> str:
+    """Expand ``~`` and environment variables (``$HOME``, ``${HOME}``) in a config value.
+
+    Args:
+        value: The value as written.
+        label: Name of the key as the user would write it, for error messages.
+
+    Returns:
+        The expanded value.
+
+    Raises:
+        ConfigError: If it names an environment variable that is not set.
+    """
+    expanded = os.path.expanduser(os.path.expandvars(value))
+    if missing := _UNEXPANDED.search(expanded):
+        raise ConfigError(
+            f"Config key '{label}' uses {missing.group(0)}, which is not set in the environment."
+        )
+    return expanded
+
+
+def _as_path(raw: dict[str, Any], key: str, label: str | None = None) -> Path | None:
+    """Read an optional path value, expanding ``~`` and environment variables.
 
     Args:
         raw: Parsed TOML table.
         key: Key to read.
+        label: Name of the key as the user would write it; defaults to ``key``.
 
     Returns:
         The expanded path, or None when absent.
+
+    Raises:
+        ConfigError: If the value names an environment variable that is not set.
     """
     value = as_str(raw, key, None)
-    return Path(value).expanduser() if value else None
+    return Path(expand(value, label or key)) if value else None
+
+
+_VARIABLE = re.compile(r"\$(?:\{(?P<braced>[^}]*)\}|(?P<bare>\w+))")
+
+
+def _variable(match: re.Match[str], label: str) -> str:
+    """Return an environment variable's value for a ``$NAME`` or ``${NAME}`` match.
+
+    Args:
+        match: A ``_VARIABLE`` match.
+        label: Name of the config key, for the error message.
+
+    Returns:
+        The variable's value.
+
+    Raises:
+        ConfigError: If the variable is not set.
+    """
+    name = match.group("braced") or match.group("bare") or ""
+    found = os.environ.get(name)
+    if found is None:
+        raise ConfigError(
+            f"Config key '{label}' uses {match.group(0)}, which is not set in the environment."
+        )
+    return found
+
+
+def _expand_command_line(line: str, label: str) -> str:
+    """Expand ``~`` and environment variables in a command line the way a shell would.
+
+    Nothing inside single quotes is touched, so ``awk '{ print $2 }'`` keeps its
+    ``$2``. Variables expand outside quotes and inside double quotes; ``~``
+    expands at the start of an unquoted word. A backslash outside single quotes
+    keeps the next character literal. Each expanded value is re-quoted, so a
+    value with spaces or quotes stays part of the one word it was in.
+
+    Args:
+        line: The command line as written.
+        label: Name of the config key, for error messages.
+
+    Returns:
+        The line with expansions made, ready for ``shlex.split``.
+
+    Raises:
+        ConfigError: If it names an environment variable that is not set.
+    """
+    out: list[str] = []
+    quote = ""
+    at, length = 0, len(line)
+    while at < length:
+        char = line[at]
+        if quote == "'":
+            out.append(char)
+            quote = "" if char == "'" else quote
+            at += 1
+            continue
+        if char == "\\" and at + 1 < length:
+            out.append(line[at : at + 2])
+            at += 2
+            continue
+        if char in "'\"" and (not quote or char == quote):
+            quote = "" if quote else char
+            out.append(char)
+            at += 1
+            continue
+        if char == "$" and (match := _VARIABLE.match(line, at)):
+            found = _variable(match, label)
+            if quote == '"':
+                out.append(found.replace("\\", "\\\\").replace('"', '\\"'))
+            else:
+                out.append(shlex.quote(found))
+            at = match.end()
+            continue
+        starts_word = at == 0 or (not quote and line[at - 1].isspace())
+        if char == "~" and not quote and starts_word:
+            rest = line[at + 1 : at + 2]
+            if rest in ("", "/") or rest.isspace():
+                out.append(shlex.quote(os.path.expanduser("~")))
+                at += 1
+                continue
+        out.append(char)
+        at += 1
+    return "".join(out)
+
+
+def _token_cmd(raw: dict[str, Any], label: str) -> tuple[str, ...] | None:
+    """Read an optional ``token_cmd``: a command line, or a list of program and arguments.
+
+    A command line is read the way a shell reads one: ``~`` and environment
+    variables are expanded except inside single quotes, then it is split into
+    words (quotes group; pipes, globs and redirections mean nothing). A list is
+    taken exactly as written, with no expansion at all, for when a ``$`` must
+    reach the program untouched. Either way the command runs without a shell, so
+    ``sh -c '...'`` is the way to use a pipe.
+
+    Args:
+        raw: Parsed TOML table.
+        label: Name of the key as the user would write it, for error messages.
+
+    Returns:
+        The program and its arguments, or None when absent.
+
+    Raises:
+        ConfigError: If the value is not a non-empty string or list of strings, or
+            names an environment variable that is not set.
+    """
+    value = raw.get("token_cmd")
+    if value is None:
+        return None
+    if isinstance(value, str):
+        try:
+            words = shlex.split(_expand_command_line(value, label))
+        except ValueError as exc:
+            raise ConfigError(f"Config key '{label}' is not a valid command line: {exc}.") from exc
+    elif isinstance(value, list) and all(isinstance(word, str) for word in value):
+        words = list(value)
+    else:
+        raise ConfigError(f"Config key '{label}' must be a command line or a list of strings.")
+    if not words or not words[0].strip():
+        raise ConfigError(f"Config key '{label}' must name a program.")
+    return tuple(words)
 
 
 def log_level_name(value: str) -> str:
@@ -435,18 +617,21 @@ def _connection_overrides(raw: dict[str, Any], table: str) -> dict[str, Any]:
 
     Returns:
         Keyword arguments for the connection fields (``base_url``, ``ca_bundle``,
-        ``cookies``, ``timeout_seconds``).
+        ``cookies``, ``timeout_seconds``) and the token sources (``token_env_file``,
+        ``token_cmd``).
 
     Raises:
         ConfigError: If a value is invalid.
     """
     return {
         "base_url": _base_url(raw, f"{table}.base_url"),
-        "ca_bundle": _as_path(raw, "ca_bundle"),
+        "ca_bundle": _as_path(raw, "ca_bundle", f"{table}.ca_bundle"),
         "cookies": (
             _parse_cookies(raw["cookies"], f"{table}.cookies") if "cookies" in raw else None
         ),
         "timeout_seconds": _timeout(raw, f"{table}.timeout_seconds"),
+        "token_env_file": _as_path(raw, "token_env_file", f"{table}.token_env_file"),
+        "token_cmd": _token_cmd(raw, f"{table}.token_cmd"),
     }
 
 
@@ -516,7 +701,7 @@ def parse_settings(
     groups = _parse_groups(raw.get("group", {}))
     products: dict[str, ProductSettings] = {}
     for name, table in raw.items():
-        if name in _TOP_LEVEL_TABLES or name in _PENDING_TABLES:
+        if name in _TOP_LEVEL_TABLES or name in _SIGN_IN_TABLES:
             continue
         if name in parsers:
             if not isinstance(table, dict):
@@ -540,6 +725,7 @@ def parse_settings(
         dry_run=as_bool(raw, "dry_run", True),
         cookies=_parse_cookies(raw.get("cookies", {})),
         token_env_file=_as_path(raw, "token_env_file"),
+        token_cmd=_token_cmd(raw, "token_cmd"),
         timeout_seconds=30.0 if timeout is None else timeout,
         log_level=log_level_name(as_str(raw, "log_level", None) or DEFAULT_LOG_LEVEL),
         products=products,
@@ -610,7 +796,8 @@ def apply_overrides(
         dry_run: Override for ``dry_run``; None keeps the file value.
         cookies: Extra ``name=value`` cookies; these are added to the file's cookies,
             including a product's own table, and replace any with the same name.
-        token_env_file: Override for ``token_env_file``; None keeps the file value.
+        token_env_file: Override for ``token_env_file`` at every level (top, groups and
+            products); None keeps the file's values.
         log_level: Override for ``log_level``; None keeps the file value.
 
     Returns:
@@ -626,10 +813,12 @@ def apply_overrides(
             raise ConfigError(f"Cookie '{pair}' must be written as name=value.")
         extra[_cookie_name(name)] = _cookie_value(name, value)
 
-    def with_extra[P: ProductSettings | GroupSettings](settings_with_cookies: P) -> P:
-        if settings_with_cookies.cookies is None:
-            return settings_with_cookies
-        return replace(settings_with_cookies, cookies={**settings_with_cookies.cookies, **extra})
+    def with_extra[P: ProductSettings | GroupSettings](level: P) -> P:
+        if token_env_file is not None:
+            level = replace(level, token_env_file=None)
+        if level.cookies is None:
+            return level
+        return replace(level, cookies={**level.cookies, **extra})
 
     return replace(
         settings,

@@ -41,7 +41,7 @@ from productivity_agent_tools.microsoft.settings import load_microsoft_settings,
 from productivity_agent_tools.microsoft.signin import sign_in as sign_in_microsoft
 from productivity_agent_tools.products import Product, installed_products
 from productivity_agent_tools.server import Connected, build_server
-from productivity_agent_tools.tokens import store_token
+from productivity_agent_tools.tokens import env_var_name, store_token
 
 _KEYCHAINS: tuple[str, ...] = (
     "/Library/Keychains/System.keychain",
@@ -67,7 +67,8 @@ def _no_products() -> str:
 
 app = App(
     name="productivity-agent-tools",
-    help="MCP server and setup commands for self-hosted Atlassian tools.",
+    help="MCP server and setup commands for work tools: Jira, Bitbucket and Confluence "
+    "(Data Center), ServiceNow, and Outlook mail and calendar.",
     version=__version__,
 )
 
@@ -95,7 +96,8 @@ TokenEnvFileOption = Annotated[
     Path | None,
     Parameter(
         name="--token-env-file",
-        help="Env file defining <PRODUCT>_TOKEN, such as JIRA_TOKEN. Overrides the config file.",
+        help="Env file of token lines such as JIRA_TOKEN=... (the product name in capitals, "
+        "then _TOKEN). Overrides token_env_file at every level of the config file.",
     ),
 ]
 LogLevelOption = Annotated[
@@ -177,7 +179,7 @@ async def _open_server(
             product = products[name]
             if product.token not in credentials:
                 credentials[product.token] = await product.resolve_credential(
-                    product.token, settings.token_env_file
+                    product.token, settings.token_sources_for(product_settings)
                 )
             credential = credentials[product.token]
             client = await stack.enter_async_context(
@@ -374,7 +376,9 @@ async def _doctor_product(
     connection = settings.connection_for(product_settings)
     print(f"[info] {product.name} extra_cookies={','.join(connection.cookies) or 'none'}")
     try:
-        credential = await product.resolve_credential(product.token, settings.token_env_file)
+        credential = await product.resolve_credential(
+            product.token, settings.token_sources_for(product_settings)
+        )
         print(f"[ok]   {product.name} {credential.label} found in {credential.source}")
         async with product.adapter(
             connection, credential.headers, dry_run=settings.dry_run, transport=transport
@@ -466,7 +470,7 @@ def serve(
     token_env_file: TokenEnvFileOption = None,
     log_level: LogLevelOption = None,
 ) -> None:
-    """Run the MCP server over stdio (this is what Goose launches)."""
+    """Run the MCP server over stdio. This is what an agent such as Goose starts."""
 
     async def run() -> None:
         await _serve(await _resolve_settings(config, dry_run, cookie, token_env_file, log_level))
@@ -486,7 +490,10 @@ def doctor(
     token_env_file: TokenEnvFileOption = None,
     log_level: LogLevelOption = None,
 ) -> None:
-    """Check configuration, token, TLS trust and login. Read-only."""
+    """Check the config, then each configured product: its credential, connection and a read.
+
+    Read-only. Exits non-zero if any check fails.
+    """
     expanded = config.expanduser()
 
     async def run() -> bool:
@@ -538,41 +545,196 @@ def call(
         _fail(exc)
 
 
-@app.command(name="set-token")
-def set_token(product: str = "jira") -> None:
-    """Store a personal access token in the macOS Keychain (hidden prompt).
+FromResponseOption = Annotated[
+    Path | None,
+    Parameter(
+        name="--from-response",
+        help="Microsoft only: a file holding the token response captured from the browser; "
+        "its refresh_token is used. Leave out to paste the refresh token at a hidden prompt.",
+    ),
+]
+VerifyOption = Annotated[
+    bool,
+    Parameter(
+        name="--verify",
+        help="Microsoft only: redeem the refresh token once to confirm it works.",
+    ),
+]
+
+
+def _token_targets() -> dict[str, str]:
+    """Name every token ``set-token`` can store, with what it is for.
+
+    A token shared by several products (the Outlook pair) is listed once. A
+    product that signs in through the browser and nothing else is not listed.
+
+    Returns:
+        A one-line description of each token, by token name, in name order.
+    """
+    titles: dict[str, list[str]] = {}
+    for product in installed_products().values():
+        if product.login is None:
+            titles.setdefault(product.token, []).append(product.title)
+    described = {
+        name: f"{', '.join(found)} personal access token" for name, found in titles.items()
+    }
+    if MICROSOFT in described:
+        outlook = described[MICROSOFT].removesuffix(" personal access token")
+        described[MICROSOFT] = (
+            f"{outlook}: a refresh token captured by hand (normally use 'login {MICROSOFT}')"
+        )
+    return dict(sorted(described.items()))
+
+
+def _choose_token(targets: dict[str, str]) -> str:
+    """Ask which token to store, from a numbered list.
 
     Args:
-        product: Which product the token is for, such as jira or bitbucket.
+        targets: The tokens that can be stored, as ``_token_targets`` lists them.
+
+    Returns:
+        The chosen token name.
+
+    Raises:
+        AgentToolsError: If there is no terminal to ask in, or the answer is not one of them.
     """
-    product = product.strip().lower()
-    if product in _microsoft_names():
-        _fail(
-            AgentToolsError(
-                f"'{product}' has no token to paste: it signs in through the browser. "
-                f"Run 'productivity-agent-tools login {MICROSOFT}'."
-            )
+    names = list(targets)
+    listing = "\n".join(f"  {n}. {name}: {targets[name]}" for n, name in enumerate(names, 1))
+    if not sys.stdin.isatty():
+        raise AgentToolsError(
+            f"Name the token to store, such as 'set-token {names[0]}'. Tokens:\n{listing}"
         )
-    known = sorted(
-        {p.token for p in installed_products().values() if p.login is None and p.token != MICROSOFT}
-    )
-    signs_in = sorted(
-        p.name for p in installed_products().values() if p.login and p.token == product
-    )
-    if signs_in:
-        _fail(
-            AgentToolsError(
-                f"'{product}' has no token: it signs in through the browser. "
-                f"Run 'productivity-agent-tools login {signs_in[0]}'."
-            )
+    print(f"Which token do you want to store?\n{listing}")
+    answer = input(f"Number or name [1-{len(names)}]: ").strip().lower()
+    if answer.isdigit() and 1 <= int(answer) <= len(names):
+        return names[int(answer) - 1]
+    if answer in targets:
+        return answer
+    raise AgentToolsError(f"'{answer}' is not one of the tokens listed; nothing was stored.")
+
+
+def _read_text(path: Path) -> str:
+    """Read a UTF-8 text file, expanding ``~`` in its path.
+
+    Args:
+        path: The file.
+
+    Returns:
+        Its contents.
+
+    Raises:
+        OSError: If it cannot be read.
+    """
+    return path.expanduser().read_text("utf-8")
+
+
+async def _seed_microsoft_token(config: Path, from_response: Path | None, verify: bool) -> str:
+    """Store a Microsoft refresh token captured by hand, pasted or from a response file.
+
+    Args:
+        config: Path to the TOML configuration file; its ``[microsoft]`` table is read.
+        from_response: File holding the captured JSON token response, or None to prompt.
+        verify: Redeem the token once to confirm it works.
+
+    Returns:
+        A sentence to show the user.
+
+    Raises:
+        AgentToolsError: If the file cannot be read, nothing is entered, there is no
+            ``[microsoft]`` table, or verification fails.
+    """
+    if from_response is not None:
+        try:
+            text = await asyncio.to_thread(_read_text, from_response)
+        except OSError as exc:
+            raise AgentToolsError(f"Could not read {from_response}: {exc.strerror}.") from exc
+    else:
+        text = getpass.getpass(
+            "Microsoft refresh token (hidden; 'login microsoft' collects one for you): "
         )
-    if product not in known:
-        _fail(AgentToolsError(f"'{product}' is not a product. Use one of: {', '.join(known)}."))
-    token = getpass.getpass(f"{product} personal access token (hidden): ").strip()
+    ms_settings = await load_microsoft_settings(config)
+    token = extract_refresh_token(text)
     if not token:
-        _fail(AgentToolsError("No token entered; nothing was stored."))
-    asyncio.run(store_token(product, token))
-    print(f"Stored the {product} token in the macOS Keychain.")
+        raise AgentToolsError("No refresh token given; nothing was stored.")
+    return await seed_microsoft(
+        redeem_config(ms_settings),
+        token,
+        verify=verify,
+        window_hours=ms_settings.sign_in_hours,
+    )
+
+
+async def _set_token(
+    product: str | None, config: Path, from_response: Path | None, verify: bool
+) -> str:
+    """Store one token in the system keychain, asking which when none is named.
+
+    Args:
+        product: The token or product name, or None to choose from a list.
+        config: Path to the TOML configuration file (read for Microsoft only).
+        from_response: Microsoft only: a captured token response to read.
+        verify: Microsoft only: redeem the refresh token once to confirm it.
+
+    Returns:
+        A sentence to show the user.
+
+    Raises:
+        AgentToolsError: If the name is not a token, the product signs in through the
+            browser, an option does not apply, or nothing was entered.
+    """
+    targets = _token_targets()
+    name = (product or "").strip().lower() or _choose_token(targets)
+    if name in _microsoft_names():
+        return await _seed_microsoft_token(config, from_response, verify)
+    if from_response is not None:
+        raise AgentToolsError(f"--from-response is for 'set-token {MICROSOFT}' only.")
+    signs_in = sorted(n for n, p in installed_products().items() if p.login and p.token == name)
+    if signs_in:
+        raise AgentToolsError(
+            f"'{name}' has no token to store: it signs in through the browser. "
+            f"Run 'productivity-agent-tools login {signs_in[0]}'."
+        )
+    if name not in targets:
+        raise AgentToolsError(
+            f"'{name}' is not a token this tool stores. Tokens: {', '.join(targets)}."
+        )
+    token = getpass.getpass(f"{targets[name]} for {name} (hidden): ").strip()
+    if not token:
+        raise AgentToolsError("No token entered; nothing was stored.")
+    await store_token(name, token)
+    variable = env_var_name(name)
+    return (
+        f"Stored the {name} token in the system keychain. An exported {variable}, a "
+        "token_cmd or an env file entry, if you have one, is used before it."
+    )
+
+
+@app.command(name="set-token")
+def set_token(
+    product: str | None = None,
+    /,
+    *,
+    config: ConfigOption = DEFAULT_CONFIG_PATH,
+    from_response: FromResponseOption = None,
+    verify: VerifyOption = True,
+) -> None:
+    """Store a token in the system keychain, typed at a hidden prompt.
+
+    With no name, lists the tokens and asks which one. 'microsoft' stores an
+    Outlook refresh token captured by hand; 'login microsoft' is the normal way
+    to get one. Products that sign in through the browser (servicenow) have no
+    token to store: use 'login'.
+
+    Args:
+        product: Which token, such as jira, bitbucket, confluence or microsoft.
+        config: Path to the TOML configuration file.
+        from_response: Microsoft only: a captured token response file.
+        verify: Microsoft only: redeem the token once to confirm it.
+    """
+    try:
+        print(asyncio.run(_set_token(product, config, from_response, verify)))
+    except AgentToolsError as exc:
+        _fail(exc)
 
 
 def _microsoft_names() -> frozenset[str]:
@@ -634,7 +796,7 @@ def login(
     config: ConfigOption = DEFAULT_CONFIG_PATH,
     log_level: LogLevelOption = None,
 ) -> None:
-    """Sign in to a product through the browser and store the session in the keychain.
+    """Sign in to a product through the browser and store the result in the system keychain.
 
     'microsoft' (or either Outlook product) signs in to Microsoft once for both
     Outlook products, using the client in the [microsoft] table.
@@ -658,61 +820,28 @@ def login(
         _fail(exc)
 
 
-@app.command(name="login-microsoft")
+@app.command(name="login-microsoft", show=False)
 def login_microsoft(
     *,
     config: ConfigOption = DEFAULT_CONFIG_PATH,
-    from_response: Annotated[
-        Path | None,
-        Parameter(
-            name="--from-response",
-            help="File holding the captured JSON token response; its refresh_token is used. "
-            "Omit to paste the refresh token at a hidden prompt.",
-        ),
-    ] = None,
-    verify: Annotated[
-        bool,
-        Parameter(name="--verify", help="Redeem the token once to confirm it works."),
-    ] = True,
+    from_response: FromResponseOption = None,
+    verify: VerifyOption = True,
 ) -> None:
-    """Seed a Microsoft refresh token captured by hand (fallback for 'login microsoft').
-
-    Use 'login microsoft' normally: it opens the browser and collects the token
-    itself. This is for when that cannot run. The OAuth parameters come from the
-    [microsoft] table in the config file (copy contrib/microsoft-dod.toml for the
-    DoD values). Sign in to webmail, capture the token response (or just the
-    refresh token), and seed it here. Verifying redeems it once, which rotates it,
-    so the rotated token is what gets stored.
-    """
-    if from_response is not None:
-        try:
-            text = from_response.expanduser().read_text("utf-8")
-        except OSError as exc:
-            _fail(AgentToolsError(f"Could not read {from_response}: {exc.strerror}."))
-    else:
-        text = getpass.getpass("Microsoft refresh token (hidden): ")
-
-    async def run() -> str:
-        ms_settings = await load_microsoft_settings(config)
-        token = extract_refresh_token(text)
-        if not token:
-            raise AgentToolsError("No refresh token given; nothing was stored.")
-        return await seed_microsoft(
-            redeem_config(ms_settings),
-            token,
-            verify=verify,
-            window_hours=ms_settings.sign_in_hours,
-        )
-
+    """Deprecated: use 'set-token microsoft' (or, normally, 'login microsoft')."""
+    print(
+        "note: 'login-microsoft' is deprecated and will be removed; use "
+        "'set-token microsoft', or 'login microsoft' to sign in through the browser.",
+        file=sys.stderr,
+    )
     try:
-        print(asyncio.run(run()))
+        print(asyncio.run(_seed_microsoft_token(config, from_response, verify)))
     except AgentToolsError as exc:
         _fail(exc)
 
 
 @app.command(name="export-ca")
 def export_ca(output: Path = Path("~/ca-bundle.pem")) -> None:
-    """Export the keychain's trusted root certificates to a PEM bundle.
+    """Export the macOS keychain's trusted root certificates to a PEM bundle.
 
     Args:
         output: Where to write the bundle.

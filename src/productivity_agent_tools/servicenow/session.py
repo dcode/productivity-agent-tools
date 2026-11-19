@@ -13,14 +13,13 @@ import json
 from collections.abc import Mapping
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
-from pathlib import Path
 
 import keyring
 import keyring.errors
 
 from productivity_agent_tools.credentials import Credential
 from productivity_agent_tools.errors import AuthenticationError
-from productivity_agent_tools.tokens import KEYRING_SERVICE
+from productivity_agent_tools.tokens import KEYRING_SERVICE, TokenSources
 
 SIGN_IN_ADVICE: str = "Run 'productivity-agent-tools login servicenow' in a terminal."
 
@@ -129,7 +128,7 @@ async def _required_session(name: str) -> BrowserSession:
     return session
 
 
-async def browser_session(name: str, env_file: Path | None) -> Credential:
+async def browser_session(name: str, sources: TokenSources) -> Credential:
     """Resolve the stored browser session as a product's credential.
 
     The provider reads the keychain before every request rather than keeping
@@ -137,7 +136,7 @@ async def browser_session(name: str, env_file: Path | None) -> Credential:
 
     Args:
         name: Name the session is stored under, such as ``"servicenow"``.
-        env_file: Unused; a browser session is never read from an env file.
+        sources: Unused; the browser session is only ever in the keychain.
 
     Returns:
         The credential, described by when the session was saved.
@@ -145,7 +144,7 @@ async def browser_session(name: str, env_file: Path | None) -> Credential:
     Raises:
         AuthenticationError: If no session is stored yet.
     """
-    del env_file
+    del sources
     found = await _required_session(name)
 
     async def provide() -> Mapping[str, str]:

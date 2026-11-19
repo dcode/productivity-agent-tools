@@ -7,15 +7,78 @@ Last updated: 2026-11-19.
 
 ## Where things stand
 
-- **Version:** 0.8.0 on branch `claude/zealous-mendel-ny1eml`, in review as
-  [#17](https://github.com/dcode/productivity-agent-tools/pull/17) (opened 2026-11-19); `main` is still 0.7.0, via
-  [#15](https://github.com/dcode/productivity-agent-tools/pull/15) (2026-11-15). **After
-  the merge, tag `v0.8.0` on the commit that bumps `__version__`** (from the laptop). Tags:
+- **0.9.0, in review (branch `claude/zealous-mendel-ny1eml`, 2026-11-19). Start here.**
+  Asked for on 2026-11-19: make credentials and the user-facing text match what the project
+  has become. All defaults below were agreed before the work started.
+  - **`token_cmd`** (new): a command that prints a token (`sops`, `pass`, `op`), at the
+    top level, in a group or in a product table; no shell, 30 s limit, output never
+    logged, `{product}` replaced by the token name. Lookup order is now environment,
+    `token_cmd`, env file, keychain; the not-found error lists where it looked.
+  - **`token_env_file` per product and per group**, not only at the top; each source
+    resolves from the most specific level. **`$HOME` / `${VAR}` now expand** in paths and
+    commands (the cause of `${HOME}/.secrets/jira_token.env` not being found); an unset
+    variable is an error naming the key.
+  - **`set-token` with no name** lists the tokens and asks (number or name); without a
+    terminal it fails with the list. It no longer defaults to Jira.
+  - **`set-token microsoft`** stores a hand-captured refresh token (`--from-response`,
+    `--verify`); **`login-microsoft` is deprecated** (hidden, prints a note). Remove it in a
+    later release.
+  - **Text audit:** CLI help (one placeholder was being swallowed by the help renderer),
+    error messages, agent instructions (Atlassian products now say what to do on a bad
+    token, as ServiceNow and Outlook already did), the six status tools, README, DESIGN,
+    config examples and package metadata. "macOS Keychain" became "the system keychain".
+    Deliberately left: the status models' field names (`token_source`, and
+    `session_source` for ServiceNow) since agents and scripts read them, and the
+    `scripts/*_probe.py` spikes, which are history.
+  - **Checked live (2026-11-19, `doctor` on the work laptop):** every product passed.
+    `token_env_file = "${HOME}/.secrets/jira_token.env"` (the case that failed) and
+    `"~/.secrets/bitbucket_token.env"` both found their tokens, and `token_cmd` (a `cut`
+    over an env file) supplied Confluence's. **Bug found and fixed the same day:**
+    `token_cmd = "awk -F= '{ print $2 }' ${HOME}/..."` was refused as "$2 is not set",
+    because every word was expanded after splitting, by which point the single quotes
+    were gone. A string is now expanded the way a shell would (nothing inside single
+    quotes) before splitting, and a list is taken exactly as written.
+    The `awk` line was only a test that `token_cmd` works; it would also have cut a
+    token at its first `=` padding character. Asked for after it: **`{product}` in
+    `token_env_file`** (done the same day), so one line,
+    `token_env_file = "~/.secrets/{product}_token.env"`, serves every product; a
+    product with no file of its own falls through to the keychain.
+  - **In use now (2026-11-19): all tokens are in the keychain** on the work laptop, so
+    neither `token_cmd` nor `token_env_file` is needed there day to day.
+  - **Still to check live:** a real `sops` setup (waiting on helpdesk approval to allow
+    it), and `set-token` with no argument in a real terminal.
+  - **Documentation site (2026-11-19, same branch):** the README had grown to ~760
+    lines, so it now covers only what this is, a quickstart and pointers, and the rest
+    moved to a Material for MkDocs site built from `docs/` (`mkdocs.yml`): getting
+    started, configuration, authentication, a page per product with its tools, the
+    command line, agents and development. CI builds it with `--strict` on every pull
+    request; `.github/workflows/docs.yml` publishes it to GitHub Pages on pushes to
+    `main`. `DESIGN.md` and this file stay in `docs/` but are **excluded from the
+    site** (`exclude_docs`), because they record facts about the work deployment
+    (internal host name, banner cookie, tenant); site pages link to them on GitHub.
+    **To do (you):** the repository is private, so Pages needs a paid plan, and on
+    GitHub Pro the published site is public even though the repo is not. If that is
+    fine, turn Pages on (Settings, Pages, Source: GitHub Actions); until then the docs
+    workflow fails at the deploy step and the README's site link is dead, though
+    `docs/` reads fine on GitHub. **Later:** Material for MkDocs reaches end of life on
+    2027-05-05; its successor, Zensical (same team, reads `mkdocs.yml`), was at 0.1.2
+    when this was set up. Revisit before then.
+  - **Next action: merge
+    [#18](https://github.com/dcode/productivity-agent-tools/pull/18), then tag `v0.9.0`
+    on the commit "chore: bump version to 0.9.0" as it lands on `main`** (a rebase merge
+    gives it a new id, so look it up on `main`). Any merge method works: on 2026-11-19
+    the branch was rewritten, with permission, onto `main` plus only its own commits,
+    because the repository only allows rebase merges and the old copies of the 0.8.0
+    commits made that conflict. Also still to do: tag `v0.8.0` at f45647f.
+- **Version:** 0.8.0, on `main` via
+  [#17](https://github.com/dcode/productivity-agent-tools/pull/17) (2026-11-19, rebase
+  merge, so the branch's commit ids differ from `main`'s). **To do: tag `v0.8.0` at
+  f45647f** (the bump commit on `main`), from the laptop. Tags:
   `v0.5.0` at 804f319, `v0.6.0` at 9be367b, `v0.7.0` at 0235736. Release tags go on the
   commit that changes `__version__`; `v0.1.0`-`v0.4.0` predate that rule and stay where
   they are. Cloud sessions cannot push tags, so tag from the laptop.
-- **0.8.0 (branch `claude/zealous-mendel-ny1eml`, in review), all confirmed live on the
-  work laptop. `login microsoft` (2026-11-18):** the Outlook sign-in now works
+- **0.8.0 (on `main` via #17), all confirmed live on the work laptop.
+  `login microsoft` (2026-11-18):** the Outlook sign-in now works
   like `login servicenow`. It opens
   Chrome/Edge on a temporary profile at the Microsoft authorize page (PKCE + `state`), the
   user signs in as usual (smart card stays in the browser), and the tool reads the
@@ -53,9 +116,8 @@ Last updated: 2026-11-19.
   value:
   `OUTLOOK_SEARCH`. **Run on the work laptop (2026-11-19): every check passed**, with the
   expected skips (products not configured there).
-  **Next action: review and merge
-  [#17](https://github.com/dcode/productivity-agent-tools/pull/17), then tag `v0.8.0`.** Open
-  check that remains is not a blocker: the 18 h expiry (needs a lapsed window). Settled
+  **Next action: tag `v0.8.0` at f45647f.** The one open check is the 18 h expiry
+  (needs a lapsed window; see "Confirm against the real servers"). Settled
   2026-11-19: a filter plus a sort on another property is accepted (now a normal smoke
   check), and the full header set comes back.
 - **Config groups (new, 2026-11-15):** a `[group.<name>]` table holds shared connection
@@ -93,7 +155,7 @@ Last updated: 2026-11-19.
   spikes and version 0.4.0 (built on `claude/servicenow-credential-seam`).
 - **Also on `main`, in 0.5.0:** the Outlook REST spikes and the Microsoft
   refresh-token lifecycle (`login-microsoft`).
-- **Tests:** 568 passing, about 99.98% branch coverage. All hooks clean.
+- **Tests:** 607 passing, about 99.98% branch coverage. All hooks clean.
 - **In use:** Goose on the work laptop, against Jira 11.3.12, Bitbucket 10.2.8 and Confluence
   10.2.19. No CI
   server (Bamboo or other) reports builds or deployments to this Bitbucket.
@@ -141,8 +203,10 @@ Last updated: 2026-11-19.
       generic extra cookies, per-product hosts and paths behind the `ApiClient` protocol
 - [x] Diagnostics: structlog, debug HTTP logging without secrets, explained redirects and
       suspicious paths, `doctor` per product
-- [x] CLI: `serve`, `doctor`, `set-token`, `export-ca`, `call` (with `--field`),
-      `configure-agent` (Goose)
+- [x] CLI: `serve`, `doctor`, `set-token` (asks which when unnamed), `login`, `export-ca`,
+      `call` (with `--field`), `configure-agent` (Goose)
+- [x] Token sources: environment, `token_cmd`, env file, keychain; command and file set
+      per product, per group or at the top; `$VAR` and `~` expanded
 - [x] Project: hatch, uv, ruff, ty, rumdl, taplo, pre-commit, CI on Linux and macOS, tag
       releases, Dependabot, `scripts/smoke-test.sh`
 - [x] Products as plugins: `Product` objects found through the

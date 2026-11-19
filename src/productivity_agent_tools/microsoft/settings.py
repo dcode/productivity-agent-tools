@@ -1,11 +1,13 @@
-"""Settings for the Microsoft product, read from the ``[microsoft]`` config table.
+"""The Microsoft sign-in settings, read from the ``[microsoft]`` config table.
 
-The OAuth parameters identify the first-party client a browser sign-in mints
-tokens from, and the login host. They are environment-specific, so the core
-carries no defaults: every one must be set in the config. A ready-made block for
-the DoD / OWA-webmail environment is in ``contrib/microsoft-dod.toml`` to copy in.
-``base_url`` (from ``ProductSettings``) is the Outlook REST API the adapter will
-talk to.
+``[microsoft]`` is not a served product: it says how ``login microsoft`` signs
+in and how the credential renews. The OAuth parameters identify the first-party
+client a browser sign-in mints tokens from, and the login host. They are
+environment-specific, so the core carries no defaults: every one must be set in
+the config. A ready-made block for the DoD / OWA-webmail environment is in
+``contrib/microsoft-dod.toml`` to copy in. The Outlook REST host the data comes
+from is set on the Outlook products (usually through ``[group.microsoft]``), not
+here; a ``base_url`` in this table is accepted and ignored.
 """
 
 from __future__ import annotations
@@ -34,7 +36,7 @@ CONTRIB_HINT: str = (
 
 @dataclass(frozen=True, slots=True, kw_only=True)
 class MicrosoftSettings(ProductSettings):
-    """Settings for the Microsoft module, on only when ``[microsoft]`` is configured.
+    """The ``[microsoft]`` table: the OAuth client and browser that ``login microsoft`` uses.
 
     Attributes:
         client_id: The OAuth client (the first-party app the browser signs in as).
@@ -150,7 +152,7 @@ def parse_microsoft_settings(raw: dict[str, Any]) -> MicrosoftSettings:
 async def load_microsoft_settings(path: Path) -> MicrosoftSettings:
     """Read just the ``[microsoft]`` table from the config file.
 
-    Used by ``login microsoft`` and ``login-microsoft`` to sign in before the product is
+    Used by ``login microsoft`` and ``set-token microsoft``, which sign in before a product is
     wired, so it reads its own table rather than the whole product registry.
 
     Args:

@@ -23,11 +23,11 @@ def register_servicenow_tools(
     @server.tool(annotations=READ)
     @anticipated
     async def servicenow_status() -> ServiceNowStatus:
-        """Check the ServiceNow (helpdesk) connection: who is signed in, and dry-run.
+        """Check the ServiceNow connection: who is signed in, when they signed in, and dry-run.
 
-        Call this first if another ServiceNow tool fails. If it says the browser
-        session has expired, only the user can fix that: ask them to run
-        'productivity-agent-tools login servicenow' in a terminal, then try again.
+        Call this first if another servicenow_ tool fails, to see what is wrong. If
+        the browser session has expired, only the user can fix that: ask them to
+        run 'productivity-agent-tools login servicenow'.
         """
         me = await servicenow.me()
         return ServiceNowStatus(

@@ -13,7 +13,6 @@ from __future__ import annotations
 import asyncio
 from collections.abc import Awaitable, Callable, Mapping
 from datetime import UTC, datetime
-from pathlib import Path
 from typing import Protocol
 
 import httpx
@@ -32,6 +31,7 @@ from productivity_agent_tools.microsoft.session import (
     load_session,
     store_session,
 )
+from productivity_agent_tools.tokens import TokenSources
 
 NO_CREDENTIAL = f"No Microsoft credential is stored. {SEED_ADVICE}"
 
@@ -109,8 +109,8 @@ class MicrosoftCredential:
             The bearer header for a request made now.
 
         Raises:
-            AuthenticationError: If nothing is seeded, or the refresh token can no
-                longer be redeemed (the user must sign in again and re-seed).
+            AuthenticationError: If nothing is stored, or the refresh token can no
+                longer be redeemed (the user must sign in again).
             ApiError, ConnectivityError: If the token endpoint refuses or cannot be reached.
         """
         if header := self._fresh_header():
@@ -155,20 +155,20 @@ class MicrosoftCredential:
         return session.describe(grant.expires_at if grant is not None else None)
 
 
-async def microsoft_token(name: str, env_file: Path | None) -> Credential:
+async def microsoft_token(name: str, sources: TokenSources) -> Credential:
     """Resolve the stored Microsoft session as a product's credential.
 
     Args:
         name: Name the session is stored under, such as ``"microsoft"``.
-        env_file: Unused; a refresh-token session is never read from an env file.
+        sources: Unused; the refresh-token session is only ever in the keychain.
 
     Returns:
-        The credential, described by when the session was seeded.
+        The credential, described by when the user signed in.
 
     Raises:
-        AuthenticationError: If no session is seeded yet.
+        AuthenticationError: If no session is stored yet.
     """
-    del env_file
+    del sources
     session = await load_session(name)
     if session is None:
         raise AuthenticationError(NO_CREDENTIAL)
