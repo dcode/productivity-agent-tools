@@ -10,6 +10,7 @@ from productivity_agent_tools.errors import AuthenticationError
 from productivity_agent_tools.microsoft.credentials import MicrosoftCredential, microsoft_token
 from productivity_agent_tools.microsoft.oauth import RedeemConfig, TokenGrant
 from productivity_agent_tools.microsoft.session import MicrosoftSession
+from productivity_agent_tools.tokens import TokenSources
 
 CONFIG = RedeemConfig(
     client_id="c",
@@ -233,7 +234,7 @@ async def test_resolver_describes_the_stored_session(monkeypatch: pytest.MonkeyP
         return session
 
     monkeypatch.setattr("productivity_agent_tools.microsoft.credentials.load_session", load)
-    credential = await microsoft_token("microsoft", None)
+    credential = await microsoft_token("microsoft", TokenSources())
     assert credential.label == "OAuth token"
     assert credential.source == "the system keychain, signed in at 2026-01-01T12:00:00+00:00"
     assert credential.describe is not None
@@ -245,4 +246,4 @@ async def test_resolver_without_a_session_raises(monkeypatch: pytest.MonkeyPatch
 
     monkeypatch.setattr("productivity_agent_tools.microsoft.credentials.load_session", load)
     with pytest.raises(AuthenticationError, match="login microsoft"):
-        await microsoft_token("microsoft", None)
+        await microsoft_token("microsoft", TokenSources())

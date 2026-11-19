@@ -44,6 +44,7 @@ from productivity_agent_tools.servicenow.settings import (
     ServiceNowSettings,
     parse_servicenow_settings,
 )
+from productivity_agent_tools.tokens import TokenSources
 from productivity_agent_tools.transport import HttpAdapter
 
 BASE = "https://desk.example"
@@ -194,13 +195,13 @@ async def test_an_unavailable_keychain_means_no_session(monkeypatch: pytest.Monk
 
 async def test_the_credential_needs_a_saved_session(keychain: dict[tuple[str, str], str]) -> None:
     with pytest.raises(AuthenticationError, match="login servicenow"):
-        await browser_session("servicenow", None)
+        await browser_session("servicenow", TokenSources())
 
 
 async def test_the_credential_follows_a_new_sign_in(keychain: dict[tuple[str, str], str]) -> None:
     first = BrowserSession(cookie="s=1", user_token="t1", saved_at="2026-11-14T10:00:00+00:00")
     await store_session("servicenow", first)
-    credential = await browser_session("servicenow", None)
+    credential = await browser_session("servicenow", TokenSources())
     assert credential.label == "browser session"
     assert "2026-11-14T10:00:00" in credential.source
     assert await credential.headers() == {"Cookie": "s=1", "X-UserToken": "t1"}

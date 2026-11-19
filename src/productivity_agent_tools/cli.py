@@ -177,7 +177,7 @@ async def _open_server(
             product = products[name]
             if product.token not in credentials:
                 credentials[product.token] = await product.resolve_credential(
-                    product.token, settings.token_env_file
+                    product.token, settings.token_sources_for(product_settings)
                 )
             credential = credentials[product.token]
             client = await stack.enter_async_context(
@@ -374,7 +374,9 @@ async def _doctor_product(
     connection = settings.connection_for(product_settings)
     print(f"[info] {product.name} extra_cookies={','.join(connection.cookies) or 'none'}")
     try:
-        credential = await product.resolve_credential(product.token, settings.token_env_file)
+        credential = await product.resolve_credential(
+            product.token, settings.token_sources_for(product_settings)
+        )
         print(f"[ok]   {product.name} {credential.label} found in {credential.source}")
         async with product.adapter(
             connection, credential.headers, dry_run=settings.dry_run, transport=transport

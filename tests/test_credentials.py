@@ -13,6 +13,7 @@ from productivity_agent_tools.credentials import (
 )
 from productivity_agent_tools.errors import AuthenticationError, TokenNotFoundError
 from productivity_agent_tools.http import AtlassianClient
+from productivity_agent_tools.tokens import TokenSources
 
 
 async def test_bearer_token_sends_the_same_header_every_time() -> None:
@@ -23,7 +24,7 @@ async def test_bearer_token_sends_the_same_header_every_time() -> None:
 
 async def test_personal_access_token_reports_its_source(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("JIRA_TOKEN", "from-env")
-    credential = await personal_access_token("jira", None)
+    credential = await personal_access_token("jira", TokenSources())
     assert credential.source == "environment variable JIRA_TOKEN"
     assert await credential.headers() == {"Authorization": "Bearer from-env"}
 
@@ -34,7 +35,7 @@ async def test_personal_access_token_reads_the_env_file(
     monkeypatch.delenv("JIRA_TOKEN", raising=False)
     env_file = tmp_path / "tokens.env"
     env_file.write_text("JIRA_TOKEN=from-file\n")
-    credential = await personal_access_token("jira", env_file)
+    credential = await personal_access_token("jira", TokenSources(env_file=env_file))
     assert await credential.headers() == {"Authorization": "Bearer from-file"}
 
 
@@ -44,7 +45,7 @@ async def test_a_missing_token_is_still_a_token_not_found_error(
     monkeypatch.delenv("NOPE_TOKEN", raising=False)
     monkeypatch.setattr("keyring.get_password", lambda *_: None)
     with pytest.raises(TokenNotFoundError, match="NOPE_TOKEN"):
-        await personal_access_token("nope", None)
+        await personal_access_token("nope", TokenSources())
 
 
 def test_a_credential_does_not_show_its_provider() -> None:
