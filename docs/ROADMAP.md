@@ -63,11 +63,13 @@ Last updated: 2026-11-19.
     `docs/` reads fine on GitHub. **Later:** Material for MkDocs reaches end of life on
     2027-05-05; its successor, Zensical (same team, reads `mkdocs.yml`), was at 0.1.2
     when this was set up. Revisit before then.
-  - **Next action: review and merge
-    [#18](https://github.com/dcode/productivity-agent-tools/pull/18) with "Squash and
-    merge"** (not rebase: the branch still carries the old copies of the 0.8.0 commits,
-    whose content is already on `main`), **then tag `v0.9.0` on the squash commit.** Also
-    still to do: tag `v0.8.0` at f45647f.
+  - **Next action: merge
+    [#18](https://github.com/dcode/productivity-agent-tools/pull/18), then tag `v0.9.0`
+    on the commit "chore: bump version to 0.9.0" as it lands on `main`** (a rebase merge
+    gives it a new id, so look it up on `main`). Any merge method works: on 2026-11-19
+    the branch was rewritten, with permission, onto `main` plus only its own commits,
+    because the repository only allows rebase merges and the old copies of the 0.8.0
+    commits made that conflict. Also still to do: tag `v0.8.0` at f45647f.
 - **Version:** 0.8.0, on `main` via
   [#17](https://github.com/dcode/productivity-agent-tools/pull/17) (2026-11-19, rebase
   merge, so the branch's commit ids differ from `main`'s). **To do: tag `v0.8.0` at
