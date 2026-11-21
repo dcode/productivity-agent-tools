@@ -29,7 +29,7 @@ MESSAGE_FIELDS: str = (
 
 EVENT_FIELDS: str = (
     "Id,Subject,Start,End,IsAllDay,Location,Organizer,ShowAs,IsCancelled,Type,"
-    "SeriesMasterId,WebLink"
+    "SeriesMasterId,iCalUId,IsOrganizer,ResponseStatus,WebLink"
 )
 """What an event query returns when no ``$select`` is given: no body, no attendees."""
 

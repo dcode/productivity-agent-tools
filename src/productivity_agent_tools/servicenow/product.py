@@ -3,7 +3,7 @@
 from collections.abc import AsyncIterator
 
 from productivity_agent_tools.payload import text
-from productivity_agent_tools.products import Product
+from productivity_agent_tools.products import RemoteProduct
 from productivity_agent_tools.servicenow.client import ServiceNow
 from productivity_agent_tools.servicenow.http import ServiceNowClient
 from productivity_agent_tools.servicenow.login import sign_in
@@ -39,7 +39,7 @@ async def doctor(servicenow: ServiceNow) -> AsyncIterator[str]:
     yield f"authenticated to {servicenow.base_url} as {who}"
 
 
-PRODUCT: Product[ServiceNowSettings, ServiceNow] = Product(
+PRODUCT: RemoteProduct[ServiceNowSettings, ServiceNow] = RemoteProduct(
     name="servicenow",
     title="ServiceNow",
     instructions=INSTRUCTIONS,

@@ -6,7 +6,7 @@ from productivity_agent_tools.bitbucket.client import BitbucketClient
 from productivity_agent_tools.bitbucket.settings import BitbucketSettings, parse_bitbucket_settings
 from productivity_agent_tools.bitbucket.tools import register_bitbucket_tools
 from productivity_agent_tools.http import AtlassianClient
-from productivity_agent_tools.products import Product
+from productivity_agent_tools.products import RemoteProduct
 
 INSTRUCTIONS: str = (
     "The bitbucket_ tools work with the user's self-hosted Bitbucket. Reads are safe to "
@@ -43,7 +43,7 @@ async def doctor(bitbucket: BitbucketClient) -> AsyncIterator[str]:
     yield f"pull requests readable ({waiting.returned}{more} open with you as reviewer)"
 
 
-PRODUCT: Product[BitbucketSettings, BitbucketClient] = Product(
+PRODUCT: RemoteProduct[BitbucketSettings, BitbucketClient] = RemoteProduct(
     name="bitbucket",
     title="Bitbucket",
     instructions=INSTRUCTIONS,

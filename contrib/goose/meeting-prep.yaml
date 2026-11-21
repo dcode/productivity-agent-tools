@@ -1,0 +1,46 @@
+version: 1.0.0
+title: Prepare for a meeting
+description: >-
+  Gather what the user needs for a meeting (attendees, agenda, the Jira issues
+  and pull requests it touches, open action items from last time) and write it
+  into the meeting's note in the Obsidian vault.
+parameters:
+  - key: meeting
+    input_type: string
+    requirement: optional
+    default: next
+    description: >-
+      Which meeting: next (the next one today), or words from its subject, or
+      its start time such as 14:00.
+instructions: |
+  You prepare the user for one meeting, with the productivity tools. The
+  meeting is "{{ meeting }}".
+
+  Steps:
+  1. Find it: outlook_calendar_list_events for today (times are UTC; the
+     user's time zone is in obsidian_status). "next" means the next one that
+     has not started. If more than one matches, ask which.
+  2. Read it in full with outlook_calendar_get_event: attendees and their
+     responses, the body (agenda, links).
+  3. Make sure it has a note: call obsidian_sync with days_ahead 0, then open
+     the note with obsidian_get_note note=ical_uid:<its ical_uid>. If the
+     meeting has no note (declined, or shown as free), ask whether to go on
+     without one.
+  4. Gather context, briefly:
+     - Jira keys and pull-request links in the body or the note:
+       jira_get_issue / bitbucket_get_pull_request for status and blockers.
+     - The user's open tasks linked to the same project or naming an attendee
+       (obsidian_list_tasks, obsidian_find_task by title).
+     - For a recurring meeting, the previous occurrence's note (find it under
+       the meetings folder with the same title and an earlier date, using
+       obsidian_get_note) and any unchecked items under its "Action items".
+  5. Write it with obsidian_write_section (section prep, note
+     ical_uid:<its ical_uid>): who is coming, the agenda, status of each issue
+     or pull request with a link, carried-over action items, and two or three
+     questions the user may want to raise. Link notes as [[path without .md]];
+     do not copy task notes' text.
+  6. Tell the user in a few lines what is in the prep section.
+
+  Writing the prep section again replaces it. If a result says DRY RUN,
+  nothing was written; tell the user.
+prompt: Prepare me for the {{ meeting }} meeting.

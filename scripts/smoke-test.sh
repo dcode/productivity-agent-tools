@@ -433,6 +433,9 @@ if offers outlook_calendar_status; then
   check "calendar events" -- outlook_calendar_list_events max_results=5
   expect "calendar events in UTC" "calendar events" "every start is in UTC" \
     'all((e["start"] or {}).get("time_zone") == "UTC" for e in r["events"])'
+  expect "calendar events have a meeting key" "calendar events" \
+    "every event has an iCalUId (the key that ties a meeting note to its meeting)" \
+    'all(e.get("ical_uid") for e in r["events"])'
   EVENT_ID="$(pick "calendar events" events 0 id)"
   check "calendar event" "$EVENT_ID" -- outlook_calendar_get_event "event_id=$EVENT_ID" max_chars=300
   CALENDAR_ID="$(pick "calendar list" calendars 0 id)"
@@ -458,6 +461,42 @@ if offers servicenow_status; then
 else
   printf '\n== servicenow\n   skipped: no [servicenow] table in the config\n'
   SKIPPED+=("servicenow (not configured)")
+fi
+
+# ---- Obsidian (only if [obsidian] is in your config; reads the vault only) ----
+
+if offers obsidian_status; then
+  check "obsidian status" -- obsidian_status
+  expect "obsidian vault found" "obsidian status" "the folder is an Obsidian vault" \
+    'r["is_vault"] is True'
+  check "obsidian open tasks" -- obsidian_list_tasks max_results=5
+  check "obsidian all tasks" -- obsidian_list_tasks state=all max_results=3
+  expect "obsidian tasks in order" "obsidian all tasks" "earliest scheduled or due first" \
+    'all(min([d[:10] for d in (a["scheduled"], a["due"]) if d] or ["~"]) <= min([d[:10] for d in (b["scheduled"], b["due"]) if d] or ["~"]) for a, b in zip(r["tasks"], r["tasks"][1:]))'
+  TASK_PATH="$(pick "obsidian all tasks" tasks 0 path)"
+  TASK_TITLE="$(pick "obsidian all tasks" tasks 0 title)"
+  check "obsidian get note" "$TASK_PATH" -- obsidian_get_note "note=$TASK_PATH" max_chars=200
+  check "obsidian find by title" "$TASK_TITLE" -- obsidian_find_task "title=$TASK_TITLE"
+  expect "obsidian finds its own task" "obsidian find by title" "a task's own title scores 1" \
+    'r["similar"] and r["similar"][0]["score"] == 1.0'
+  check "obsidian daily note" -- obsidian_get_daily_note day=yesterday max_chars=200
+  expect "obsidian daily note path" "obsidian daily note" "the path follows the layout" \
+    'r["path"].endswith(".md") and r["day"] in r["path"]'
+  # Writes, always with --dry-run: nothing in the vault changes.
+  check "obsidian plan (dry run)" -- obsidian_write_section section=smoke-test \
+    "markdown=- smoke test" day=today --dry-run
+  expect "obsidian plan not written" "obsidian plan (dry run)" "dry run writes nothing" \
+    'r["dry_run"] is True and r["written"] is False'
+  check "obsidian create task (dry run)" "$TASK_TITLE" -- obsidian_create_task \
+    "title=$TASK_TITLE" --dry-run
+  expect "obsidian refuses a duplicate" "obsidian create task (dry run)" \
+    "an existing task's title is held back" 'r["created"] is False and r["similar"]'
+  check "obsidian sync (dry run)" -- obsidian_sync days_ahead=0 --dry-run
+  expect "obsidian sync writes nothing" "obsidian sync (dry run)" \
+    "dry run, and every configured source read" 'r["dry_run"] is True and not r["unavailable"]'
+else
+  printf '\n== obsidian\n   skipped: no [obsidian] table in the config\n'
+  SKIPPED+=("obsidian (not configured)")
 fi
 
 # ---- Jira and Bitbucket together (only if both are configured) ---------------

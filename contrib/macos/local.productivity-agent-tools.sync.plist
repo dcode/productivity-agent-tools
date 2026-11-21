@@ -1,0 +1,36 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  A launchd agent that runs the Obsidian sync every 30 minutes while you are
+  logged in, and once at login. Replace CHECKOUT with the absolute path of this
+  repository, then install it (see docs/workflow.md):
+
+    sed "s#CHECKOUT#$PWD#g" contrib/macos/local.productivity-agent-tools.sync.plist \
+      > ~/Library/LaunchAgents/local.productivity-agent-tools.sync.plist
+    launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/local.productivity-agent-tools.sync.plist
+
+  Run it now, whatever the schedule:
+
+    launchctl kickstart gui/$(id -u)/local.productivity-agent-tools.sync
+-->
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>local.productivity-agent-tools.sync</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>/bin/bash</string>
+    <string>CHECKOUT/contrib/macos/sync.sh</string>
+  </array>
+  <key>StartInterval</key>
+  <integer>1800</integer>
+  <key>RunAtLoad</key>
+  <true/>
+  <key>ProcessType</key>
+  <string>Background</string>
+  <key>StandardOutPath</key>
+  <string>/tmp/local.productivity-agent-tools.sync.out</string>
+  <key>StandardErrorPath</key>
+  <string>/tmp/local.productivity-agent-tools.sync.err</string>
+</dict>
+</plist>

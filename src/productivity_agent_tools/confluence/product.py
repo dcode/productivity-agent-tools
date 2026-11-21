@@ -10,7 +10,7 @@ from productivity_agent_tools.confluence.settings import (
 from productivity_agent_tools.confluence.tools import register_confluence_tools
 from productivity_agent_tools.http import AtlassianClient
 from productivity_agent_tools.payload import text
-from productivity_agent_tools.products import Product
+from productivity_agent_tools.products import RemoteProduct
 
 INSTRUCTIONS: str = (
     "The confluence_ tools work with the user's self-hosted Confluence. Reads are safe to "
@@ -46,7 +46,7 @@ async def doctor(confluence: ConfluenceClient) -> AsyncIterator[str]:
     yield f"search works ({found.returned}{more} page(s) you have edited)"
 
 
-PRODUCT: Product[ConfluenceSettings, ConfluenceClient] = Product(
+PRODUCT: RemoteProduct[ConfluenceSettings, ConfluenceClient] = RemoteProduct(
     name="confluence",
     title="Confluence",
     instructions=INSTRUCTIONS,

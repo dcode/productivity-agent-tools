@@ -7,10 +7,13 @@ from typing import Any
 from mcp.server.mcpserver import MCPServer
 
 from productivity_agent_tools.api import ApiClient
-from productivity_agent_tools.config import Settings
+from productivity_agent_tools.config import ProductSettings, Settings
 from productivity_agent_tools.products import (
+    ActiveProduct,
     Integration,
+    LocalProduct,
     Product,
+    RemoteProduct,
     ToolContext,
     installed_integrations,
     installed_products,
@@ -33,9 +36,48 @@ class Connected:
     describe_source: Callable[[], Awaitable[str]] | None = None
 
 
+@dataclass(frozen=True, slots=True)
+class Opened:
+    """One local product's opened client.
+
+    Attributes:
+        client: The client the product's ``open`` gave.
+        token_source: Always empty: a local product has no credential.
+        describe_source: Always None, for the same reason.
+    """
+
+    client: object
+    token_source: str = ""
+    describe_source: Callable[[], Awaitable[str]] | None = None
+
+
+def _activate(
+    product: Product[Any, Any], opened: Connected | Opened, settings: ProductSettings
+) -> ActiveProduct:
+    """Bind a product to what was opened for it.
+
+    Args:
+        product: The product.
+        opened: Its API connection when it is remote, its client when it is local.
+        settings: The product's settings.
+
+    Returns:
+        The product with its client.
+
+    Raises:
+        TypeError: If a remote product was given a client, or a local one a connection.
+    """
+    match product, opened:
+        case RemoteProduct(), Connected(api=api):
+            return product.activate(api, settings)
+        case LocalProduct(), Opened(client=client):
+            return product.activate(client, settings)
+    raise TypeError(f"{product.name} cannot use a {type(opened).__name__}.")
+
+
 def build_server(
     settings: Settings,
-    connected: Mapping[str, Connected],
+    connected: Mapping[str, Connected | Opened],
     *,
     products: Mapping[str, Product[Any, Any]] | None = None,
     integrations: Iterable[Integration] | None = None,
@@ -49,7 +91,8 @@ def build_server(
 
     Args:
         settings: Resolved settings.
-        connected: Open connection of each product to offer, by product name.
+        connected: Open connection (remote) or client (local) of each product to offer,
+            by product name.
         products: The known products; None uses the installed ones.
         integrations: The known integrations; None uses the installed ones.
 
@@ -58,7 +101,7 @@ def build_server(
     """
     known = installed_products() if products is None else products
     active = {
-        name: known[name].activate(connected[name].api, product_settings)
+        name: _activate(known[name], connected[name], product_settings)
         for name, product_settings in settings.products.items()
         if name in connected and name in known
     }
@@ -74,12 +117,15 @@ def build_server(
     server = MCPServer("productivity-agent-tools", instructions=instructions)
     clients = {name: item.client for name, item in active.items()}
     for name, item in active.items():
-        connection = settings.connection_for(settings.products[name])
+        product_settings = settings.products[name]
+        cookies = (
+            settings.connection_for(product_settings).cookies if product_settings.remote else {}
+        )
         context = ToolContext(
-            dry_run=settings.dry_run,
+            dry_run=settings.dry_run_for(product_settings),
             token_source=connected[name].token_source,
             describe_source=connected[name].describe_source,
-            cookie_names=tuple(connection.cookies),
+            cookie_names=tuple(cookies),
             peers={peer: client for peer, client in clients.items() if peer != name},
         )
         item.register_tools(server, context)

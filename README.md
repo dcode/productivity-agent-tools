@@ -12,6 +12,7 @@ its own table in the config:
 | Confluence (Data Center) | reads and search, plus creating and editing pages | personal access token |
 | ServiceNow | status | browser sign-in (`login servicenow`) |
 | Outlook mail and calendar | reads only | browser sign-in (`login microsoft`) |
+| Obsidian vault (task notes, daily and meeting notes) | reads, plus task notes and sections of notes | none: a folder on this machine |
 
 Writes are blocked until you turn `dry_run` off. No passwords are asked for or
 stored; tokens and sign-ins are kept in the system keychain, or wherever your
@@ -59,6 +60,10 @@ the same way; see the [product pages](docs/products/index.md).
    ```bash
    uv run productivity-agent-tools call jira_search "jql=assignee = currentUser()" max_results=5
    ```
+
+For a day planned in Obsidian (tasks, meetings and a daily plan synced from
+these products, with Goose recipes for each step), see the
+[daily workflow](docs/workflow.md).
 
 More in the documentation: [getting started](docs/getting-started.md),
 [configuration](docs/configuration.md) (one host or several, groups, cookies,

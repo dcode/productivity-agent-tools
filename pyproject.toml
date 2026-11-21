@@ -28,6 +28,7 @@ productivity-agent-tools = "productivity_agent_tools.cli:main"
 bitbucket = "productivity_agent_tools.bitbucket.product:PRODUCT"
 confluence = "productivity_agent_tools.confluence.product:PRODUCT"
 jira = "productivity_agent_tools.jira.product:PRODUCT"
+obsidian = "productivity_agent_tools.obsidian.product:PRODUCT"
 outlook_calendar = "productivity_agent_tools.microsoft.calendar_product:PRODUCT"
 outlook_mail = "productivity_agent_tools.microsoft.mail_product:PRODUCT"
 servicenow = "productivity_agent_tools.servicenow.product:PRODUCT"
@@ -152,4 +153,4 @@ error-on-warning = true
 
 [tool.rumdl]
 line-length = 100
-exclude = [".venv", "LICENSE"]
+exclude = [".venv", "LICENSE", "contrib/obsidian"]

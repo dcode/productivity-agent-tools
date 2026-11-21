@@ -13,7 +13,7 @@ import tomllib
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field, replace
 from pathlib import Path
-from typing import Any
+from typing import Any, ClassVar
 
 from productivity_agent_tools.errors import ConfigError
 from productivity_agent_tools.logs import DEFAULT_LOG_LEVEL, LOG_LEVELS
@@ -95,7 +95,13 @@ class ProductSettings:
         token_cmd: The product's own command that prints its token, or None.
         group: Name of the ``[group.<name>]`` table this product draws shared defaults from,
             or None for the top-level defaults only.
+        dry_run: The product's own dry-run setting, or None to use the top-level one. The
+            command line's ``--dry-run`` / ``--no-dry-run`` overrides it.
+        remote: Class-level: False for the settings of a product that reaches no server
+            (``LocalProduct``), whose table needs no ``base_url``.
     """
+
+    remote: ClassVar[bool] = True
 
     base_url: str | None = None
     ca_bundle: Path | None = None
@@ -104,6 +110,17 @@ class ProductSettings:
     token_env_file: Path | None = None
     token_cmd: tuple[str, ...] | None = None
     group: str | None = None
+    dry_run: bool | None = None
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class LocalProductSettings(ProductSettings):
+    """Settings base for a product that works on local files and reaches no server.
+
+    The connection fields it inherits stay None; only ``dry_run`` applies.
+    """
+
+    remote: ClassVar[bool] = False
 
 
 type ProductParser = Callable[[dict[str, Any]], ProductSettings]
@@ -164,6 +181,17 @@ class Settings:
         if not isinstance(found, kind):
             raise ConfigError(f"The settings of '{name}' are not {kind.__name__}.")
         return found
+
+    def dry_run_for(self, product: ProductSettings) -> bool:
+        """Tell whether a product's writes are blocked: its own setting, else the top level's.
+
+        Args:
+            product: The product's settings.
+
+        Returns:
+            True when the product's write tools must send nothing.
+        """
+        return self.dry_run if product.dry_run is None else product.dry_run
 
     def token_sources_for(self, product: ProductSettings) -> TokenSources:
         """Resolve where a product's token may be found: its own table, its group, the top.
@@ -635,15 +663,34 @@ def _connection_overrides(raw: dict[str, Any], table: str) -> dict[str, Any]:
     }
 
 
-def product_overrides(raw: dict[str, Any], table: str) -> dict[str, Any]:
-    """Read the connection values and group a product's table sets for itself.
+def dry_run_override(raw: dict[str, Any], table: str) -> bool | None:
+    """Read a product's own ``dry_run``, if its table sets one.
 
     Args:
         raw: The product's parsed table.
         table: Name of the table, for error messages.
 
     Returns:
-        Keyword arguments for the ``ProductSettings`` connection fields and ``group``.
+        The product's setting, or None to use the top-level one.
+
+    Raises:
+        ConfigError: If the value is neither a boolean nor 0 or 1.
+    """
+    if "dry_run" not in raw:
+        return None
+    return as_bool({f"{table}.dry_run": raw["dry_run"]}, f"{table}.dry_run", True)
+
+
+def product_overrides(raw: dict[str, Any], table: str) -> dict[str, Any]:
+    """Read the connection values, group and dry-run a product's table sets for itself.
+
+    Args:
+        raw: The product's parsed table.
+        table: Name of the table, for error messages.
+
+    Returns:
+        Keyword arguments for the ``ProductSettings`` connection fields, ``group`` and
+        ``dry_run``.
 
     Raises:
         ConfigError: If a value is invalid.
@@ -652,6 +699,7 @@ def product_overrides(raw: dict[str, Any], table: str) -> dict[str, Any]:
     return {
         **_connection_overrides(raw, table),
         "group": group.strip() if group and group.strip() else None,
+        "dry_run": dry_run_override(raw, table),
     }
 
 
@@ -732,7 +780,8 @@ def parse_settings(
         groups=groups,
     )
     for product in products.values():
-        settings.connection_for(product)
+        if product.remote:
+            settings.connection_for(product)
     return settings
 
 
@@ -793,7 +842,8 @@ def apply_overrides(
 
     Args:
         settings: Settings loaded from the file.
-        dry_run: Override for ``dry_run``; None keeps the file value.
+        dry_run: Override for ``dry_run`` at every level (top and products); None keeps the
+            file's values.
         cookies: Extra ``name=value`` cookies; these are added to the file's cookies,
             including a product's own table, and replace any with the same name.
         token_env_file: Override for ``token_env_file`` at every level (top, groups and
@@ -814,6 +864,8 @@ def apply_overrides(
         extra[_cookie_name(name)] = _cookie_value(name, value)
 
     def with_extra[P: ProductSettings | GroupSettings](level: P) -> P:
+        if dry_run is not None and isinstance(level, ProductSettings):
+            level = replace(level, dry_run=None)
         if token_env_file is not None:
             level = replace(level, token_env_file=None)
         if level.cookies is None:

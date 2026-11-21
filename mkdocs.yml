@@ -77,6 +77,8 @@ nav:
       - Confluence: products/confluence.md
       - ServiceNow: products/servicenow.md
       - Outlook mail and calendar: products/outlook.md
+      - Obsidian: products/obsidian.md
+  - Daily workflow in Obsidian: workflow.md
   - Command line: cli.md
   - Agents: agents.md
   - Development: development.md

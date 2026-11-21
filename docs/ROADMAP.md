@@ -7,7 +7,149 @@ Last updated: 2026-11-19.
 
 ## Where things stand
 
-- **0.9.0, in review (branch `claude/zealous-mendel-ny1eml`, 2026-11-19). Start here.**
+- **0.10.0, the Obsidian vault, all 6 steps done (branch `claude/zealous-mendel-ny1eml`,
+  2026-11-19, in review as
+  [#19](https://github.com/dcode/productivity-agent-tools/pull/19)). Start here.**
+  Asked for on 2026-11-19: use these tools from Obsidian to plan the day, keep task notes
+  (TaskNotes) for what I am responsible for, keep meeting notes, and never get the same
+  task or meeting twice from one day to the next. The design is agreed and recorded in
+  DESIGN.md (Roadmap, "Obsidian vault", and "Obsidian specifics"); the six steps are
+  under "Next up".
+  - **Step 1 (commit 8f71f8e):** `Product` split into `RemoteProduct` (every product so
+    far) and `LocalProduct` (`open(settings, dry_run)` yields the client; settings extend
+    `LocalProductSettings`, so no `base_url` is needed). `server.py` takes
+    `Opened(client)` beside `Connected(api)`; the CLI connects and runs `doctor` for both
+    kinds; `set-token` and `login` list only remote products. **Per-product `dry_run`:**
+    a product's table may set it and wins for that product; the command-line flag wins
+    over every table; `doctor` prints a product's value when it differs. Groups do not
+    carry it (agreed).
+  - **Step 2 (this commit): the `obsidian` product, reads only.** `[obsidian]` takes
+    `vault` (required), `tasks_folder` (`TaskNotes/Tasks`), `meetings_folder`
+    (`Meetings`), `task_tag` (`task`), `done_statuses` (`["done"]`),
+    `default_max_results` (50) and `dry_run`. Tools: `obsidian_status`,
+    `obsidian_list_tasks`, `obsidian_find_task`, `obsidian_get_note`. `doctor` checks for
+    `.obsidian/`, counts tasks and says whether the tasks folder exists yet. The smoke
+    test has an Obsidian section (checked here against a scratch vault: 8 passed).
+  - **Dated notes and time zone (2026-11-19, asked for during step 2):** meetings go to
+    `Meetings/YYYY/MM/YYYY-MM-DD <title>` (`meeting_date_format`), daily notes follow
+    Obsidian's Daily notes settings (the user's are `Journal/YYYY/MM/YYYY-MM-DD`), with
+    `daily_folder` / `daily_format` to override and `doctor` failing when they disagree.
+    `obsidian_get_daily_note` reads a day's note. "Today" is an aware time in
+    `time_zone`, else this computer's zone (`timezones.py`, looked up on every call).
+  - **Checked by the user (2026-11-19):** `doctor` gives the expected daily-note and
+    meeting lines with `meeting_date_format = "YYYY/MM/YYYY-MM-DD"`, with other daily
+    formats in Obsidian, and with and without today's note.
+  - **Step 3: writes.** `obsidian_create_task` (refuses an existing key; holds back a
+    title scoring 0.8+ against an open task until `allow_similar`), `obsidian_update_task`
+    (by path, `[[link]]` or `jira:ABC-123`; refuses source-owned fields on synced tasks;
+    sets `completedDate`), `obsidian_write_section` (between hidden markers; a new daily
+    note starts from Obsidian's daily template). Round-trip properties, temporary file
+    plus rename, and a note changed since it was read is left alone. The smoke test checks
+    two writes with `--dry-run` only, so it never changes the vault.
+  - **Step 4: meeting identity.** Event summaries (`outlook_calendar_list_events`) now
+    carry `ical_uid`, `series_master_id`, `type`, `is_organizer`, `response` (the user's
+    own: Accepted, Declined ...) and `online_meeting_url` (from `OnlineMeetingUrl`, else
+    `OnlineMeeting.JoinUrl`), read from what `calendarview` already returns; the query
+    tool's default select gains `ICalUId`, `IsOrganizer` and `ResponseStatus`. **To check
+    live:** the smoke test now expects every event to have an `ical_uid`; also look at
+    whether `online_meeting_url` is filled for a Teams meeting (REST v2 may leave both
+    empty, in which case the link is only in the body).
+  - **Step 5: sync.** `TaskSource` (Jira through `[jira] tasks_jql`; Bitbucket pull
+    requests awaiting the user's review) and `MeetingSource` (Outlook calendar) in
+    `capabilities.py`, `ToolContext.peers_of`, and `obsidian_sync`: made once and found by
+    key, only its own fields, never deletes, skips and reports a source that fails or a
+    note edited meanwhile; `call obsidian_sync` runs it without an agent. New settings:
+    `[obsidian] sync_days_ahead` (1), `meeting_tag` (`meeting`), `[jira] tasks_jql`.
+    Found and fixed while testing: a second run removed `priority` from Bitbucket review
+    tasks (the source has none), and declined meetings were counted as up to date. **To
+    check live:** `call obsidian_sync --dry-run` on the laptop with Jira, Bitbucket and
+    the calendar on; then for real, twice, and see the second run change nothing.
+  - **Step 6: recipes and docs.** `contrib/goose/plan-day.yaml`, `meeting-prep.yaml`
+    and `wrap-day.yaml` (checked against the Goose recipe reference, now at
+    goose-docs.ai: title, description, prompt, optional parameters with defaults;
+    `tests/test_recipes.py` holds them to it and checks every tool they name exists),
+    and `docs/workflow.md` (setup, the loop, cron, Shell Commands, where notes land).
+    Added for the prep recipe: a note can be named by key (`ical_uid:...`,
+    `jira:ABC-123`) wherever a path or `[[link]]` is taken. **To check on the laptop:**
+    whether a recipe with no `extensions` block sees the `productivity` extension (the
+    Goose docs do not say; `docs/workflow.md` has the fix if not), then run each recipe
+    once with `-s`.
+  - **First live run (2026-11-19, build `v0.9.0-10-g621435e`, work laptop):** `doctor`
+    passed for every product, including the vault (26 notes, 6 tasks, America/Chicago,
+    `Journal/YYYY/MMM/YYYY-MM-DD` read from Obsidian's settings), and the smoke test ran.
+    The dry-run sync read Jira, Bitbucket and the calendar with nothing unavailable and
+    would make 14 Jira task notes. **Two bugs found and fixed the same day:** (1) every
+    event's `ical_uid` was empty, so no meeting got a note: the API names it `iCalUId`
+    (camelCase), not `ICalUId`; the join link, type and response were all there. (2) A
+    Templater template (`Templates/Meeting Template.md`) was reported as broken YAML;
+    template folders are now skipped. **To re-check:** the smoke test's "calendar events
+    have a meeting key", and a dry-run sync showing meeting notes. **Config note for the
+    user:** `meeting_date_format = "YYYY-MM-DD/MM/YYYY-MM-DD"` gives
+    `Meetings/2026-11-19/11/...`; `"YYYY/MM/YYYY-MM-DD"` gives the asked-for
+    `Meetings/2026/11/2026-11-19 <title>`.
+  - **Asked for after the first live run (2026-11-19):** synced task notes are named
+    `<key> <slug>` (`ELK-928 review-il5-ansible-and.md`), the slug cut at
+    `[obsidian] task_title_length` (25) at a word; `obsidian_create_task` with a key
+    names its note the same way. And `docs/index.md` lists Obsidian in its product table.
+  - **Second live run (2026-11-19):** a real sync worked and was idempotent on the user's
+    data; renaming a meeting note's file changed nothing on the next sync. **Gap found:**
+    cancelling a meeting in Outlook did not reach its note, because the meeting leaves
+    `calendarview` (the user's diagnosis). Fixed the same day: notes dated in the window
+    whose meeting did not come back are looked for a week either side, and marked
+    `cancelled: true` when not found. **To re-check:** cancel (or decline) a meeting that
+    has a note, sync, and see `cancelled: true` with the report's note.
+  - **Templates and buttons (2026-11-19, asked for):** `[obsidian] meeting_template`, the
+    `prep` markers in the default meeting body, templates in `contrib/obsidian/`, and
+    `contrib/macos/` (`sync.sh`, `run-recipe.sh`, a launchd agent running the sync every
+    30 minutes). The user had found the Shell Commands plugin unmaintained and wants
+    whatever works; Runsh and Lodestone could not be confirmed in the community list, so
+    nothing depends on a particular plugin. **To check on the laptop:** the launchd agent
+    reads the vault in `~/Documents` (macOS may ask for Full Disk Access), the
+    notification shows, and `run-recipe.sh plan-day` opens iTerm2 with Goose.
+  - **Chat pane works (2026-11-19, user):** the Agent Client plugin, set up for Goose over
+    ACP, planned the day from inside Obsidian, and on the user's word commented on and
+    closed a Jira issue that was already fixed. The user noted the plan was thin because
+    few tasks have due dates: plan-day leans on due dates (see below).
+  - **Time blocks and ranking (2026-11-19, asked for):** `[obsidian] timeblock_minutes`
+    (25) and `max_timeblock_minutes` (50); each listed task carries `estimate_minutes`
+    and `block_minutes`; the sync brings Jira's estimate in as `source_estimate`; plan-day
+    ranks by carried over, due soon, in progress, high priority, current sprint, reviews.
+    Corrected the same day: a task with only a due date gets `timeblock_minutes`, not
+    the longest block. Breaks added: `[obsidian] break_minutes` (5) and
+    `long_break_minutes` (10, after any block longer than `timeblock_minutes`); each task
+    carries its `break_minutes`. **To check on the laptop:** plan a day from the chat pane and see
+    25-minute blocks, and estimated tasks capped at 50, around the meetings.
+  - **Third live run (2026-11-20, user):** the sync pulls tasks and is idempotent; planning
+    over ACP works; the calendar smoke check passes after the `iCalUId` fix; a cancelled
+    meeting's note was marked cancelled; the plan used the time-block rules. The launchd
+    agent cannot be run on the work laptop (not allowed there), but `contrib/macos/sync.sh`
+    run by hand works, so the button route is the one to use there. **Bug found and fixed:**
+    a task marked done in TaskNotes was reopened by the next sync (Jira still said in
+    progress); a status changed in Obsidian is now kept until the source moves, detected
+    with `source_status`, and wrap-day offers to close such tasks in Jira. **Validated by the
+    user (2026-11-21).** Also fixed: a
+    test that only passed on 2026-11-19 (it read the real date through `doctor`).
+  - **Decided with the user:** TaskNotes' standard field names stay; the stable keys
+    (`jira`, `bitbucket`, `servicenow`, `ical_uid`, `series_id`, `uid`) are extra
+    frontmatter. Writes will be atomic and skip a note changed since it was read.
+  - **To check on the laptop:** `doctor` and the smoke test against the real vault
+    (add an `[obsidian]` table with `meeting_date_format = "YYYY/MM/YYYY-MM-DD"`), that
+    `doctor` shows `Journal/YYYY/MM/YYYY-MM-DD` read from Obsidian's settings and the
+    right time zone, that `obsidian_get_daily_note day=yesterday` finds yesterday's note,
+    and that `obsidian_list_tasks` sees the same tasks TaskNotes shows. Tell me if your
+    TaskNotes identifies tasks by a property rather than a tag; that is a TaskNotes
+    setting this does not read yet.
+  - Properties are parsed once per note and kept until the file changes, and the task
+    tools skip notes that cannot be tasks: about 5 s per call on a 5,000-note vault
+    became 0.84 s for the first and 0.11 s after (DESIGN.md, Obsidian specifics).
+  - Tests: 838 passing, about 99.98% branch coverage, all hooks clean.
+  - **Next action: merge the pull request, then tag `v0.10.0` on the commit it lands as
+    on `main`.** The branch was squashed into one commit on 2026-11-21 at the user's
+    request, so that commit also carries the version change. Every laptop check listed
+    above has passed, except the launchd agent, which the work laptop does not allow.
+- **0.9.0, on `main` via [#18](https://github.com/dcode/productivity-agent-tools/pull/18)
+  (2026-11-19, merged as one commit, 39b34d8). Tagged `v0.9.0` and `v0.8.0` (confirmed by
+  the user, 2026-11-19).**
   Asked for on 2026-11-19: make credentials and the user-facing text match what the project
   has become. All defaults below were agreed before the work started.
   - **`token_cmd`** (new): a command that prints a token (`sops`, `pass`, `op`), at the
@@ -63,14 +205,10 @@ Last updated: 2026-11-19.
     `docs/` reads fine on GitHub. **Later:** Material for MkDocs reaches end of life on
     2027-05-05; its successor, Zensical (same team, reads `mkdocs.yml`), was at 0.1.2
     when this was set up. Revisit before then.
-  - **Next action: merge
-    [#18](https://github.com/dcode/productivity-agent-tools/pull/18), then tag `v0.9.0`
-    on the commit "chore: bump version to 0.9.0" as it lands on `main`** (a rebase merge
-    gives it a new id, so look it up on `main`). Any merge method works: on 2026-11-19
-    the branch was rewritten, with permission, onto `main` plus only its own commits,
-    because the repository only allows rebase merges and the old copies of the 0.8.0
-    commits made that conflict. Also still to do: tag `v0.8.0` at f45647f.
-- **Version:** 0.8.0, on `main` via
+  - **Merged** as one commit, 39b34d8, which also carries the version bump, so that is
+    where `v0.9.0` goes.
+- **Version:** 0.10.0 on the branch (the Obsidian work); 0.9.0 on `main` (above).
+  Before that, 0.8.0, on `main` via
   [#17](https://github.com/dcode/productivity-agent-tools/pull/17) (2026-11-19, rebase
   merge, so the branch's commit ids differ from `main`'s). **To do: tag `v0.8.0` at
   f45647f** (the bump commit on `main`), from the laptop. Tags:
@@ -116,7 +254,7 @@ Last updated: 2026-11-19.
   value:
   `OUTLOOK_SEARCH`. **Run on the work laptop (2026-11-19): every check passed**, with the
   expected skips (products not configured there).
-  **Next action: tag `v0.8.0` at f45647f.** The one open check is the 18 h expiry
+  Tagged `v0.8.0` (2026-11-19). The one open check is the 18 h expiry
   (needs a lapsed window; see "Confirm against the real servers"). Settled
   2026-11-19: a filter plus a sort on another property is accepted (now a normal smoke
   check), and the full header set comes back.
@@ -155,7 +293,7 @@ Last updated: 2026-11-19.
   spikes and version 0.4.0 (built on `claude/servicenow-credential-seam`).
 - **Also on `main`, in 0.5.0:** the Outlook REST spikes and the Microsoft
   refresh-token lifecycle (`login-microsoft`).
-- **Tests:** 607 passing, about 99.98% branch coverage. All hooks clean.
+- **Tests:** 838 passing, about 99.98% branch coverage. All hooks clean.
 - **In use:** Goose on the work laptop, against Jira 11.3.12, Bitbucket 10.2.8 and Confluence
   10.2.19. No CI
   server (Bamboo or other) reports builds or deployments to this Bitbucket.
@@ -413,14 +551,50 @@ Rough order. Each item is one pull request. API references: the Jira 11.0.2 and 
 `https://dac-static.atlassian.com/server/bitbucket/10.5.swagger.v3.json`).
 
 1. One real story in the new epic and one real branch from an issue (see the checks above).
+2. **Obsidian vault** (design in DESIGN.md, Roadmap, "Obsidian vault"), in order:
+   1. [x] Product kinds (`RemoteProduct`, `LocalProduct`) and per-product `dry_run`
+      (on the branch, see above).
+   2. [x] `obsidian` product, reads: `obsidian_status`, `obsidian_list_tasks`,
+      `obsidian_get_note`, `obsidian_find_task` (by key, or near matches by title);
+      `doctor` checks the vault (on the branch, see above).
+   3. [x] `obsidian` writes behind its own `dry_run`: `obsidian_create_task` (refuses an
+      existing key, returns near matches), `obsidian_schedule_task`,
+      `obsidian_write_daily_section` (between markers); atomic writes, skip a note
+      changed since it was read. (The daily-note and meeting layouts and the time zone
+      are done; see above.)
+   4. [x] Meeting identity on calendar events (live check pending): `ICalUId`,
+      `SeriesMasterId`, `Type`, `IsOrganizer`, `ResponseStatus` and the join link on the
+      event summary, so a meeting has a key that lasts across days and declined meetings
+      can be left out.
+   5. [x] `TaskSource` and `MeetingSource` capabilities (Jira through a preset, Bitbucket
+      pull requests awaiting review, the Outlook calendar), `ToolContext.peers_of`, and
+      `obsidian_sync`: create or update by key, sync-owned fields only, never delete.
+   6. [x] Goose recipes (plan the day, prepare a meeting, wrap up the day) and a page in
+      the docs on running them from Obsidian (Shell Commands plugin) and `call
+      obsidian_sync` from cron.
 
 ## Later
 
+- **Delta queries for the calendar (and mail), with Graph** — discussed 2026-11-19, kept
+  for later by the user. Microsoft's recommended way to see changed and deleted events is
+  `calendarView/delta`, repeating the returned token. Not done now because the token is
+  bound to a fixed start and end while the sync's window moves daily (so little saving),
+  a deleted event comes back as `@removed` with only its `Id` (notes would need to store
+  an immutable event id), the token needs a local state store and handling for expiry,
+  and the calendar is still on the Outlook REST v2.0 stopgap. The sync instead looks a
+  week either side for meetings that left the window; its one gap is a meeting moved more
+  than 7 days away, marked cancelled until it comes back into range. **Middle step if
+  that gap matters:** keep `event_id` (with `Prefer: IdType="ImmutableId"`) in each
+  meeting note and check a missing one with `GET /me/events/{id}` (404 means deleted).
+  **Plan:** delta for calendar and mail together when moving to Graph, with one shared
+  token store.
 - **GitLab (self-managed)**: `gitlab_wiki` and `gitlab_scm` products sharing a `gitlab`
   token, a GitLab `ApiClient` adapter (error format differs from Atlassian's), and a
   Jira–GitLab integration if issues are tracked in Jira. Not started; the plugin structure
   was built for it. Open question: does `jira_get_issue_pull_requests` become an
   integration per code host, or a capability (`CodeHost`) that every code host offers?
+  **Leaning (2026-11-19): a capability**, as `TaskSource` / `MeetingSource` did for the
+  Obsidian sync; see DESIGN.md, Overall shape.
 - **Multiple accounts of one product (multi-tenancy)** — design notes, not started
   (captured 2026-11-15). Motivation: run the *same* product against two accounts at once —
   e.g. an Army M365 mailbox and a civilian-employer M365 mailbox, each its own credential

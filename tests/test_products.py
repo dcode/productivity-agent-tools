@@ -22,9 +22,11 @@ from productivity_agent_tools.jira.settings import JiraSettings
 from productivity_agent_tools.links import INTEGRATION
 from productivity_agent_tools.microsoft.calendar_product import PRODUCT as OUTLOOK_CALENDAR
 from productivity_agent_tools.microsoft.mail_product import PRODUCT as OUTLOOK_MAIL
+from productivity_agent_tools.obsidian.product import PRODUCT as OBSIDIAN
 from productivity_agent_tools.products import (
     Integration,
     Product,
+    RemoteProduct,
     ToolContext,
     client_of,
     installed_integrations,
@@ -39,6 +41,7 @@ def test_the_built_in_products_and_integration_are_installed() -> None:
         "bitbucket": BITBUCKET,
         "confluence": CONFLUENCE,
         "jira": JIRA,
+        "obsidian": OBSIDIAN,
         "outlook_calendar": OUTLOOK_CALENDAR,
         "outlook_mail": OUTLOOK_MAIL,
         "servicenow": SERVICENOW,
@@ -49,7 +52,7 @@ def test_the_built_in_products_and_integration_are_installed() -> None:
 
 
 def test_a_shared_token_name_overrides_the_product_name() -> None:
-    wiki = Product(
+    wiki = RemoteProduct(
         name="gitlab_wiki",
         title="GitLab wiki",
         instructions="",
@@ -125,7 +128,7 @@ async def test_a_product_from_outside_the_package_is_served(
             """Say where the wiki is."""
             return f"{client.base_url} dry_run={context.dry_run} peers={sorted(context.peers)}"
 
-    wiki: Product[ProductSettings, ApiClient] = Product(
+    wiki: Product[ProductSettings, ApiClient] = RemoteProduct(
         name="wiki",
         title="Wiki",
         instructions="The wiki_ tools.",
@@ -178,7 +181,7 @@ def test_entry_points_must_name_matching_products(monkeypatch: pytest.MonkeyPatc
         with pytest.raises(TypeError, match="'jira' names the product 'bitbucket'"):
             installed_products()
         points[:] = [_entry_point("jira", "productivity_agent_tools.jira.settings:JiraSettings")]
-        with pytest.raises(TypeError, match=r"'jira' in .* is not a Product"):
+        with pytest.raises(TypeError, match=r"'jira' in .* is not a RemoteProduct or LocalProduct"):
             installed_products()
     finally:
         products.installed_products.cache_clear()

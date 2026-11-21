@@ -8,7 +8,7 @@ from datetime import date, datetime
 from pydantic import JsonValue
 
 from productivity_agent_tools.api import ApiClient, WriteOutcome
-from productivity_agent_tools.capabilities import IssueDetails
+from productivity_agent_tools.capabilities import IssueDetails, SourcedTask
 from productivity_agent_tools.errors import AgentToolsError
 from productivity_agent_tools.jira.fields import (
     AGILE_FIELDS,
@@ -51,6 +51,22 @@ from productivity_agent_tools.payload import value as _value
 
 _ISSUE_KEY = re.compile(r"^[A-Z][A-Z0-9_]*-[1-9][0-9]*$")
 _SUMMARY_FIELDS: str = "summary,status,issuetype,priority,assignee,updated"
+_TASK_FIELDS: str = "summary,status,priority,duedate,resolution,timeestimate,timeoriginalestimate"
+_TASK_STATUS: dict[str, str] = {"new": "open", "indeterminate": "in-progress"}
+"""TaskNotes status for each Jira status category; ``done`` is decided by resolution too."""
+_TASK_PRIORITY: dict[str, str] = {
+    "blocker": "high",
+    "critical": "high",
+    "highest": "high",
+    "high": "high",
+    "major": "normal",
+    "medium": "normal",
+    "minor": "low",
+    "low": "low",
+    "lowest": "low",
+    "trivial": "low",
+}
+"""TaskNotes priority for Jira's usual priority names; any other name is normal."""
 _DETAIL_FIELDS: str = _SUMMARY_FIELDS + (
     ",description,reporter,created,labels,comment,project,duedate,resolution,timetracking,"
     "timeoriginalestimate,timespent,components,fixVersions,versions,issuelinks"
@@ -261,6 +277,23 @@ def _transition(item: JsonObject) -> Transition:
         resolutions=[r for v in meta.allowed if (r := _text(v, "name"))] if meta else [],
         resolution_required=meta is not None and meta.required,
     )
+
+
+def _estimate(fields: JsonValue) -> int | None:
+    """Read how long an issue still needs, in minutes.
+
+    Args:
+        fields: The issue's ``fields``.
+
+    Returns:
+        The remaining estimate when it is more than 0, else the original one when it is,
+        rounded up to whole minutes; None when neither is.
+    """
+    for name in ("timeestimate", "timeoriginalestimate"):
+        seconds = _number(fields, name)
+        if seconds:
+            return max(1, -(-seconds // 60))
+    return None
 
 
 class JiraClient:
@@ -1113,6 +1146,90 @@ class JiraClient:
             )
             for issue in result.issues
         }
+
+    @property
+    def task_source(self) -> str:
+        """The vault property Jira issue keys are kept under."""
+        return "jira"
+
+    def _task(self, issue: JsonObject) -> SourcedTask:
+        """Build the task view of an issue for another product.
+
+        Args:
+            issue: One decoded issue with the ``_TASK_FIELDS`` fields.
+
+        Returns:
+            The task: status from the status category, done once resolved.
+        """
+        key = _text(issue, "key") or ""
+        fields = issue.get("fields")
+        category = _text(fields, "status", "statusCategory", "key")
+        resolved = isinstance(fields, dict) and isinstance(fields.get("resolution"), dict)
+        done = category == "done" or resolved
+        status = "done" if done else _TASK_STATUS.get(category or "", "open")
+        priority = (_text(fields, "priority", "name") or "").lower()
+        return SourcedTask(
+            source=self.task_source,
+            key=key,
+            title=_text(fields, "summary") or key,
+            status=status,
+            done=done,
+            priority=_TASK_PRIORITY.get(priority, "normal" if priority else None),
+            due=_text(fields, "duedate"),
+            url=f"{self.base_url}/browse/{key}",
+            source_status=_text(fields, "status", "name"),
+            estimate_minutes=_estimate(fields),
+        )
+
+    async def _tasks(self, jql: str, limit: int) -> list[SourcedTask]:
+        """Run a search for the task view of its issues.
+
+        Args:
+            jql: The query.
+            limit: Most issues to return.
+
+        Returns:
+            The tasks.
+        """
+        body = _object(
+            await self._core.get(
+                f"{self._api}/search",
+                params={"jql": jql, "maxResults": limit, "fields": _TASK_FIELDS},
+            ),
+            "search",
+        )
+        return [self._task(item) for item in _objects(body.get("issues"))]
+
+    async def my_open_tasks(self) -> list[SourcedTask]:
+        """The issues ``tasks_jql`` finds, as tasks for the Obsidian sync.
+
+        Returns:
+            Up to 100 tasks.
+
+        Raises:
+            AgentToolsError: If the search fails.
+        """
+        return await self._tasks(self._settings.tasks_jql, MAX_RESULTS_LIMIT)
+
+    async def tasks_by_key(self, keys: Sequence[str]) -> dict[str, SourcedTask]:
+        """Look issues up by key, to see whether tasks no longer listed are finished.
+
+        Args:
+            keys: Issue keys; malformed ones are ignored.
+
+        Returns:
+            The issues found, by key.
+
+        Raises:
+            AgentToolsError: If a search fails.
+        """
+        valid = sorted({key for key in keys if _ISSUE_KEY.fullmatch(key)})
+        found: dict[str, SourcedTask] = {}
+        for start in range(0, len(valid), MAX_RESULTS_LIMIT):
+            chunk = valid[start : start + MAX_RESULTS_LIMIT]
+            for task in await self._tasks(f"key in ({', '.join(chunk)})", len(chunk)):
+                found[task.key] = task
+        return found
 
     async def development_pull_requests(self, key: str) -> list[JsonObject]:
         """Fetch the pull requests Jira's Development panel shows for an issue.

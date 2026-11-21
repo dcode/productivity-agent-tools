@@ -22,7 +22,8 @@ base_url = "https://atlassian.example.com"
 # ca_bundle = "~/ca-bundle.pem"
 
 # Writes are blocked while this is true. Accepts true/false or 1/0.
-# Override per run with --dry-run / --no-dry-run.
+# A product's table may set its own dry_run, which wins for that product.
+# Override every table per run with --dry-run / --no-dry-run.
 dry_run = true
 
 # Where the Jira, Bitbucket and Confluence tokens come from, besides the
@@ -97,6 +98,9 @@ default_max_results = 25
 # to another. An empty table sends none. Place it after [jira.presets].
 # [jira.cookies]
 # consent_accepted = "1"
+
+# Issues the Obsidian sync (obsidian_sync) turns into task notes.
+# tasks_jql = "assignee = currentUser() AND resolution = Unresolved ORDER BY updated DESC"
 
 # Named JQL queries the agent can run by name. Edit to match your boards.
 [jira.presets]
@@ -187,3 +191,48 @@ current-sprint = "assignee = currentUser() AND sprint in openSprints() ORDER BY 
 # login_timeout_seconds = 300
 # An empty cookies table, so the top-level [cookies] are not sent to this host.
 # [servicenow.cookies]
+
+# Optional: your Obsidian vault, read from its folder (Obsidian need not be
+# running). Off until this table exists. No token and no base_url. Task notes
+# are the TaskNotes plugin's: notes tagged #task, found anywhere in the vault.
+# [obsidian]
+# The vault's top folder, the one holding .obsidian/.
+# vault = "~/Notes"
+# Where new task notes and meeting notes go, relative to the vault.
+# tasks_folder = "TaskNotes/Tasks"
+# A task from Jira or Bitbucket is named "<key> <short title>.md", such as
+# "ELK-928 review-il5-ansible-and.md": this many characters of the title (0 for
+# the key alone).
+# task_title_length = 25
+# meetings_folder = "Meetings"
+# Date part of a meeting note's path, written like Obsidian's date formats; a /
+# makes sub-folders. This gives Meetings/2026/11/2026-11-19 <title>.md.
+# meeting_date_format = "YYYY/MM/YYYY-MM-DD"
+# Daily notes follow Obsidian's Daily notes settings. Set these only to replace
+# them, and then make Obsidian's match: `doctor` fails when they differ.
+# daily_folder = "Journal"
+# daily_format = "YYYY/MM/YYYY-MM-DD"
+# The time zone that decides what day it is. Default: this computer's.
+# time_zone = "America/New_York"
+# The tag that marks a task, and the statuses that count as finished.
+# task_tag = "task"
+# done_statuses = ["done"]
+# default_max_results = 50
+# Time blocks the plan-day recipe plans: a task with an estimate (its
+# timeEstimate, else Jira's remaining, else original estimate) gets it, up to
+# max_timeblock_minutes; any other task gets timeblock_minutes (a pomodoro).
+# timeblock_minutes = 25
+# max_timeblock_minutes = 50
+# The break after a block: long_break_minutes after one longer than
+# timeblock_minutes, else break_minutes.
+# break_minutes = 5
+# long_break_minutes = 10
+# Days after today whose meetings obsidian_sync brings in, and the tag on
+# the meeting notes it makes.
+# sync_days_ahead = 1
+# meeting_tag = "meeting"
+# A note new synced meeting notes start from ({{title}}, {{date}} and {{time}}
+# are filled in). Default: Prep, Agenda, Notes and Action items headings.
+# meeting_template = "Templates/Meeting (sync)"
+# Allow writes to the vault while the other products stay blocked.
+# dry_run = false
