@@ -7,6 +7,7 @@
 | [Confluence](confluence.md) | `[confluence]` | `confluence_` | creating and editing pages |
 | [ServiceNow](servicenow.md) | `[servicenow]` | `servicenow_` | none |
 | [Outlook mail and calendar](outlook.md) | `[outlook_mail]`, `[outlook_calendar]` | `outlook_mail_`, `outlook_calendar_` | none |
+| [Obsidian](obsidian.md) | `[obsidian]` | `obsidian_` | task notes, scheduling, sections of daily and other notes |
 
 Each tool is offered only when its product is configured. With both Jira and
 Bitbucket configured, two tools link them; see [Jira](jira.md#jira-and-bitbucket-together).
@@ -17,7 +18,8 @@ Bitbucket configured, two tools link them; see [Jira](jira.md#jira-and-bitbucket
   the account, where its credential came from, and whether writes are blocked.
   The agent is told to call it first when another tool fails. When a credential
   is rejected or missing, the agent is told not to retry but to ask you to run
-  the fix (`set-token <product>` or `login <product>`).
+  the fix (`set-token <product>` or `login <product>`). The Obsidian vault has
+  no account or credential; its status reports the vault instead.
 - **Writes behind `dry_run`.** While it is on, a write returns the request it
   would send, and the agent is told to say that nothing changed. Tools carry MCP
   read and write annotations, so your agent's approval mode applies as well.

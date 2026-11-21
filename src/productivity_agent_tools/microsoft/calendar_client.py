@@ -10,6 +10,7 @@ from datetime import UTC, datetime, timedelta
 from urllib.parse import quote
 
 from productivity_agent_tools.api import ApiClient
+from productivity_agent_tools.capabilities import SourcedMeeting
 from productivity_agent_tools.errors import AgentToolsError
 from productivity_agent_tools.microsoft.models import (
     Attendee,
@@ -19,6 +20,7 @@ from productivity_agent_tools.microsoft.models import (
     EventList,
     EventSummary,
     QueryResult,
+    TimeSlot,
 )
 from productivity_agent_tools.microsoft.odata import EVENT_FIELDS, ODataQuery, run_query
 from productivity_agent_tools.microsoft.outlook_settings import OutlookSettings
@@ -38,6 +40,9 @@ from productivity_agent_tools.payload import JsonObject, as_object, text
 
 DEFAULT_WINDOW_DAYS: int = 7
 _EVENT_ORDER: str = "Start/DateTime"
+_MEETING_PAGE: int = 100
+_MEETING_PAGES: int = 10
+"""Most pages ``my_meetings`` reads: 1,000 events, more than a few weeks of anyone's."""
 
 
 def _bound(value: str | None, default: datetime, *, end_of_day: bool) -> str:
@@ -159,6 +164,61 @@ class OutlookCalendarClient:
         events = [self._summary(item) for item in odata_items(body)]
         return EventList(returned=len(events), more_available=has_next(body), events=events)
 
+    async def my_meetings(self, start: datetime, end: datetime) -> list[SourcedMeeting]:
+        """The meetings starting in a time range, for the Obsidian sync.
+
+        Events without an ``iCalUId`` cannot be tied to a note and are left out.
+
+        Args:
+            start: Start of the range, time-zone aware.
+            end: End of the range, time-zone aware.
+
+        Returns:
+            The meetings, earliest first, with UTC times; pages of 100 are followed up
+            to ``_MEETING_PAGES`` of them.
+
+        Raises:
+            AgentToolsError: If the request fails.
+        """
+        params: dict[str, str | int] = {
+            "startDateTime": start.astimezone(UTC).strftime("%Y-%m-%dT%H:%M:%SZ"),
+            "endDateTime": end.astimezone(UTC).strftime("%Y-%m-%dT%H:%M:%SZ"),
+            "$orderby": _EVENT_ORDER,
+            "$top": _MEETING_PAGE,
+        }
+        items: list[JsonObject] = []
+        for page in range(_MEETING_PAGES):
+            params["$skip"] = page * _MEETING_PAGE
+            body = await self._api.get("/me/calendarview", params)
+            items.extend(odata_items(body))
+            if not has_next(body):
+                break
+        meetings: list[SourcedMeeting] = []
+        for item in items:
+            event = self._summary(item)
+            begins = _utc(event.start)
+            finishes = _utc(event.end) or begins
+            if not event.ical_uid or begins is None or finishes is None:
+                continue
+            meetings.append(
+                SourcedMeeting(
+                    ical_uid=event.ical_uid,
+                    title=event.subject or "(no subject)",
+                    start=begins,
+                    end=finishes,
+                    series_id=event.series_master_id,
+                    all_day=bool(event.is_all_day),
+                    cancelled=bool(event.is_cancelled),
+                    response=event.response,
+                    show_as=event.show_as,
+                    organizer=event.organizer.name if event.organizer else None,
+                    location=event.location,
+                    join_url=event.online_meeting_url,
+                    url=event.web_link,
+                )
+            )
+        return meetings
+
     async def get_event(self, event_id: str, max_chars: int | None = None) -> Event:
         """Read one event in full, with its body and attendees.
 
@@ -229,6 +289,15 @@ class OutlookCalendarClient:
             show_as=text(item, "ShowAs"),
             is_cancelled=flag(item, "IsCancelled"),
             web_link=text(item, "WebLink"),
+            online_meeting_url=(
+                text(item, "OnlineMeetingUrl") or text(item, "OnlineMeeting", "JoinUrl")
+            ),
+            # The one property the Outlook REST API names in camelCase (seen live 2026-11-19).
+            ical_uid=text(item, "iCalUId"),
+            series_master_id=text(item, "SeriesMasterId"),
+            type=text(item, "Type"),
+            is_organizer=flag(item, "IsOrganizer"),
+            response=text(item, "ResponseStatus", "Response"),
         )
 
     def _event(self, item: JsonObject, max_chars: int) -> Event:
@@ -246,7 +315,6 @@ class OutlookCalendarClient:
             **self._summary(item).model_dump(),
             importance=text(item, "Importance"),
             sensitivity=text(item, "Sensitivity"),
-            online_meeting_url=text(item, "OnlineMeetingUrl"),
             categories=str_list(item, "Categories"),
             attendees=[self._attendee(a) for a in _attendee_items(item)],
             last_modified=text(item, "LastModifiedDateTime"),
@@ -271,6 +339,24 @@ class OutlookCalendarClient:
             type=text(item, "Type"),
             response=text(item, "Status", "Response"),
         )
+
+
+def _utc(slot: TimeSlot | None) -> datetime | None:
+    """Read an event time, which the API sends in UTC (the adapter asks it to).
+
+    Args:
+        slot: The event's start or end.
+
+    Returns:
+        The time, aware and in UTC, or None when it is missing or malformed.
+    """
+    if slot is None or not slot.date_time:
+        return None
+    try:
+        parsed = datetime.fromisoformat(slot.date_time)
+    except ValueError:
+        return None
+    return parsed.replace(tzinfo=UTC) if parsed.tzinfo is None else parsed.astimezone(UTC)
 
 
 def _attendee_items(item: JsonObject) -> list[JsonObject]:

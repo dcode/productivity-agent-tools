@@ -53,6 +53,12 @@ EVENT = {
     "Importance": "Normal",
     "Sensitivity": "Normal",
     "OnlineMeetingUrl": None,
+    "OnlineMeeting": {"JoinUrl": "https://teams/join/1"},
+    "iCalUId": "040000008200E001",
+    "SeriesMasterId": "series1",
+    "Type": "Occurrence",
+    "IsOrganizer": False,
+    "ResponseStatus": {"Response": "Accepted", "Time": "2026-11-10T00:00:00Z"},
     "Categories": ["Team"],
     "Attendees": [
         {
@@ -325,7 +331,13 @@ async def test_get_event_reads_body_attendees_and_truncates(instance: FakeOutloo
     assert event.categories == ["Team"]
     assert len(event.attendees) == 1
     assert event.attendees[0].name == "Kim" and event.attendees[0].response == "Accepted"
-    assert event.online_meeting_url is None
+    assert event.online_meeting_url == "https://teams/join/1"
+    assert (event.ical_uid, event.series_master_id, event.type) == (
+        "040000008200E001",
+        "series1",
+        "Occurrence",
+    )
+    assert (event.is_organizer, event.response) == (False, "Accepted")
 
 
 async def test_get_event_tolerates_a_sparse_event(instance: FakeOutlook) -> None:

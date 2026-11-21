@@ -5,7 +5,7 @@ import contextlib
 import getpass
 import json
 import sys
-from collections.abc import AsyncGenerator, Sequence
+from collections.abc import AsyncGenerator, AsyncIterator, Sequence
 from pathlib import Path
 from typing import Annotated, Any
 
@@ -39,8 +39,14 @@ from productivity_agent_tools.microsoft.login import seed as seed_microsoft
 from productivity_agent_tools.microsoft.session import TOKEN_NAME as MICROSOFT
 from productivity_agent_tools.microsoft.settings import load_microsoft_settings, redeem_config
 from productivity_agent_tools.microsoft.signin import sign_in as sign_in_microsoft
-from productivity_agent_tools.products import Product, installed_products
-from productivity_agent_tools.server import Connected, build_server
+from productivity_agent_tools.products import (
+    LocalProduct,
+    Product,
+    RemoteProduct,
+    installed_products,
+    remote_products,
+)
+from productivity_agent_tools.server import Connected, Opened, build_server
 from productivity_agent_tools.tokens import env_var_name, store_token
 
 _KEYCHAINS: tuple[str, ...] = (
@@ -60,8 +66,8 @@ def _no_products() -> str:
     names = [f"[{name}]" for name in installed_products()]
     tables = ", ".join(names[:-1]) + f" or {names[-1]}" if len(names) > 1 else "".join(names)
     return (
-        f"No product is configured. Add a {tables} table to the config; an empty "
-        "table is enough to turn a product on with its defaults."
+        f"No product is configured. Add a {tables} table to the config; for most "
+        "products an empty table is enough to turn it on with its defaults."
     )
 
 
@@ -170,13 +176,18 @@ async def _open_server(
     )
     products = installed_products()
     async with contextlib.AsyncExitStack() as stack:
-        connected: dict[str, Connected] = {}
+        connected: dict[str, Connected | Opened] = {}
         # Products that share a token name (the two Outlook products share "microsoft")
         # share one resolved credential, so an OAuth token is minted and its rotating
         # refresh token is renewed by a single provider, never raced between two.
         credentials: dict[str, Credential] = {}
         for name, product_settings in settings.products.items():
             product = products[name]
+            dry_run = settings.dry_run_for(product_settings)
+            if isinstance(product, LocalProduct):
+                client = await stack.enter_async_context(product.open(product_settings, dry_run))
+                connected[name] = Opened(client)
+                continue
             if product.token not in credentials:
                 credentials[product.token] = await product.resolve_credential(
                     product.token, settings.token_sources_for(product_settings)
@@ -186,7 +197,7 @@ async def _open_server(
                 product.adapter(
                     settings.connection_for(product_settings),
                     credential.headers,
-                    dry_run=settings.dry_run,
+                    dry_run=dry_run,
                     transport=transport,
                 )
             )
@@ -362,7 +373,9 @@ async def _doctor_product(
     product_settings: ProductSettings,
     transport: httpx.AsyncBaseTransport | None,
 ) -> bool:
-    """Check one product's token, connection and its own reads, printing one line per check.
+    """Check one product's credential, connection and its own reads, one line per check.
+
+    A local product has no credential or connection; it is opened and its own checks run.
 
     Args:
         settings: The resolved settings.
@@ -373,22 +386,60 @@ async def _doctor_product(
     Returns:
         True if every check passed.
     """
-    connection = settings.connection_for(product_settings)
-    print(f"[info] {product.name} extra_cookies={','.join(connection.cookies) or 'none'}")
+    dry_run = settings.dry_run_for(product_settings)
+    if dry_run != settings.dry_run:
+        print(f"[info] {product.name} dry_run={dry_run} (its own setting)")
     try:
-        credential = await product.resolve_credential(
-            product.token, settings.token_sources_for(product_settings)
-        )
-        print(f"[ok]   {product.name} {credential.label} found in {credential.source}")
-        async with product.adapter(
-            connection, credential.headers, dry_run=settings.dry_run, transport=transport
-        ) as core:
-            async for line in product.activate(core, product_settings).doctor():
-                print(f"[ok]   {line}")
+        if isinstance(product, LocalProduct):
+            async with product.open(product_settings, dry_run) as client:
+                await _print_checks(product.activate(client, product_settings).doctor())
+            return True
+        await _doctor_remote(settings, product, product_settings, dry_run, transport)
     except AgentToolsError as exc:
         print(f"[fail] {exc}")
         return False
     return True
+
+
+async def _doctor_remote(
+    settings: Settings,
+    product: RemoteProduct[Any, Any],
+    product_settings: ProductSettings,
+    dry_run: bool,
+    transport: httpx.AsyncBaseTransport | None,
+) -> None:
+    """Check a remote product's credential and connection, then run its own checks.
+
+    Args:
+        settings: The resolved settings.
+        product: The product.
+        product_settings: The product's settings.
+        dry_run: Whether the product's writes are blocked.
+        transport: Replacement HTTP transport, used by tests.
+
+    Raises:
+        AgentToolsError: If a check fails.
+    """
+    connection = settings.connection_for(product_settings)
+    print(f"[info] {product.name} extra_cookies={','.join(connection.cookies) or 'none'}")
+    credential = await product.resolve_credential(
+        product.token, settings.token_sources_for(product_settings)
+    )
+    print(f"[ok]   {product.name} {credential.label} found in {credential.source}")
+    async with product.adapter(
+        connection, credential.headers, dry_run=dry_run, transport=transport
+    ) as core:
+        await _print_checks(product.activate(core, product_settings).doctor())
+
+
+async def _print_checks(checks: AsyncIterator[str]) -> None:
+    """Print each passed check as an ``[ok]`` line.
+
+    Args:
+        checks: A product's doctor checks.
+    """
+    async for line in checks:
+        print(f"[ok]   {line}")
 
 
 async def _doctor(
@@ -572,7 +623,7 @@ def _token_targets() -> dict[str, str]:
         A one-line description of each token, by token name, in name order.
     """
     titles: dict[str, list[str]] = {}
-    for product in installed_products().values():
+    for product in remote_products().values():
         if product.login is None:
             titles.setdefault(product.token, []).append(product.title)
     described = {
@@ -688,7 +739,7 @@ async def _set_token(
         return await _seed_microsoft_token(config, from_response, verify)
     if from_response is not None:
         raise AgentToolsError(f"--from-response is for 'set-token {MICROSOFT}' only.")
-    signs_in = sorted(n for n, p in installed_products().items() if p.login and p.token == name)
+    signs_in = sorted(n for n, p in remote_products().items() if p.login and p.token == name)
     if signs_in:
         raise AgentToolsError(
             f"'{name}' has no token to store: it signs in through the browser. "
@@ -739,7 +790,7 @@ def set_token(
 
 def _microsoft_names() -> frozenset[str]:
     """Names ``login`` accepts for the Microsoft sign-in: the token and its products."""
-    shared = {name for name, p in installed_products().items() if p.token == MICROSOFT}
+    shared = {name for name, p in remote_products().items() if p.token == MICROSOFT}
     return frozenset({MICROSOFT, *shared})
 
 
@@ -775,7 +826,7 @@ async def _login(settings: Settings, name: str) -> str:
         AgentToolsError: If the product has no interactive sign-in, is not configured,
             or the sign-in fails.
     """
-    products = installed_products()
+    products = remote_products()
     product = products.get(name)
     if product is None or product.login is None:
         able = ", ".join(sorted({MICROSOFT, *(n for n, p in products.items() if p.login)}))

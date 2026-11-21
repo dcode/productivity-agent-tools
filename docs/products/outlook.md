@@ -97,7 +97,7 @@ for the token response saved from the browser's developer tools.
 | `outlook_mail_get_message_headers` | read | A message's internet headers (Received, Authentication-Results, List-Unsubscribe, ...) |
 | `outlook_calendar_status` | read | Who is signed in, when, and until about when the sign-in lasts |
 | `outlook_calendar_list_calendars` | read | Your calendars, with their ids |
-| `outlook_calendar_list_events` | read | Events in a date range (default the next seven days), recurrences expanded, times in UTC |
+| `outlook_calendar_list_events` | read | Events in a date range (default the next seven days), recurrences expanded, times in UTC, each with its `ical_uid`, series, your response and join link |
 | `outlook_calendar_query_events` | read | OData query over events (recurring meetings as one series) |
 | `outlook_calendar_get_event` | read | One event with attendees, their responses and the body as text |
 

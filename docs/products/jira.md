@@ -23,6 +23,7 @@ for the other sources. `doctor` then checks Jira.
 | `path` | `/jira` | Sub-path Jira is served under |
 | `default_max_results` | `25` | Rows returned when a call names no limit |
 | `[jira.presets]` | three presets | Named JQL queries the agent can run by name |
+| `tasks_jql` | your unresolved issues | Issues the [Obsidian](obsidian.md#syncing-tasks-and-meetings) sync turns into task notes (100 at most) |
 
 Presets ship as `mine-open`, `updated-since-yesterday` and `current-sprint`;
 edit them under `[jira.presets]`.

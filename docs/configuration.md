@@ -98,6 +98,19 @@ Set it in the config (`true`/`false` or `1`/`0`) or per run with `--dry-run` /
 `--no-dry-run`. The Outlook and ServiceNow tools only read, so it does not
 affect them.
 
+A product's own table can set `dry_run` too, which wins over the top level for
+that product only. Keep writes blocked everywhere but one product:
+
+```toml
+dry_run = true
+
+[confluence]
+dry_run = false
+```
+
+`--dry-run` and `--no-dry-run` on the command line override every table for that
+run. `doctor` prints a product's setting when it differs from the top level.
+
 ## TLS
 
 TLS is always verified. By default it uses the operating system's trust store,

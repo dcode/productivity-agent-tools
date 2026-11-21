@@ -508,7 +508,7 @@ async def test_login_runs_the_products_sign_in(monkeypatch: pytest.MonkeyPatch) 
 
     products = dict(installed_products())
     products["servicenow"] = dataclasses.replace(PRODUCT, login=fake_login)
-    monkeypatch.setattr(cli, "installed_products", lambda: products)
+    monkeypatch.setattr(cli, "remote_products", lambda: products)
     settings = servicenow_settings()
     assert await cli._login(settings, "servicenow") == "Signed in."
     assert seen[0][0].base_url == BASE

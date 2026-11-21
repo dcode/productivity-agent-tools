@@ -67,8 +67,13 @@ The shared core is `transport.py`, `http.py`, `config.py`, `tokens.py`,
 `credentials.py`, `browser.py` (the DevTools driver both browser sign-ins use)
 and `products.py`. Each product lives in a sub-package (`jira/`, `bitbucket/`,
 `confluence/`, `servicenow/`, and `microsoft/` for the two Outlook products)
-whose product module exposes a `Product` object, listed under the
+whose product module exposes a product object, listed under the
 `productivity_agent_tools.products` entry-point group in `pyproject.toml`.
+A product is one of two kinds. A `RemoteProduct` is served by an API: it has a
+connection, a credential and an adapter, and every product so far is one. A
+`LocalProduct` works on local data, such as a folder of notes: its `open` builds
+its client straight from its settings (a `LocalProductSettings`), with no
+`base_url` or credential, and the `set-token` and `login` commands ignore it.
 Nothing in the shared core names a product: `server.py`, `config.py` and the CLI
 find them through the entry points. Tools that need two products at once are an
 `Integration` (`links.py`), listed under `productivity_agent_tools.integrations`.

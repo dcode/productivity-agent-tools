@@ -6,7 +6,7 @@ from productivity_agent_tools.http import AtlassianClient
 from productivity_agent_tools.jira.client import JiraClient
 from productivity_agent_tools.jira.settings import JiraSettings, parse_jira_settings
 from productivity_agent_tools.jira.tools import register_jira_tools
-from productivity_agent_tools.products import Product
+from productivity_agent_tools.products import RemoteProduct
 
 INSTRUCTIONS: str = (
     "The jira_ tools work with the user's self-hosted Jira. Reads are safe to call freely. "
@@ -43,7 +43,7 @@ async def doctor(jira: JiraClient) -> AsyncIterator[str]:
     yield f"search works ({result.total} open issue(s) assigned to you)"
 
 
-PRODUCT: Product[JiraSettings, JiraClient] = Product(
+PRODUCT: RemoteProduct[JiraSettings, JiraClient] = RemoteProduct(
     name="jira",
     title="Jira",
     instructions=INSTRUCTIONS,

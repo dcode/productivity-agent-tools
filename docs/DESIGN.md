@@ -80,9 +80,11 @@ keeps writes behind a dry-run switch that is on by default.
 
 15. As a user, I want write tools blocked by `dry_run`, which defaults to on, so that a new
     setup cannot change anything until I choose.
-16. As a user, I want `dry_run` settable in the config (`true`/`false` or `1`/`0`) and
-    overridable per run with `--dry-run` / `--no-dry-run`, with the command line winning, so
-    that I can run read-only on days I want no risk.
+16. As a user, I want `dry_run` settable in the config (`true`/`false` or `1`/`0`), at
+    the top level and in a product's own table (which wins for that product), and
+    overridable per run with `--dry-run` / `--no-dry-run`, with the command line winning
+    over every table, so that I can allow writes to one product (my own notes, say) while
+    the others stay blocked, and run read-only on days I want no risk.
 17. As a user, I want a blocked write to return the exact request it would have sent, so
     that I can check what the agent meant to do.
 18. As a user, I want an identical write (the same comment on the same issue or pull request,
@@ -258,7 +260,21 @@ keeps writes behind a dry-run switch that is on by default.
 - Chosen over pluggy: discovery is all that is needed, `importlib.metadata` is in the
   standard library, and a dataclass of typed callables keeps the boundary visible to `ty`.
   pluggy's fan-out hook calls return untyped lists and would add a dependency.
-- `Product.token_name` lets products on one host share a token (two GitLab products
+- **Two kinds of product (2026-11-19).** `RemoteProduct` is the original shape: an
+  adapter, a credential resolver, `token_name` and an optional `login`. `LocalProduct`
+  is for data on this machine (the Obsidian vault is the first): instead of an adapter it
+  has `open(settings, dry_run)`, an async context manager that yields its client, and its
+  settings extend `LocalProductSettings` (class attribute `remote = False`), so config
+  loading does not demand a `base_url`. Both share a base with the name, title,
+  instructions, settings parser, tools and `doctor`; `Product` is a type alias for
+  either. `server.py` takes `Connected(api)` for a remote product and `Opened(client)` for
+  a local one; the CLI branches on the kind when connecting and in `doctor`, and
+  `remote_products()` is what `set-token` and `login` list. Chosen over a fake
+  `base_url` plus a no-op credential because a local product then never pretends to have
+  either, and over giving it an `ApiClient` because file access has nothing HTTP-shaped
+  to share. A transport other than HTTP later would be a third kind, not a stretch of
+  `RemoteProduct`.
+- `RemoteProduct.token_name` lets products on one host share a token (two GitLab products
   would both use `gitlab`); it defaults to the product's name.
 - Products never import each other. Two ways to combine them:
   - **Integrations** (`Integration` under `productivity_agent_tools.integrations`) are
@@ -268,6 +284,16 @@ keeps writes behind a dry-run switch that is on by default.
     implement. A product's tools get a `ToolContext` with the other products' clients as
     `peers` and ask for one with `context.peer(IssueTracker)`, not caring which product
     answers. This is for data one product can use but does not need.
+  - **`TaskSource` and `MeetingSource` (2026-11-19)** are the capabilities the Obsidian
+    sync reads: Jira (`tasks_jql`, 100 at most) and Bitbucket (open pull requests whose
+    review by the user is still `UNAPPROVED`) offer `my_open_tasks` and `tasks_by_key`;
+    the Outlook calendar offers `my_meetings`. They hand over plain records
+    (`SourcedTask`, `SourcedMeeting`) already in the vault's terms (TaskNotes status and
+    priority, aware times). `ToolContext.peers_of(kind)` returns every peer offering one,
+    where `peer` returns the first. Chosen over an `Integration` per pair
+    (`jira_obsidian`, `calendar_obsidian`, ...), which would grow with every source; a
+    new source (ServiceNow requests, GitLab) joins by implementing the protocol. This also
+    settles the open question about code hosts in favour of capabilities.
 - A config table that names no installed product is an error, so a typo does not
   silently switch a product off.
 - Development happens on a separate machine. Code reaches the work laptop through GitHub, and
@@ -426,6 +452,11 @@ keeps writes behind a dry-run switch that is on by default.
 - Dry-run is on by default and returns the would-be request. This was chosen over relying on
   the agent's approval prompt alone, or a two-step confirm tool that the agent could call
   itself.
+- **Dry-run is per product (2026-11-19):** a product's table may set `dry_run`, which wins
+  over the top level (`Settings.dry_run_for`); `--dry-run` / `--no-dry-run` clear every
+  product's own value for that run. Groups do not carry it: a group is shared connection
+  details, and whether writes go out is a decision about each product. Asked for so the
+  Obsidian vault can take writes while Jira and the rest stay blocked.
 - Tools carry MCP read and write annotations so the host's approval mode applies as well.
 - Repeat suppression keys on (issue, comment text), (issue, transition), (issue, duration,
   start, comment), (issue, resolved username), (issue, requested edits), (project, issue type, fields),
@@ -695,6 +726,158 @@ keeps writes behind a dry-run switch that is on by default.
 - **Outlook REST v2.0 answers in PascalCase** (`Subject`, `ReceivedDateTime`,
   `EmailAddress`); the fixed tools normalize that to the snake_case models so the agent
   sees one vocabulary. OData collections are `{"value": [...]}` with `@odata.nextLink` for more.
+- **The meeting key is `iCalUId`, in camelCase**, the one event property the REST API does
+  not name in PascalCase (seen live 2026-11-19; `$select` accepts either spelling, but
+  results carry `iCalUId`). Reading `ICalUId` found nothing, so the first live sync made no
+  meeting notes; the test data had been written with the wrong spelling too.
+
+### Obsidian specifics
+
+- `obsidian/` holds `settings.py`, `frontmatter.py` (splitting and parsing a note's
+  properties), `vault.py` (the `Vault` client), `models.py`, `tools.py` and `product.py`,
+  the first `LocalProduct`.
+- **Every call looks at the files again**, so a note changed in Obsidian is seen at once,
+  but a note's properties are parsed once and kept until its modification time or size
+  changes, and the task tools do not parse a note whose properties cannot contain the task
+  tag as a word. Parsing YAML is the cost (about 1 ms a note with ruamel's pure-Python
+  loader; its C extension is not available on Python 3.14 here), not reading files.
+  Measured 2026-11-19 on a 5,000-note vault with 1,000 tasks: the first task listing
+  0.84 s, later ones 0.11 s; the first `obsidian_status` 3.0 s (it parses every note to
+  report broken properties), later ones 0.19 s. Before the cache and the tag check, every
+  call took about 5 s.
+- **A task note is a note whose `tags` hold `task_tag`**, which is how TaskNotes
+  identifies tasks by default, found anywhere in the vault rather than only in
+  `tasks_folder` (the user may have moved some). TaskNotes can instead identify tasks by
+  a property; that setting is not read yet. Finished means a status in `done_statuses`.
+- **Properties are read with ruamel's safe loader** and turned into JSON values; dates
+  become ISO 8601 text. Broken YAML, or properties that are not a mapping, give an empty
+  set of properties and a reason (listed by `obsidian_status`), never a failed call. Step
+  3 will write with ruamel's round-trip mode so the user's ordering and comments survive.
+- **Dot folders are never read** (`.obsidian`, `.trash`, `.git`), links are not followed
+  while walking, and `obsidian_get_note` refuses any path that resolves outside the vault
+  (`..`, an absolute path elsewhere, a symbolic link out). A bare name, as a `[[link]]`
+  gives it, is looked up by file name across the vault and refused when ambiguous.
+- **`open` does not check the vault.** A missing vault is reported by each tool and by
+  `doctor`, so the other products keep working while the path is fixed; the server would
+  otherwise fail to start over one wrong line.
+- **Dated notes (2026-11-19).** The user keeps daily notes at `Journal/YYYY/MM/YYYY-MM-DD`
+  and wants meetings at `Meetings/YYYY/MM/YYYY-MM-DD <title>`. Both are a folder plus a
+  date format in moment.js syntax, the syntax Obsidian's Daily notes plugin uses, so a
+  format can be copied between the two; the folder is kept apart because a folder
+  name's letters (the `M` of `Meetings`) would read as tokens. A subset of tokens is
+  supported (`paths.py`); a time or locale token is refused at config load. Meeting titles
+  lose the characters Obsidian refuses in file names. **Daily notes follow
+  `.obsidian/daily-notes.json`** unless the config overrides it, and `doctor` fails when
+  the two differ: a daily note written elsewhere is a second note for the same day,
+  which is the duplication this work exists to prevent. Meeting notes are found by key,
+  not by path, so a meeting that moves or is renamed keeps its note; the path only
+  decides where a new note goes.
+- **Time zone (2026-11-19).** "Today" is computed from an aware current time in
+  `[obsidian] time_zone`, else this computer's zone, found by `timezones.py` on every use
+  (`TZ`, then the `/etc/localtime` link's `zoneinfo/<name>`, then the current fixed
+  offset). Asked for by the user after spotting that `datetime.now(None)` is naive. Looked
+  up per call so a long-running server follows a laptop between zones and across DST. It
+  lives in the shared core because the calendar sync (step 5) needs the same answer to
+  put a UTC meeting on the right local day. `tzlocal` would also do this; three lines of
+  lookup did not justify a dependency.
+- **Writes (step 3, 2026-11-19)** are `obsidian_create_task`, `obsidian_update_task` and
+  `obsidian_write_section`, in `edits.py` (the rules) over `notes.py` (the text and the
+  file). A new task with an existing key is refused and returns that task; one whose
+  title scores 0.8 or more against an open task is held back until the agent passes
+  `allow_similar` after asking the user, a higher bar than `obsidian_find_task`'s 0.6
+  because it blocks. On a task with a source key other than `uid`, `title`, `status`,
+  `priority` and `due` belong to the source and are refused; the user changes them there
+  and the sync brings them back. Properties are edited with ruamel's round-trip mode
+  (order, comments and quoting kept; an ISO day is stored as a date so it is written
+  unquoted, as TaskNotes writes it). A section is the text between two HTML comments
+  (`<!-- productivity-agent-tools:<name>:start -->` / `:end -->`), invisible in reading
+  view; damaged markers are refused rather than guessed at. Files are written to a
+  dot-named temporary file and renamed; the modification time and size read are checked
+  just before, and a note that changed is left alone (`ChangedOnDiskError`). One lock in
+  the tools serializes writes, so two simultaneous identical calls cannot both create a
+  task. A new daily note starts from the template named in `.obsidian/daily-notes.json`,
+  with the core Templates variables filled; Templater syntax is left for Templater.
+- **Sync (step 5, 2026-11-19)** is `obsidian_sync` (`sync.py`): fetch from every
+  `TaskSource` and `MeetingSource` peer (outside the write lock), then make or update
+  notes under it. Notes are indexed by key (`Vault.notes_by_key`, any note, task or not).
+  Ownership is per field: a task's `title`, `status`, `priority` (only when the source has
+  priorities, so Bitbucket does not erase the user's), `due`, `completedDate`,
+  `source_status` and `url`; a meeting's `title`, `date`, `start`, `end`, `organizer`,
+  `location`, `join`, `url`, `response`, `cancelled` and `series_id`. A value of None
+  removes the property, so a due date dropped in Jira goes. Vault tasks that are open
+  but no longer listed are looked up with `tasks_by_key` and closed when finished; ones
+  the source cannot find are left alone. No new note for a finished task, or for a
+  meeting that is cancelled, all-day, declined or shown as free (counted as `ignored`).
+  A meeting that moves keeps its note and path. Two notes with one key are reported and
+  not touched. **Meetings that leave the calendar (2026-11-19, from the live run):** a
+  cancelled, declined or deleted meeting drops out of `calendarview` instead of coming
+  back with `IsCancelled`, so its note was never revisited. Now each meeting note dated in
+  the window whose key did not come back is looked for in a second `calendarview` a week
+  either side of its day (`LOOKAROUND_DAYS`): found, it moved; not found, `cancelled: true`.
+  Chosen over a lookup by `iCalUId` because an occurrence of a series is not in
+  `/me/events` and its key differs from the series', while `calendarview` was already
+  proven live to return occurrences with their keys. Nothing is marked when any calendar
+  failed to answer. `my_meetings` now follows pages (up to 1,000 events).
+  A new synced task whose title scores 0.8+ against a hand-made task is made
+  anyway (the key is authoritative) and the report names the likely twin. One source
+  failing is reported and the rest sync. Running it twice changes nothing the second
+  time; a test holds it to that.
+- **Recipes (step 6, 2026-11-19)** live in `contrib/goose/` as plain instructions over
+  the tools, not code: the rules that matter (no duplicates, source-owned fields,
+  sections) are enforced by the tools, so a recipe only orders the steps and says when to
+  ask the user. They omit an `extensions` block because an explicit one would have to
+  name this checkout's absolute path; whether Goose then offers the user's enabled
+  extensions is not stated in its docs and is a laptop check. A note can be named by key
+  (`field:value` for any of `KEY_FIELDS`) so a recipe can reach a meeting's note from its
+  calendar event without rebuilding the file name.
+- **Template folders are skipped** (2026-11-19, from the first live run): the folders
+  named in `.obsidian/templates.json` (`folder`) and Templater's
+  `plugins/templater-obsidian/data.json` (`templates_folder`). A Templater template's
+  `<% %>` frontmatter was being reported as broken YAML, and a template tagged `#task`
+  would have been listed as a task.
+- **Synced task file names (2026-11-19, the user's choice):** `<key> <slug>.md`, the slug
+  lower-cased and hyphen-joined, cut to `task_title_length` (25) at a word, so names stay
+  short and sort by key; a key's `/` and `#` become hyphens (`PROJ-web-42`). Tasks with
+  only a `uid` keep title names. Names never identify a note, so changing the setting
+  only affects notes made afterwards.
+- **Templates and buttons (2026-11-19).** `[obsidian] meeting_template` names a note that
+  new synced meeting notes start from (core variables filled by `templates.fill`, the
+  sync's properties merged into its frontmatter); the built-in body now has the `prep`
+  markers too. `contrib/obsidian/` holds a daily, a synced-meeting and an ad hoc meeting
+  template whose marker pairs match the recipes (a test holds them to it). For running
+  things, the user wanted whatever works rather than a given plugin, so nothing depends
+  on one: `contrib/macos/sync.sh` (sync plus a notification) and `run-recipe.sh` (a
+  recipe in a new iTerm2 or Terminal window) can be called by any button, and a launchd
+  agent runs the sync every 30 minutes. Chosen over the Shell Commands plugin (the
+  user found it unmaintained) and over cron (launchd is macOS's own and runs at login).
+- **Time blocks (2026-11-19, the user's rule):** a task's `block_minutes` is computed in
+  code, not by the agent: its estimate up to `max_timeblock_minutes` (50), else
+  `timeblock_minutes` (25, a pomodoro); a due date does not change the length (the user
+  corrected a first version that gave due-only tasks the longest block). The estimate is
+  TaskNotes' `timeEstimate`, else `source_estimate`, which the
+  sync now owns from Jira's `timeestimate` (remaining) or `timeoriginalestimate`, rounded
+  up to minutes; a source without estimates leaves it alone, as with priority. Names
+  carry their unit like the rest of the config (`timeout_seconds`, `sync_days_ahead`).
+  Each task also gets `break_minutes` to leave after its block: `long_break_minutes` (10)
+  after a block longer than `timeblock_minutes`, else `break_minutes` (5); agreed with
+  the user, including that a 30- or 40-minute block counts as long.
+  Plan-day now ranks every open task (carried over, due soon, in progress, high
+  priority, current sprint from the `current-sprint` preset, reviews) instead of leaning
+  on due dates, after the first real plan came out thin.
+- **A status changed in Obsidian is kept (2026-11-20, from the live run):** the user marked
+  a Jira task done in TaskNotes, and the next sync put Jira's "in progress" back. Now, if
+  the note's `source_status` (the source's own status name, written only by the sync)
+  equals the source's current one, the source has not moved since the last sync, so a
+  `status` that differs was changed here: it and `completedDate` are left alone and the
+  report flags the task; other owned fields still update. When the source moves, it wins.
+  The user suggested `source_status` over a new `synced_status` property: no extra field,
+  and notes made earlier are covered at once. `dateModified` was considered and rejected
+  as the signal: it changes on any edit (scheduling, the sync's own writes), not only a
+  status change. The one ambiguous case, both changing between two syncs, goes to the
+  source.
+- **Title similarity** is `difflib.SequenceMatcher` over lower-cased words, 0.6 by
+  default. It only proposes; the agent is told a key match is the same task and a title
+  match is for the user to judge.
 
 ### Logging
 
@@ -796,6 +979,44 @@ Designed for but deferred. [ROADMAP.md](ROADMAP.md) has the ordered backlog and 
     the admin-consent request names the AI use plainly rather than hiding it.
 - **OpenTelemetry tracing** of httpx requests and responses, alongside the structlog
   logging.
+- **Obsidian vault (`obsidian`), planned 2026-11-19.** A daily plan, task notes for what
+  the user is responsible for, and meeting notes, kept in the user's own Obsidian vault
+  without the same task or meeting appearing twice from one day to the next. Decisions:
+  - **The vault is a `LocalProduct`** that works on the files directly, so it needs
+    neither Obsidian running nor a plugin's HTTP API, a morning sync can run from cron,
+    and the tests use a vault in `tmp_path`. (The Local REST API community plugin would
+    have fit `RemoteProduct` unchanged, but only while Obsidian is open.)
+  - **Deduplication is code, not prompting.** Every synced note carries a stable key in its
+    frontmatter (`jira: ABC-123`, `bitbucket: PROJ/repo#42`, `ical_uid`, `series_id`;
+    `uid` for a task made in the vault), and notes are found by key, never by file name or
+    title, so a renamed issue or moved meeting updates its note. The agent gets typed tools
+    (`obsidian_find_task`, `obsidian_create_task` that refuses an existing key and returns
+    near matches, `obsidian_schedule_task`, `obsidian_write_daily_section` that replaces
+    the text between markers), not raw file writes.
+  - **Each frontmatter field has one owner.** Sync owns what the source owns (`title`,
+    `status`, `priority`, `due`, the source's status); the user and agent own the rest
+    (`scheduled`, `contexts`, `timeEstimate`, the body). Sync never writes a field it does
+    not own and never deletes a note: a resolved issue becomes `status: done`.
+  - **TaskNotes' standard field names are kept**; the keys above are extra frontmatter that
+    TaskNotes ignores and keeps.
+  - **Daily notes link, never copy.** Planning a day sets `scheduled` on task notes and the
+    daily note queries them, so unfinished work carries over by staying open.
+  - **Sync uses capabilities, not integrations.** An `Integration` names fixed products, so
+    syncing would need one per source (`jira_obsidian`, `calendar_obsidian`, ...). Instead
+    `capabilities.py` gains `TaskSource` (open tasks with a stable key) and `MeetingSource`
+    (meeting occurrences with `ical_uid` and series id); Jira, Bitbucket (pull requests
+    awaiting review) and the Outlook calendar implement them, and `obsidian_sync` collects
+    every peer offering each, through a new `ToolContext.peers_of(kind)`. A later source
+    (ServiceNow requests, GitLab) joins by implementing the protocol. This also answers the
+    open question about code hosts in favour of capabilities.
+  - **No new CLI command:** `call obsidian_sync` runs the sync with no agent and no model
+    credits; the agent's recipes (plan the day, prepare a meeting, wrap up) use the same
+    tools.
+  - **Safe beside a running Obsidian:** writes go to a temporary file then a rename, and a
+    note whose modification time changed after it was read is skipped and reported, not
+    overwritten.
+  - **Data handling:** the vault's contents reach the agent's model like any other tool
+    result, so the same model-approval question applies.
 
 ## Testing Decisions
 

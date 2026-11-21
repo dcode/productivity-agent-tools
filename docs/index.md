@@ -12,6 +12,7 @@ consent-banner proxy, and it runs on the same laptop as the agent.
 | [Confluence](products/confluence.md) (Data Center) | reads and search, plus creating and editing pages | personal access token |
 | [ServiceNow](products/servicenow.md) | status | browser sign-in (`login servicenow`) |
 | [Outlook mail and calendar](products/outlook.md) | reads only | browser sign-in (`login microsoft`) |
+| [Obsidian](products/obsidian.md) vault | task notes, meeting notes and daily notes: reads, writes and a sync from the products above | none: a folder on this machine |
 
 Each product is switched on by its own table in the config file, and only the
 products you configure are offered to the agent.

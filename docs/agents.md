@@ -51,6 +51,12 @@ To allow writes for a session without changing the config, add `--no-dry-run`
 after `serve` in the entry's `args`. Keep Goose's tool approval on so you see
 each comment or transition before it is sent.
 
+## Recipes
+
+`contrib/goose/` holds three recipes for the [daily workflow in
+Obsidian](workflow.md): plan the day, prepare for a meeting, and wrap up the
+day. Run one with `goose run --recipe contrib/goose/plan-day.yaml -s`.
+
 ## What the agent is told
 
 When the server starts it gives the agent short instructions for each

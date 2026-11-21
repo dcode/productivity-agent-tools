@@ -26,7 +26,7 @@ from productivity_agent_tools.microsoft.outlook_settings import (
 )
 from productivity_agent_tools.microsoft.reads import status
 from productivity_agent_tools.payload import text
-from productivity_agent_tools.products import Product, ToolContext
+from productivity_agent_tools.products import RemoteProduct, ToolContext
 from productivity_agent_tools.tooling import READ, anticipated
 
 INSTRUCTIONS: str = (
@@ -201,7 +201,7 @@ async def doctor(mail: OutlookMailClient) -> AsyncIterator[str]:
     yield f"authenticated to {mail.base_url} as {who} (mail)"
 
 
-PRODUCT: Product[OutlookSettings, OutlookMailClient] = Product(
+PRODUCT: RemoteProduct[OutlookSettings, OutlookMailClient] = RemoteProduct(
     name="outlook_mail",
     title="Outlook Mail",
     instructions=INSTRUCTIONS,

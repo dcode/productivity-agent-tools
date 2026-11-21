@@ -7,6 +7,12 @@ Each is a package that exposes a ``Product`` object and names it under the
 only ever goes through these objects, so adding a product never means editing
 it. A product may live in this repository or in a separately installed package.
 
+Products come in two kinds. A ``RemoteProduct`` is served by an API: it has a
+connection (``base_url`` and the rest), a credential and an adapter. A
+``LocalProduct`` works on local data, such as a folder of notes: it opens its
+client straight from its settings, with no URL or credential. ``Product`` is
+either.
+
 An *integration* adds tools that need two or more products at once, such as
 going from a Jira issue to its Bitbucket pull requests. It names the products
 it requires and is registered only when all of them are on. Integrations are
@@ -20,6 +26,7 @@ needing it (Bitbucket showing Jira summaries, for example), it asks its
 
 import functools
 from collections.abc import AsyncIterator, Awaitable, Callable, Mapping
+from contextlib import AbstractAsyncContextManager
 from dataclasses import dataclass, field
 from importlib.metadata import entry_points
 from typing import Any
@@ -27,7 +34,7 @@ from typing import Any
 from mcp.server.mcpserver import MCPServer
 
 from productivity_agent_tools.api import Adapter, ApiClient
-from productivity_agent_tools.config import Connection, ProductSettings
+from productivity_agent_tools.config import Connection, LocalProductSettings, ProductSettings
 from productivity_agent_tools.credentials import CredentialResolver, personal_access_token
 
 PRODUCT_GROUP: str = "productivity_agent_tools.products"
@@ -75,6 +82,17 @@ class ToolContext:
         """
         return next((client for client in self.peers.values() if isinstance(client, kind)), None)
 
+    def peers_of[T](self, kind: type[T]) -> list[T]:
+        """Find every other product's client that offers a capability.
+
+        Args:
+            kind: The capability, usually a runtime-checkable protocol from ``capabilities``.
+
+        Returns:
+            The peer clients that are instances of ``kind``, in product order.
+        """
+        return [client for client in self.peers.values() if isinstance(client, kind)]
+
 
 @dataclass(frozen=True, slots=True)
 class ActiveProduct:
@@ -87,15 +105,15 @@ class ActiveProduct:
         doctor: Runs the product's connectivity checks.
     """
 
-    product: Product[Any, Any]
+    product: _ProductBase[Any, Any]
     client: object
     register_tools: Callable[[MCPServer, ToolContext], None]
     doctor: Callable[[], AsyncIterator[str]]
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
-class Product[S: ProductSettings, C]:
-    """One product module: how to configure it, connect it, and offer its tools.
+class _ProductBase[S: ProductSettings, C]:
+    """What every kind of product has: its config table, its tools and its checks.
 
     ``S`` is the product's settings class and ``C`` its client class.
 
@@ -104,13 +122,53 @@ class Product[S: ProductSettings, C]:
         title: The product's name as people write it, such as ``"Jira"``.
         instructions: Text added to the MCP server's instructions when the product is on.
         settings_type: The product's settings class.
+        parse_settings: Builds the settings from the product's config table.
+        register_tools: Adds the product's tools to a server.
+        doctor: Runs read-only checks, yielding a line per check that passed. A failure is
+            raised as an ``AgentToolsError``.
+    """
+
+    name: str
+    title: str
+    instructions: str
+    settings_type: type[S]
+    parse_settings: Callable[[dict[str, Any]], S]
+    register_tools: Callable[[MCPServer, C, ToolContext], None]
+    doctor: Callable[[C], AsyncIterator[str]]
+
+    def _bind(self, client: C, settings: ProductSettings) -> ActiveProduct:
+        """Pair the product with its client, once the settings are known to be its own.
+
+        Args:
+            client: The product's client.
+            settings: The product's settings.
+
+        Returns:
+            The product with its client.
+
+        Raises:
+            TypeError: If the settings belong to another product.
+        """
+        if not isinstance(settings, self.settings_type):
+            raise TypeError(f"{self.name} was given {type(settings).__name__} settings.")
+        register = self.register_tools
+        doctor = self.doctor
+        return ActiveProduct(
+            product=self,
+            client=client,
+            register_tools=lambda server, context: register(server, client, context),
+            doctor=lambda: doctor(client),
+        )
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class RemoteProduct[S: ProductSettings, C](_ProductBase[S, C]):
+    """A product served by a remote API: a connection, a credential and an adapter.
+
+    Attributes:
         adapter: Opens the API adapter for the product's kind of server, such as
             ``AtlassianClient.from_connection``.
-        parse_settings: Builds the settings from the product's config table.
         make_client: Wraps a connected API adapter in the product's client.
-        register_tools: Adds the product's tools to a server.
-        doctor: Runs read-only checks against the server, yielding a line per check that
-            passed. A failure is raised as an ``AgentToolsError``.
         token_name: Name its access token is stored under; defaults to ``name``. Products
             served by one host with one token (two GitLab modules, say) share a name.
         resolve_credential: Finds the product's credential under that name when it is
@@ -120,15 +178,8 @@ class Product[S: ProductSettings, C]:
             to show them. None for a product whose credential is a token the user pastes.
     """
 
-    name: str
-    title: str
-    instructions: str
-    settings_type: type[S]
     adapter: Adapter
-    parse_settings: Callable[[dict[str, Any]], S]
     make_client: Callable[[ApiClient, S], C]
-    register_tools: Callable[[MCPServer, C, ToolContext], None]
-    doctor: Callable[[C], AsyncIterator[str]]
     token_name: str | None = None
     resolve_credential: CredentialResolver = personal_access_token
     login: Callable[[Connection, S], Awaitable[str]] | None = None
@@ -153,15 +204,41 @@ class Product[S: ProductSettings, C]:
         """
         if not isinstance(settings, self.settings_type):
             raise TypeError(f"{self.name} was given {type(settings).__name__} settings.")
-        client = self.make_client(api, settings)
-        register = self.register_tools
-        doctor = self.doctor
-        return ActiveProduct(
-            product=self,
-            client=client,
-            register_tools=lambda server, context: register(server, client, context),
-            doctor=lambda: doctor(client),
-        )
+        return self._bind(self.make_client(api, settings), settings)
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class LocalProduct[S: LocalProductSettings, C](_ProductBase[S, C]):
+    """A product that works on local data, such as a folder of notes: no server, no credential.
+
+    Attributes:
+        open: Opens the product's client from its settings and whether writes are blocked;
+            the client is closed when the block exits. Fails with an ``AgentToolsError``
+            when the local data cannot be used.
+    """
+
+    open: Callable[[S, bool], AbstractAsyncContextManager[C]]
+
+    def activate(self, client: C, settings: ProductSettings) -> ActiveProduct:
+        """Bind the product to its opened client and its settings.
+
+        Args:
+            client: The client ``open`` gave.
+            settings: The product's settings, as its ``parse_settings`` built them.
+
+        Returns:
+            The product with its client.
+
+        Raises:
+            TypeError: If the settings belong to another product.
+        """
+        return self._bind(client, settings)
+
+
+type Product[S: ProductSettings, C] = RemoteProduct[S, C] | LocalProduct[Any, C]
+"""Any kind of product."""
+
+_PRODUCT_KINDS: tuple[type, ...] = (RemoteProduct, LocalProduct)
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
@@ -201,12 +278,12 @@ def client_of[T](clients: Mapping[str, object], name: str, kind: type[T]) -> T:
     return client
 
 
-def _load[T](group: str, kind: type[T]) -> dict[str, T]:
+def _load[T](group: str, kind: type[T] | tuple[type, ...]) -> dict[str, T]:
     """Load every object named under an entry-point group.
 
     Args:
         group: The entry-point group.
-        kind: The type each object must have.
+        kind: The type each object must have, or a tuple of types it may have.
 
     Returns:
         The objects by entry-point name, in name order.
@@ -214,11 +291,12 @@ def _load[T](group: str, kind: type[T]) -> dict[str, T]:
     Raises:
         TypeError: If an entry point names something else.
     """
+    label = kind.__name__ if isinstance(kind, type) else " or ".join(k.__name__ for k in kind)
     found: dict[str, T] = {}
     for point in sorted(entry_points(group=group), key=lambda p: p.name):
         loaded = point.load()
         if not isinstance(loaded, kind):
-            raise TypeError(f"Entry point '{point.name}' in {group} is not a {kind.__name__}.")
+            raise TypeError(f"Entry point '{point.name}' in {group} is not a {label}.")
         found[point.name] = loaded
     return found
 
@@ -231,13 +309,26 @@ def installed_products() -> Mapping[str, Product[Any, Any]]:
         The products by name.
 
     Raises:
-        TypeError: If an entry point is not a ``Product`` or its name differs from the product's.
+        TypeError: If an entry point is not a product or its name differs from the product's.
     """
-    products = _load(PRODUCT_GROUP, Product)
+    products: dict[str, Product[Any, Any]] = _load(PRODUCT_GROUP, _PRODUCT_KINDS)
     for name, product in products.items():
         if product.name != name:
             raise TypeError(f"Entry point '{name}' names the product '{product.name}'.")
     return products
+
+
+def remote_products() -> Mapping[str, RemoteProduct[Any, Any]]:
+    """Find the installed products that reach a server, the ones with a credential.
+
+    Returns:
+        The remote products by name.
+    """
+    return {
+        name: product
+        for name, product in installed_products().items()
+        if isinstance(product, RemoteProduct)
+    }
 
 
 @functools.cache

@@ -26,7 +26,7 @@ from productivity_agent_tools.microsoft.outlook_settings import (
 )
 from productivity_agent_tools.microsoft.reads import status
 from productivity_agent_tools.payload import text
-from productivity_agent_tools.products import Product, ToolContext
+from productivity_agent_tools.products import RemoteProduct, ToolContext
 from productivity_agent_tools.tooling import READ, anticipated
 
 INSTRUCTIONS: str = (
@@ -181,7 +181,7 @@ async def doctor(calendar: OutlookCalendarClient) -> AsyncIterator[str]:
     yield f"authenticated to {calendar.base_url} as {who} (calendar)"
 
 
-PRODUCT: Product[OutlookSettings, OutlookCalendarClient] = Product(
+PRODUCT: RemoteProduct[OutlookSettings, OutlookCalendarClient] = RemoteProduct(
     name="outlook_calendar",
     title="Outlook Calendar",
     instructions=INSTRUCTIONS,

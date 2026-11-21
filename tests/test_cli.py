@@ -563,8 +563,8 @@ async def test_no_configured_product_is_reported_not_served(
     empty = make_settings(products={})
     with pytest.raises(
         ConfigError,
-        match=r"Add a \[bitbucket\], \[confluence\], \[jira\], \[outlook_calendar\], "
-        r"\[outlook_mail\] or \[servicenow\] table",
+        match=r"Add a \[bitbucket\], \[confluence\], \[jira\], \[obsidian\], "
+        r"\[outlook_calendar\], \[outlook_mail\] or \[servicenow\] table",
     ):
         await cli._serve(empty)
     with pytest.raises(ConfigError, match="No product is configured"):

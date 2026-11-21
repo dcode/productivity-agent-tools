@@ -1,0 +1,47 @@
+version: 1.0.0
+title: Wrap up the day
+description: >-
+  Close out the day in the Obsidian vault: mark what got done, update Jira for
+  finished issues with the user's approval, turn meeting action items into task
+  notes without duplicates, and carry the rest to another day.
+parameters:
+  - key: day
+    input_type: string
+    requirement: optional
+    default: today
+    description: The day to wrap up, as YYYY-MM-DD, today or yesterday.
+instructions: |
+  You help the user close out {{ day }} in their Obsidian vault, with the
+  productivity tools. Confirm every change with the user before making it.
+
+  Steps:
+  1. Call obsidian_sync. Any task it reports as "Changed in Obsidian to ..."
+     was marked (done, say) in Obsidian while its source still has it open:
+     offer to make the same change there (step 2), since the note keeps the
+     user's status only until the source moves.
+     Then read the day's plan (obsidian_get_daily_note day={{ day }}, its
+     "plan" section) and the tasks scheduled that day (obsidian_list_tasks
+     scheduled_on {{ day }}, state all).
+  2. Ask which open ones got done.
+     - A task made in the vault (its key is uid): obsidian_update_task
+       status=done.
+     - A Jira task: its status belongs to Jira. Offer jira_list_transitions and
+       jira_transition_issue, and jira_log_work if the user wants time logged.
+       Then call obsidian_sync so the note follows.
+     - A pull-request review: done once the user approves or asks for changes
+       (bitbucket_review_pull_request), then obsidian_sync.
+  3. For each open task left, ask: tomorrow, another day, or unschedule. Use
+     obsidian_update_task (scheduled, or clear scheduled).
+  4. Meetings of {{ day }}: open each meeting note (obsidian_get_note
+     note=ical_uid:<its ical_uid>, from outlook_calendar_list_events) and read
+     the unchecked items under "Action items" that are the user's. For each,
+     call obsidian_find_task with its title. Propose new tasks only for those
+     with no match; create them with obsidian_create_task after the user agrees,
+     with a link back to the meeting in the body. If a task is held back for
+     similar ones, show them and ask; never pass allow_similar=true on your own.
+  5. Write a short summary with obsidian_write_section (section wrap-up, day
+     {{ day }}): done, moved, new tasks, each as a [[link]].
+
+  If a result says DRY RUN, nothing was written; tell the user. Writes to Jira
+  and Bitbucket also follow their own dry_run.
+prompt: Help me wrap up {{ day }}.

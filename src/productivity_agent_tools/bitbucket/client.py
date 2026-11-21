@@ -2,6 +2,7 @@
 
 import html
 import re
+from collections.abc import Sequence
 from datetime import UTC, datetime
 from http import HTTPStatus
 from urllib.parse import quote
@@ -53,6 +54,7 @@ from productivity_agent_tools.bitbucket.models import (
     TestResults,
 )
 from productivity_agent_tools.bitbucket.settings import BitbucketSettings
+from productivity_agent_tools.capabilities import SourcedTask
 from productivity_agent_tools.errors import AgentToolsError, ApiError, NotFoundError
 from productivity_agent_tools.payload import JsonObject, as_object, number, objects, text, value
 
@@ -73,6 +75,9 @@ _HIGHLIGHT = re.compile(r"</?em>")
 _NAME = re.compile(r"^~?[A-Za-z0-9_][A-Za-z0-9_.\-]*$")
 _COMMIT = re.compile(r"^[0-9a-fA-F]{4,64}$")
 _ISSUE_KEY = re.compile(r"^[A-Z][A-Z0-9_]*-[1-9][0-9]*$")
+_TASK_KEY = re.compile(r"^(?P<project>[^/#\s]+)/(?P<repository>[^/#\s]+)#(?P<id>[1-9][0-9]*)$")
+"""A pull request's key in the vault: ``PROJECT/repository#42``."""
+_REVIEWED: frozenset[str] = frozenset({"APPROVED", "NEEDS_WORK"})
 # A deployment's lastUpdated is documented with a seconds-sized example, unlike
 # every other Bitbucket timestamp; values below this are read as seconds.
 _SECONDS_CUTOFF: int = 100_000_000_000
@@ -590,6 +595,92 @@ class BitbucketClient:
             more_available=more,
             pull_requests=pulls,
         )
+
+    @property
+    def task_source(self) -> str:
+        """The vault property pull request keys are kept under."""
+        return "bitbucket"
+
+    def _review_task(self, pull: JsonObject, done: bool) -> SourcedTask:
+        """Build the task view of a pull request awaiting the user's review.
+
+        Args:
+            pull: One decoded pull request.
+            done: Whether the review is no longer needed.
+
+        Returns:
+            The task, keyed ``PROJECT/repository#id``.
+        """
+        fields = self._summary_fields(pull)
+        key = f"{fields['project']}/{fields['repository']}#{fields['id']}"
+        state = str(fields["state"])
+        return SourcedTask(
+            source=self.task_source,
+            key=key,
+            title=f"Review: {fields['title'] or key}",
+            status="done" if done else "open",
+            done=done,
+            url=str(fields["url"]) if fields["url"] else None,
+            source_status=state,
+        )
+
+    async def my_open_tasks(self) -> list[SourcedTask]:
+        """Open pull requests that wait on the user's review, as tasks for the Obsidian sync.
+
+        Returns:
+            Up to 100 tasks, newest first.
+
+        Raises:
+            AgentToolsError: If the request fails.
+        """
+        params: dict[str, str | int] = {
+            "role": "REVIEWER",
+            "state": "OPEN",
+            "participantStatus": "UNAPPROVED",
+            "limit": 100,
+            "order": "NEWEST",
+        }
+        items, _ = await self._page(
+            f"{self._api}/dashboard/pull-requests", params, "pull request list"
+        )
+        return [self._review_task(item, done=False) for item in items]
+
+    async def tasks_by_key(self, keys: Sequence[str]) -> dict[str, SourcedTask]:
+        """Look pull requests up by key, to see whether a review is still wanted.
+
+        A review is finished once the pull request is merged or declined, or the user has
+        approved it or marked it as needing work.
+
+        Args:
+            keys: Keys written ``PROJECT/repository#42``; others are ignored.
+
+        Returns:
+            The pull requests found, by key; ones that no longer exist are left out.
+
+        Raises:
+            AgentToolsError: If a request fails for any reason but not finding it.
+        """
+        me = await self.user_slug(required=False)
+        found: dict[str, SourcedTask] = {}
+        for key in sorted(set(keys)):
+            match = _TASK_KEY.fullmatch(key)
+            if match is None:
+                continue
+            path = self._pull_path(match["project"], match["repository"], int(match["id"]))
+            try:
+                pull = as_object(await self._core.get(path), "pull request")
+            except NotFoundError:
+                continue
+            mine = [
+                text(item, "status")
+                for item in objects(pull.get("reviewers"))
+                if me and me in (text(item, "user", "slug"), text(item, "user", "name"))
+            ]
+            reviewed = bool(mine) and mine[0] in _REVIEWED
+            done = text(pull, "state") != "OPEN" or reviewed
+            task = self._review_task(pull, done=done)
+            found[task.key] = task
+        return found
 
     async def list_projects(
         self, name: str | None = None, max_results: int | None = None

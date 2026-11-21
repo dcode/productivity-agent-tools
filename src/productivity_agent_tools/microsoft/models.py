@@ -93,6 +93,24 @@ class EventSummary(BaseModel):
     )
     is_cancelled: bool | None = Field(default=None, description="True if the event was cancelled.")
     web_link: str | None = Field(default=None, description="Browser URL to open the event.")
+    online_meeting_url: str | None = Field(default=None, description="Join URL, if any.")
+    ical_uid: str | None = Field(
+        default=None,
+        description="Identifies this meeting (one occurrence of a series) across calendars "
+        "and days; stays the same when the meeting moves.",
+    )
+    series_master_id: str | None = Field(
+        default=None, description="Id of the recurring series this occurrence belongs to."
+    )
+    type: str | None = Field(
+        default=None, description="SingleInstance, Occurrence, Exception or SeriesMaster."
+    )
+    is_organizer: bool | None = Field(default=None, description="True if the user organized it.")
+    response: str | None = Field(
+        default=None,
+        description="The user's own response: None, Organizer, Accepted, TentativelyAccepted, "
+        "Declined or NotResponded.",
+    )
 
 
 class Event(EventSummary):
@@ -102,7 +120,6 @@ class Event(EventSummary):
     sensitivity: str | None = Field(
         default=None, description="normal, personal, private or confidential."
     )
-    online_meeting_url: str | None = Field(default=None, description="Join URL, if any.")
     categories: list[str] = Field(description="Categories on the event.")
     attendees: list[Attendee] = Field(description="The invitees and their responses.")
     last_modified: str | None = Field(default=None, description="When the event last changed.")
