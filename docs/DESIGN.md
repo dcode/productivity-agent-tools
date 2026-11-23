@@ -481,7 +481,10 @@ keeps writes behind a dry-run switch that is on by default.
   answered, choices offered, matched by label or value), with defaults from
   `[servicenow.incident_defaults]`, then the form's own.
   A reference question (a site) takes the picked record's `sys_id`. A name is looked up
-  in the referenced table by `name=` and used only when exactly one record matches;
+  in the referenced table by the picker's search column (`ed.searchField`; `u_name` for
+  the work instance's sites, `name` when not given), within its fixed filter
+  (`ed.qualifier`, unless it is a `javascript:` one), and used only when exactly one
+  record matches;
   otherwise it is refused. The portal's own picker uses an undocumented `angular.do`
   call (`sp_ref_list_data`), which this does not copy. An item name shared by several
   items (the stock form beside the instance's own) is refused with their `sys_id`s.

@@ -80,6 +80,9 @@ class Question:
         help_text: The form's help text, if any.
         lookup_table: For a question answered by picking a record (a reference, such as a
             site), the table it is picked from; its answer is that record's ``sys_id``.
+        lookup_field: The column the portal's picker searches by name (``u_name`` for the
+            work instance's sites); ``name`` when the form does not say.
+        lookup_filter: The picker's fixed filter (an encoded query), if any.
     """
 
     name: str
@@ -90,6 +93,8 @@ class Question:
     default: str = ""
     help_text: str = ""
     lookup_table: str = ""
+    lookup_field: str = "name"
+    lookup_filter: str = ""
 
     def choose(self, answer: str) -> str:
         """Turn an answer into the value to send, matching a choice by value or label.
@@ -108,9 +113,9 @@ class Question:
         if self.lookup_table and not _SYS_ID.match(written):
             raise AgentToolsError(
                 f"'{self.label}' is picked from a table ({self.lookup_table}), so its answer "
-                f"is the chosen record's sys_id (32 hex characters). No single record named "
-                f"'{written}' was found there (or the table cannot be read), so ask the user "
-                "for the sys_id."
+                f"is the chosen record's sys_id (32 hex characters). No single record with "
+                f"{self.lookup_field} '{written}' was found there (or the table cannot be "
+                "read), so ask the user for the sys_id."
             )
         if not self.choices:
             return written
@@ -393,7 +398,19 @@ def _portal_question(field: JsonObject) -> Question | None:
         )
         if kind in LOOKUP_KINDS
         else "",
+        lookup_field=text(field, "ed", "searchField") or "name",
+        lookup_filter=_static_filter(text(field, "ed", "qualifier") or ""),
     )
+
+
+def _static_filter(qualifier: str) -> str:
+    """Keep a picker's filter only when it is a plain encoded query, not a script.
+
+    A ``javascript:`` filter is computed in the browser's context and cannot be
+    repeated here; the lookup then goes without it.
+    """
+    tidy = qualifier.strip()
+    return "" if tidy.casefold().startswith("javascript:") else tidy
 
 
 def _find_catalog_item(source: JsonValue) -> JsonObject | None:

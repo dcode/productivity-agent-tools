@@ -82,8 +82,12 @@ unanswered is refused, naming all that are. An empty answer clears a default.
 
 A question answered by picking a record, such as a site, shows the table it is
 picked from as `lookup_table`. Its answer is the picked record's `sys_id`. A name
-given instead is looked up in that table (`name=...`) and used if exactly one
-record has it; otherwise the tool refuses rather than send the name.
+given instead is looked up in that table the way the portal's picker searches it
+(its search column, such as `u_name`, within its fixed filter) and used if exactly
+one record has it; otherwise the tool refuses rather than send the name. If your
+account cannot read the table, give the `sys_id` itself: the portal's picker
+request (`angular.do?sysparm_type=sp_ref_list_data` in the browser's network tab)
+lists each record's `sys_id` beside its name.
 
 `servicenow_get_incident` also takes `extra_fields`, which returns any other
 incident field's stored `value` beside its `display` text.

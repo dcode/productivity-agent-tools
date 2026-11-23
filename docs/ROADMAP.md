@@ -92,18 +92,28 @@ Last updated: 2026-11-23.
     `_sections` order and the search widget is skipped; the form tool lists defaults
     that do not fit under `problems` instead of failing; the submission body matches
     the portal's. `ApiClient.get` takes optional extra `headers` (credentials win).
+  - **Checked live (2026-11-23, third time):** with `portal = "arlsp2"`, the form tool
+    reads the form from the portal page (`source: "portal page"`, 13 questions). The
+    `u_site = "N/A"` default was listed under `problems`: the lookup asked for
+    `name=N/A`, but the site table names records in `u_name` (the portal's picker
+    request, `angular.do?sysparm_type=sp_ref_list_data`, returned 29 sites with
+    `u_name`; "N/A" is `998d2bf1afd2d5505732526559274912`). The form model already
+    says which column the picker searches: `ed.searchField = "u_name"`.
+    **Fixed the same day:** lookups search `ed.searchField` (else `name`) within
+    `ed.qualifier` (unless a script), and the message names the column.
   - **To check on the laptop, in order:**
-    1. `incident_form = "10f198405863e700eb7b1e2c93eae7ca"`, `portal = "arlsp2"` (drop
-       `portal_id`, or keep it), then `call servicenow_get_incident_form`. `source`
-       should be "portal page" with the thirteen questions; if not, `source` now says
-       why.
-    2. `u_site = "N/A"` under `[servicenow.incident_defaults]`: the `u_site` default
-       shows a sys_id if the `u_site` table can be read by name; otherwise it is
-       listed under `problems`, and the sys_id must come from the portal's picker.
-    3. The smoke test with `SERVICENOW_ANSWERS` filled in.
-    4. One real create with `--no-dry-run`, checked in the portal, then cancelled.
-    5. Whether subcategory's choices depend on the category (the page listed hardware
-       ones with no category chosen): those rules run in the browser.
+    1. `call servicenow_get_incident_form` with `u_site = "N/A"`: the `u_site`
+       default should be `998d2bf1afd2d5505732526559274912` and `problems` empty. If
+       it is still listed, the account cannot read the `u_site` table through the
+       Table API; then put the sys_id itself in the config.
+    2. Fill in `[servicenow.incident_defaults]` (`u_site`,
+       `u_preferred_contact_phone_number`, `u_network_connection`) and
+       `SERVICENOW_ANSWERS` in `.env` (category, impact, urgency, comments), then the
+       smoke test: the dry-run create should pass.
+    3. One real create with `--no-dry-run`, checked in the portal (site, phone,
+       network connection, category, urgency, impact), then cancelled.
+    4. Whether subcategory's choices depend on the category: those rules run in the
+       browser.
   - Open, from the roadmap's ServiceNow questions: confirm the helpdesk is fine with
     tickets opened through the API.
   - **Smoke run 2026-11-23 (94 passed, 1 failed, 3 skipped), the failure explained.**
@@ -405,7 +415,7 @@ Last updated: 2026-11-23.
   spikes and version 0.4.0 (built on `claude/servicenow-credential-seam`).
 - **Also on `main`, in 0.5.0:** the Outlook REST spikes and the Microsoft
   refresh-token lifecycle (`login-microsoft`).
-- **Tests:** 908 passing, about 99.97% branch coverage. All hooks clean.
+- **Tests:** 912 passing, about 99.97% branch coverage. All hooks clean.
 - **In use:** Goose on the work laptop, against Jira 11.3.12, Bitbucket 10.2.8 and Confluence
   10.2.19. No CI
   server (Bamboo or other) reports builds or deployments to this Bitbucket.

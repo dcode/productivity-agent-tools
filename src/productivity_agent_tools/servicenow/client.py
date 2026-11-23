@@ -16,6 +16,7 @@ from productivity_agent_tools.errors import (
 from productivity_agent_tools.payload import JsonObject, as_object, objects, text, value
 from productivity_agent_tools.servicenow.forms import (
     CatalogForm,
+    Question,
     is_sys_id,
     parse_form,
     parse_portal_form,
@@ -238,26 +239,34 @@ class ServiceNow:
             return None, "the form on the page had no questions"
         return dataclasses.replace(form, source="portal page"), ""
 
-    async def lookup_record(self, table: str, name: str) -> str | None:
-        """Find the one record in a table with this name, for a lookup question's answer.
+    async def lookup_record(self, question: Question, name: str) -> str | None:
+        """Find the one record a lookup question's answer names, as the portal's picker would.
+
+        The name is matched in the column the picker searches (``u_name`` for the work
+        instance's sites), within the picker's fixed filter.
 
         Args:
-            table: The table the question picks from.
+            question: The lookup question.
             name: The name as given, such as "N/A".
 
         Returns:
-            The record's ``sys_id``, or None when the table cannot be read, has no
-            ``name`` column, or does not have exactly one record by that name.
+            The record's ``sys_id``, or None when the table cannot be read or does not
+            have exactly one such record. (A query on a column the table lacks is
+            ignored by the instance and matches every row, so it comes to None too.)
 
         Raises:
             AuthenticationError: If the session has expired.
         """
         wanted = name.strip()
-        if not _COLUMN.match(table) or not wanted or "^" in wanted:
+        table, field = question.lookup_table, question.lookup_field
+        if not (_COLUMN.match(table) and _COLUMN.match(field)) or not wanted or "^" in wanted:
             return None
+        query = f"{field}={wanted}"
+        if question.lookup_filter:
+            query = f"{question.lookup_filter}^{query}"
         params: dict[str, str | int] = {
-            "sysparm_query": f"name={wanted}",
-            "sysparm_fields": "sys_id,name",
+            "sysparm_query": query,
+            "sysparm_fields": f"sys_id,{field}",
             "sysparm_limit": 2,
         }
         try:
@@ -285,9 +294,7 @@ class ServiceNow:
             question = form.find(key)
             if question is None or not question.lookup_table or is_sys_id(answer.strip()):
                 continue
-            if answer.strip() and (
-                found := await self.lookup_record(question.lookup_table, answer)
-            ):
+            if answer.strip() and (found := await self.lookup_record(question, answer)):
                 resolved[key] = found
         return resolved
 
