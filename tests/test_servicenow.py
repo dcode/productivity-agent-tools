@@ -76,6 +76,7 @@ INCIDENTS: list[dict[str, str]] = [
     {"sys_id": "", "number": "INC0010002", "short_description": "", "state": "New"},
 ]
 FORM_ID = "f" * 32
+SITE_ID = "5" * 32  # the "N/A" site's record
 CATALOG = "/api/sn_sc/servicecatalog/items"
 
 
@@ -106,7 +107,13 @@ FORM: dict = {
             "mandatory": "true",
             "value": "",
         },
-        select("u_site", "Site", ("na", "N/A"), ("b2", "Building 2")),
+        {
+            "name": "u_site",
+            "label": "Site",
+            "friendly_type": "reference",
+            "reference": "cmn_location",
+            "mandatory": True,
+        },
         select("category", "Category", ("software", "Software"), ("network", "Network")),
         select("impact", "What's the impact", ("1", ">100 users"), ("4", "< 5 users")),
         select(
@@ -131,7 +138,7 @@ FORM: dict = {
 }
 ANSWERS: dict[str, str] = {
     "Preferred Contact Phone Number": "555-0100",
-    "Site": "n/a",
+    "Site": SITE_ID,
     "category": "Software",
     "What's the impact?": "< 5 users",
     "urgency": "5",
@@ -184,6 +191,19 @@ class FakeServiceNow:
                 rows = [row for row in INCIDENTS if f"number={row['number']}" == query]
             else:
                 rows = INCIDENTS
+            if request.url.params.get("sysparm_display_value") == "all":
+                fields = request.url.params["sysparm_fields"].split(",")
+                stored = {"sys_id": "i1", "u_site": SITE_ID}
+                rows = [
+                    {
+                        name: {
+                            "value": stored.get(name, row.get(name, "")),
+                            "display_value": "N/A" if name == "u_site" else row.get(name, ""),
+                        }
+                        for name in fields
+                    }
+                    for row in rows
+                ]
             return httpx.Response(200, headers=who, json={"result": rows})
         if path == "/api/empty-user":
             return httpx.Response(200, headers=who, json={"result": []})
@@ -786,7 +806,10 @@ async def test_the_incident_form_lists_its_questions(instance: FakeServiceNow) -
         "choices": [],
         "default": "nobody",
         "help_text": None,
+        "lookup_table": None,
     }
+    assert by_name["u_site"]["lookup_table"] == "cmn_location"
+    assert by_name["u_site"]["choices"] == []
     search = instance.requests[0].url.params
     assert search["sysparm_text"] == "Create an incident"
 
@@ -812,12 +835,12 @@ async def call_with(
 
 
 async def test_the_form_shows_configured_defaults(instance: FakeServiceNow) -> None:
-    settings = with_settings(incident_defaults={"Site": "N/A", "contact_phone": "555-0100"})
+    settings = with_settings(incident_defaults={"Site": SITE_ID, "contact_phone": "555-0100"})
     form = await call_with(instance, settings, "servicenow_get_incident_form", {})
     questions = form["questions"]
     assert isinstance(questions, list)
     defaults = {q["name"]: q["default"] for q in questions}
-    assert defaults["u_site"] == "na"
+    assert defaults["u_site"] == SITE_ID
     assert defaults["contact_phone"] == "555-0100"
     assert defaults["category"] is None
 
@@ -875,7 +898,7 @@ async def test_create_incident_in_dry_run_sends_nothing(instance: FakeServiceNow
         "body": {
             "variables": {
                 "contact_phone": "555-0100",
-                "u_site": "na",
+                "u_site": SITE_ID,
                 "category": "software",
                 "impact": "4",
                 "urgency": "5",
@@ -891,7 +914,7 @@ async def test_create_incident_in_dry_run_sends_nothing(instance: FakeServiceNow
 async def test_create_incident_submits_the_form_and_reports_the_number(
     instance: FakeServiceNow,
 ) -> None:
-    settings = with_settings(incident_defaults={"Site": "N/A", "watch_list": "nobody else"})
+    settings = with_settings(incident_defaults={"Site": SITE_ID, "watch_list": "nobody else"})
     answers = {k: v for k, v in ANSWERS.items() if k != "Site"} | {"watch_list": ""}
     result = await call_with(
         instance, settings, "servicenow_create_incident", {"answers": answers}, dry_run=False
@@ -903,7 +926,7 @@ async def test_create_incident_submits_the_form_and_reports_the_number(
     posted = instance.requests[-1]
     assert posted.method == "POST"
     variables = json.loads(posted.content)["variables"]
-    assert variables["u_site"] == "na"  # from the config
+    assert variables["u_site"] == SITE_ID  # from the config
     assert variables["watch_list"] == "nobody"  # cleared default falls back to the form's
 
 
@@ -969,7 +992,7 @@ async def test_create_incident_refuses_answers_the_form_would_not_take(
 async def test_a_bad_configured_default_says_it_came_from_the_config(
     instance: FakeServiceNow,
 ) -> None:
-    settings = with_settings(incident_defaults={"Site": "Mars"})
+    settings = with_settings(incident_defaults={"network_connection": "Mars"})
     with pytest.raises(ToolError, match=r": In \[servicenow\.incident_defaults\]: 'Mars'"):
         await call_with(instance, settings, "servicenow_create_incident", {"answers": ANSWERS})
 
@@ -1014,11 +1037,68 @@ def test_an_identifier_must_match_a_whole_label(key: str) -> None:
 
 def test_defaults_in_the_config_need_no_quoted_keys() -> None:
     settings = parse_servicenow_settings(
-        {"incident_defaults": {"site": "N/A", "network_connection": "VPN"}}
+        {"incident_defaults": {"site": SITE_ID, "network_connection": "VPN"}}
     )
     variables = parse_form(FORM).answers(
         {k: v for k, v in ANSWERS.items() if k not in ("Site", "Network Connection")},
         settings.incident_defaults,
     )
-    assert variables["u_site"] == "na"
+    assert variables["u_site"] == SITE_ID
     assert variables["network_connection"] == "vpn"
+
+
+async def test_a_lookup_question_needs_a_sys_id(instance: FakeServiceNow) -> None:
+    with pytest.raises(
+        ToolError,
+        match=r"'Site' is picked from a table \(cmn_location\), so its answer is the chosen "
+        r"record's sys_id .*not 'N/A'\. .*extra_fields=\['u_site'\]",
+    ):
+        await call(instance, "servicenow_create_incident", {"answers": ANSWERS | {"Site": "N/A"}})
+    assert "POST" not in [r.method for r in instance.requests]
+
+
+def test_a_reference_without_its_table_named_is_still_a_lookup() -> None:
+    variable: dict[str, JsonValue] = {"name": "u_site", "label": "Site", "type": 8}
+    form = parse_form({"sys_id": FORM_ID, "name": "F", "variables": [variable]})
+    assert form.questions[0].lookup_table == "an unnamed table"
+
+
+async def test_get_incident_reads_extra_fields_in_both_forms(instance: FakeServiceNow) -> None:
+    incident = await call(
+        instance,
+        "servicenow_get_incident",
+        {"number": "INC0010001", "extra_fields": [" u_site ", "", "u_site"]},
+    )
+    assert isinstance(incident, dict)
+    assert incident["extra_fields"] == {"u_site": {"value": SITE_ID, "display": "N/A"}}
+    # The usual fields still read as the form shows them.
+    assert incident["state"] == "In Progress"
+    assert incident["url"] == f"{BASE}/incident.do?sys_id=i1"
+    params = instance.requests[-1].url.params
+    assert params["sysparm_display_value"] == "all"
+    assert params["sysparm_fields"].endswith(",comments,u_site")
+
+
+async def test_get_incident_refuses_a_field_that_is_not_a_column(instance: FakeServiceNow) -> None:
+    with pytest.raises(ToolError, match=r"'u_site\^ORx' is not a field name"):
+        await call(
+            instance,
+            "servicenow_get_incident",
+            {"number": "INC0010001", "extra_fields": ["u_site^ORx"]},
+        )
+    assert instance.requests == []
+
+
+async def test_several_forms_with_the_name_are_refused_with_their_ids(
+    instance: FakeServiceNow,
+) -> None:
+    instance.catalog_hits = [
+        {"sys_id": "a" * 32, "name": "Create an Incident", "short_description": "Stock"},
+        {"sys_id": FORM_ID, "name": "create an incident"},
+    ]
+    with pytest.raises(
+        ToolError,
+        match=rf"2 catalog items are named 'Create an incident': {'a' * 32} \(Stock\); "
+        rf"{FORM_ID} \(no description\)\. Set incident_form",
+    ):
+        await call(instance, "servicenow_get_incident_form", {})

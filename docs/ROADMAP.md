@@ -42,21 +42,38 @@ Last updated: 2026-11-23.
       fields. Documented; not a bug.
   - Smoke test: lists incidents, reads the first, reads the form (expects required
     questions), and dry-runs a create with `SERVICENOW_ANSWERS` from `.env` (JSON).
+  - **Smoke run 2026-11-23, build `v0.10.0-6-g9e04fdc`: 96 passed, 0 failed.** The
+    form tool found **the stock "Create an Incident"** (one question, `comments`;
+    ServiceNow's own description), not the portal's form. The portal's form has the
+    same title; its page address gives its sys_id, **`10f198405863e700eb7b1e2c93eae7ca`**.
+    From a saved copy of the page (web archive), its questions are:
+    `u_preferred_contact_phone_number` (text, max 40), `u_site` (**a reference**, picked
+    from a table), `category` (choice), `subcategory` (choice: Desktop, Desk Phones,
+    Laptop, Mobile Device, Other Peripheral, Printer, Tablet, Webcams; likely depends on
+    the category), `impact` ("What's the impact?", values 1-4), `urgency` (values 1-5),
+    `u_network_connection` (values aConnect, VPN, Wired, SIPR, Stand-Alone, Not
+    Applicable), `comments` ("Please describe your issue below"), `caller_id` (a
+    reference, filled with the user), and `u_hostname`, `u_serial_number`, `u_barcode`,
+    `u_network` (Classified/Unclassified), required or not unknown.
+    **Changed the same day:** a name matching several items is refused with their
+    sys_ids; a reference question shows its `lookup_table` and takes only a sys_id
+    (a name is refused, saying how to find one); `servicenow_get_incident` takes
+    `extra_fields` and returns each with its stored value and display text, which is
+    how to find the "N/A" site's sys_id.
   - **To check on the laptop, in order:**
-    1. `call servicenow_get_incident_form`: the form is found by name; the questions
-       match the list above, with the right ones required and their choices filled in.
-       **Built from the API's documented shape, not yet seen on this instance:** the
-       question `name`, `friendly_type`, `mandatory` and `choices` fields. If Site is a
-       reference or lookup (no `choices` in the answer), say so: it would need the
-       record's `sys_id`, and that needs handling.
-    2. Add `[servicenow.incident_defaults]` (Site, phone, network connection) and see
-       them as each question's `default`.
+    1. Set `incident_form = "10f198405863e700eb7b1e2c93eae7ca"` and run `call
+       servicenow_get_incident_form`. **The open question:** does the Service Catalog
+       API return this form's questions as the portal shows them (names above, the
+       right ones required, choices filled, `u_site` with a `lookup_table`)? If it
+       again returns only `comments`, the API is not serving this form's questions and
+       the next step is reading them the way the portal does (its page API).
+    2. `call servicenow_get_incident number=<one with Site N/A> 'extra_fields=["u_site"]'`
+       for the site's sys_id; put it, the phone and the network connection in
+       `[servicenow.incident_defaults]`.
     3. The smoke test with `SERVICENOW_ANSWERS` filled in.
-    4. One real create with `--no-dry-run`, then `servicenow_get_incident` on it:
-       site, phone, urgency and category in place, as the portal would set them? Then
-       cancel it.
-    5. Whether a question becomes required after another is answered (a subcategory
-       after a category): those rules run in the browser and are not checked here.
+    4. One real create with `--no-dry-run`, checked in the portal, then cancelled.
+    5. Whether a question becomes required after another is answered (subcategory
+       after category): those rules run in the browser and are not checked here.
   - Open, from the roadmap's ServiceNow questions: confirm the helpdesk is fine with
     tickets opened through the API.
   - **Smoke run 2026-11-23 (94 passed, 1 failed, 3 skipped), the failure explained.**
@@ -358,7 +375,7 @@ Last updated: 2026-11-23.
   spikes and version 0.4.0 (built on `claude/servicenow-credential-seam`).
 - **Also on `main`, in 0.5.0:** the Outlook REST spikes and the Microsoft
   refresh-token lifecycle (`login-microsoft`).
-- **Tests:** 882 passing, about 99.97% branch coverage. All hooks clean.
+- **Tests:** 887 passing, about 99.97% branch coverage. All hooks clean.
 - **In use:** Goose on the work laptop, against Jira 11.3.12, Bitbucket 10.2.8 and Confluence
   10.2.19. No CI
   server (Bamboo or other) reports builds or deployments to this Bitbucket.

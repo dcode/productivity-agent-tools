@@ -27,6 +27,15 @@ class IncidentSummary(BaseModel):
     url: str | None = Field(default=None, description="Its form in the web interface.")
 
 
+class FieldValue(BaseModel):
+    """A field read in both its forms."""
+
+    value: str | None = Field(
+        default=None, description="What is stored: for a field picked from a table, a sys_id."
+    )
+    display: str | None = Field(default=None, description="What the form shows for it.")
+
+
 class Incident(IncidentSummary):
     """One incident in detail."""
 
@@ -46,6 +55,9 @@ class Incident(IncidentSummary):
     close_notes: str | None = Field(default=None, description="How it was resolved.")
     comments: str | None = Field(
         default=None, description="Comments visible to you, newest first, as one text."
+    )
+    extra_fields: dict[str, FieldValue] = Field(
+        default_factory=dict, description="The fields asked for with extra_fields."
     )
 
 
@@ -80,6 +92,11 @@ class FormQuestion(BaseModel):
         "[servicenow.incident_defaults], else the form's own.",
     )
     help_text: str | None = Field(default=None, description="The form's help text.")
+    lookup_table: str | None = Field(
+        default=None,
+        description="For a question answered by picking a record (such as a site): the table "
+        "it is picked from. Its answer is that record's sys_id, not its name.",
+    )
 
 
 class IncidentForm(BaseModel):

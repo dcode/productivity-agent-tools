@@ -10,6 +10,7 @@ from productivity_agent_tools.products import ToolContext
 from productivity_agent_tools.repeats import RepeatGuard
 from productivity_agent_tools.servicenow.client import ServiceNow
 from productivity_agent_tools.servicenow.models import (
+    FieldValue,
     FormQuestion,
     Incident,
     IncidentForm,
@@ -32,9 +33,9 @@ def _summary(servicenow: ServiceNow, row: JsonObject) -> IncidentSummary:
     Returns:
         The summary.
     """
-    sys_id = text(row, "sys_id")
+    sys_id = _stored(row, "sys_id")
     return IncidentSummary(
-        number=text(row, "number") or "",
+        number=_shown(row, "number") or "",
         short_description=_blank_to_none(row, "short_description"),
         state=_blank_to_none(row, "state"),
         priority=_blank_to_none(row, "priority"),
@@ -44,8 +45,34 @@ def _summary(servicenow: ServiceNow, row: JsonObject) -> IncidentSummary:
     )
 
 
+def _shown(row: JsonObject, key: str) -> str | None:
+    """Read a field as the form shows it, whether it came as text or in both forms.
+
+    Args:
+        row: The record, read with ``sysparm_display_value`` ``true`` or ``all``.
+        key: Field name.
+
+    Returns:
+        The display value, or None when the field is missing.
+    """
+    return text(row, key) if not isinstance(row.get(key), dict) else text(row, key, "display_value")
+
+
+def _stored(row: JsonObject, key: str) -> str | None:
+    """Read a field's stored value (a reference's sys_id), whichever form it came in.
+
+    Args:
+        row: The record.
+        key: Field name.
+
+    Returns:
+        The stored value, or None when the field is missing.
+    """
+    return text(row, key) if not isinstance(row.get(key), dict) else text(row, key, "value")
+
+
 def _blank_to_none(row: JsonObject, key: str) -> str | None:
-    """Read a string field, treating ServiceNow's empty string as absent.
+    """Read a field's display value, treating ServiceNow's empty string as absent.
 
     Args:
         row: The record.
@@ -54,7 +81,7 @@ def _blank_to_none(row: JsonObject, key: str) -> str | None:
     Returns:
         The value, or None when it is missing or empty.
     """
-    return text(row, key) or None
+    return _shown(row, key) or None
 
 
 def register_servicenow_tools(
@@ -111,13 +138,22 @@ def register_servicenow_tools(
 
     @server.tool(annotations=READ)
     @anticipated
-    async def servicenow_get_incident(number: str) -> Incident:
+    async def servicenow_get_incident(
+        number: str, extra_fields: list[str] | None = None
+    ) -> Incident:
         """Read one incident in detail: state, who is working on it, comments and resolution.
+
+        extra_fields reads more fields by column name (such as u_site), each with its
+        stored value and the text shown for it. For a field picked from a table, the
+        stored value is the picked record's sys_id, which is what the incident form
+        takes as the answer to that question.
 
         Args:
             number: Incident number, such as INC0012345.
+            extra_fields: More fields to read, by column name.
         """
-        row = await servicenow.incident(number)
+        extras = tuple(name.strip() for name in extra_fields or [] if name.strip())
+        row = await servicenow.incident(number, extras)
         return Incident(
             **_summary(servicenow, row).model_dump(),
             description=_blank_to_none(row, "description"),
@@ -129,6 +165,10 @@ def register_servicenow_tools(
             resolved_at=_blank_to_none(row, "resolved_at"),
             close_notes=_blank_to_none(row, "close_notes"),
             comments=_blank_to_none(row, "comments"),
+            extra_fields={
+                name: FieldValue(value=_stored(row, name), display=_shown(row, name))
+                for name in extras
+            },
         )
 
     @server.tool(annotations=READ)
@@ -139,7 +179,8 @@ def register_servicenow_tools(
         Call this before servicenow_create_incident and answer its questions from
         what the user has said. A question with a default (set by the user in the
         config, or by the form) need not be answered. Ask the user for any required
-        answer you do not know; never invent a phone number or a site.
+        answer you do not know; never invent a phone number or a site. A question
+        with a lookup_table takes a record's sys_id, not its name.
         """
         form = await servicenow.catalog_form(servicenow.settings.incident_form)
         configured = form.configured(servicenow.settings.incident_defaults)
@@ -158,6 +199,7 @@ def register_servicenow_tools(
                     ],
                     default=configured.get(question.name) or question.default or None,
                     help_text=question.help_text or None,
+                    lookup_table=question.lookup_table or None,
                 )
                 for question in form.questions
             ],
