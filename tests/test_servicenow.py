@@ -33,11 +33,19 @@ from productivity_agent_tools.errors import (
 from productivity_agent_tools.products import installed_products
 from productivity_agent_tools.server import Connected, build_server
 from productivity_agent_tools.servicenow.client import ServiceNow
-from productivity_agent_tools.servicenow.forms import parse_form, parse_portal_form
+from productivity_agent_tools.servicenow.forms import CatalogForm, parse_form, parse_portal_form
 from productivity_agent_tools.servicenow.http import ServiceNowClient
 from productivity_agent_tools.servicenow.journal import parse_journal
 from productivity_agent_tools.servicenow.login import sign_in
 from productivity_agent_tools.servicenow.product import PRODUCT, doctor
+from productivity_agent_tools.servicenow.rules import (
+    Condition,
+    Effect,
+    Rule,
+    State,
+    evaluate,
+    parse_rules,
+)
 from productivity_agent_tools.servicenow.session import (
     BrowserSession,
     browser_session,
@@ -844,6 +852,7 @@ async def test_the_incident_form_lists_its_questions(instance: FakeServiceNow) -
         "name": "watch_list",
         "label": "Also notify",
         "kind": "6",
+        "shown": True,
         "required": False,
         "choices": [],
         "default": "nobody",
@@ -1255,7 +1264,8 @@ async def test_the_form_is_read_from_the_portal_page(instance: FakeServiceNow) -
     questions = form["questions"]
     assert isinstance(questions, list)
     by_name = {q["name"]: q for q in questions}
-    assert list(by_name) == ["u_site", "category", "caller_id", "comments", "u_where"]
+    assert list(by_name) == ["u_site", "category", "caller_id", "u_hidden", "comments", "u_where"]
+    assert by_name["u_hidden"]["shown"] is False
     assert by_name["u_site"]["lookup_table"] == "cmn_location"
     assert by_name["u_site"]["required"] is True
     assert by_name["caller_id"]["lookup_table"] == "sys_user"
@@ -1418,6 +1428,7 @@ def test_portal_questions_follow_the_forms_layout() -> None:
         "category",
         "u_site",
         "caller_id",
+        "u_hidden",
         "comments",
         "u_where",
     ]
@@ -1531,3 +1542,258 @@ def test_a_journal_is_split_at_its_headers() -> None:
 )
 def test_a_journal_without_the_usual_shape_keeps_its_text(journal: str, bodies: list[str]) -> None:
     assert [entry.body for entry in parse_journal(journal)] == bodies
+
+
+def policy(
+    title: str,
+    conditions: list[tuple[str, str, str, bool]],
+    actions: list[tuple[str, str, str]],
+    *,
+    reverse: JsonValue = True,
+) -> JsonValue:
+    """A UI policy as the portal sends it (shape from the work instance, 2026-11-23)."""
+    return {
+        "short_description": title,
+        "reverse": reverse,
+        "conditions": [
+            {"field": f"variables.{f}", "oper": op, "value": v, "or": joins, "newquery": False}
+            for f, op, v, joins in conditions
+        ],
+        "actions": [
+            {"name": f"variables.{n}", "visible": vis, "mandatory": man, "valueAction": "ignore"}
+            for n, vis, man in actions
+        ],
+    }
+
+
+def choice(name: str, *values: str, mandatory: bool = False) -> JsonValue:
+    return {
+        "name": name,
+        "label": name.title(),
+        "type": "choice",
+        "mandatory": mandatory,
+        "choices": [{"value": v, "label": v.title()} for v in values],
+    }
+
+
+def text_field(name: str, *, mandatory: bool = False) -> JsonValue:
+    return {"name": name, "label": name.title(), "type": "string", "mandatory": mandatory}
+
+
+# The work instance's incident form in miniature: its four policies, as sent.
+RULED_ITEM: dict[str, JsonValue] = {
+    "sys_id": FORM_ID,
+    "name": "Create an Incident",
+    "_fields": {
+        "category": choice("category", "hardware", "network", "server", "software", mandatory=True),
+        "subcategory": choice("subcategory", "desktop", "laptop", "printer"),
+        "u_hostname": text_field("u_hostname"),
+        "u_network": choice("u_network", "1", "2"),
+        "comments": text_field("comments", mandatory=True),
+    },
+    "policy": [
+        policy(
+            "Hide CI Information for Software",
+            [("category", "IN", "hardware,network,server", False)],
+            [("ci_information", "true", "ignore")],  # not a question here: left out
+        ),
+        policy(
+            "Make field Subcategory mandatory & visible",
+            [("category", "=", "hardware", False)],
+            [("subcategory", "true", "true")],
+        ),
+        policy(
+            "Make hostname & network visible & mandatory",
+            [
+                ("category", "=", "hardware", False),
+                ("subcategory", "=", "desktop", False),
+                ("subcategory", "=", "laptop", True),
+            ],
+            [("u_hostname", "true", "true"), ("u_network", "true", "true")],
+        ),
+        policy(
+            "Set CI Information not mandatory",
+            [],
+            [("bar_code", "ignore", "false")],  # not a question here: left out
+        ),
+    ],
+}
+
+
+def ruled_form() -> CatalogForm:
+    form = parse_portal_form(portal_page(RULED_ITEM))
+    assert form is not None
+    return form
+
+
+def test_the_forms_rules_are_read_and_described() -> None:
+    assert [rule.describe() for rule in ruled_form().rules] == [
+        "Make field Subcategory mandatory & visible: when category is hardware: "
+        "subcategory shown and required; otherwise the opposite",
+        "Make hostname & network visible & mandatory: when category is hardware and "
+        "subcategory is desktop or subcategory is laptop: u_hostname shown and required; "
+        "u_network shown and required; otherwise the opposite",
+    ]
+
+
+@pytest.mark.parametrize(
+    ("answers", "required"),
+    [
+        ({"category": "Software", "comments": "x"}, set()),
+        ({"category": "Hardware", "comments": "x"}, {"subcategory"}),
+        ({"category": "Hardware", "subcategory": "Printer", "comments": "x"}, set()),
+        (
+            {"category": "Hardware", "subcategory": "Laptop", "comments": "x"},
+            {"u_hostname", "u_network"},
+        ),
+        (
+            {"category": "Hardware", "subcategory": "desktop", "comments": "x"},
+            {"u_hostname", "u_network"},
+        ),
+    ],
+)
+def test_the_rules_decide_what_else_is_required(
+    answers: dict[str, str], required: set[str]
+) -> None:
+    form = ruled_form()
+    if not required:
+        assert set(form.answers(answers)) == {k.casefold() for k in answers}
+        return
+    with pytest.raises(AgentToolsError, match="requires answers to") as caught:
+        form.answers(answers)
+    missing = {name for name in required if f"{name} (" in str(caught.value)}
+    assert missing == required
+
+
+def test_a_hidden_question_answered_is_refused_with_the_rule() -> None:
+    with pytest.raises(
+        AgentToolsError,
+        match=r"does not show subcategory \(Subcategory\), so leave it out\. The form's "
+        r"rules: Make field Subcategory mandatory & visible: when category is hardware",
+    ):
+        ruled_form().answers({"category": "software", "subcategory": "laptop", "comments": "x"})
+
+
+def test_a_default_for_a_hidden_question_is_left_out() -> None:
+    variables = ruled_form().answers(
+        {"category": "software", "comments": "x"}, {"u_network": "2", "subcategory": "laptop"}
+    )
+    assert variables == {"category": "software", "comments": "x"}
+    hardware = ruled_form().answers(
+        {"category": "hardware", "subcategory": "laptop", "u_hostname": "box", "comments": "x"},
+        {"u_network": "2"},
+    )
+    assert hardware["u_network"] == "2"
+
+
+def test_a_question_hidden_with_no_rule_says_so_plainly() -> None:
+    item: dict[str, JsonValue] = {
+        "sys_id": FORM_ID,
+        "name": "F",
+        "_fields": {
+            "u_secret": {
+                "name": "u_secret",
+                "label": "U_Secret",
+                "type": "string",
+                "visible": False,
+            }
+        },
+    }
+    form = parse_portal_form(portal_page(item))
+    assert form is not None
+    with pytest.raises(AgentToolsError, match=r"leave it out\. Nothing was sent\.$"):
+        form.answers({"u_secret": "x"})
+
+
+async def test_the_form_tool_shows_the_rules_and_the_state_with_the_defaults(
+    instance: FakeServiceNow,
+) -> None:
+    instance.portal_page = portal_page(RULED_ITEM)
+    settings = with_settings(incident_defaults={"category": "Hardware"})
+    form = await call_with(instance, settings, "servicenow_get_incident_form", {})
+    rules = form["rules"]
+    assert isinstance(rules, list)
+    assert len(rules) == 2
+    questions = form["questions"]
+    assert isinstance(questions, list)
+    states = {q["name"]: (q["shown"], q["required"]) for q in questions}
+    assert states["subcategory"] == (True, True)
+    assert states["u_hostname"] == (False, False)
+
+
+def test_conditions_combine_as_an_encoded_query() -> None:
+    # (a = 1 or a = 2) and b is answered, or separately c is empty
+    rule = Rule(
+        title="T",
+        conditions=(
+            Condition("a", "=", "1"),
+            Condition("a", "=", "2", joins_with_or=True),
+            Condition("b", "ISNOTEMPTY", ""),
+            Condition("c", "ISEMPTY", "", starts_group=True),
+        ),
+        effects=(Effect("x", visible=True),),
+    )
+    assert rule.holds({"a": "2", "b": "y", "c": "z"})
+    assert not rule.holds({"a": "3", "b": "y", "c": "z"})
+    assert not rule.holds({"a": "1", "c": "z"})
+    assert rule.holds({"a": "3"})
+    assert rule.describe() == (
+        "T: when a is 1 or a is 2 and b is answered or, separately, c is empty: "
+        "x shown; otherwise the opposite"
+    )
+
+
+@pytest.mark.parametrize(
+    ("operator", "wanted", "answer", "holds"),
+    [
+        ("!=", "a", "b", True),
+        ("NOT IN", "a, b", "c", True),
+        ("NOT IN", "a, b", "b", False),
+        ("STARTSWITH", "ab", "abc", True),
+        ("ENDSWITH", "bc", "abc", True),
+        ("LIKE", "b", "abc", True),
+        ("NOT LIKE", "b", "abc", False),
+    ],
+)
+def test_each_operator(operator: str, wanted: str, answer: str, holds: bool) -> None:
+    assert Condition("f", operator, wanted).holds({"f": answer}) is holds
+
+
+def test_a_rule_with_an_unknown_operator_is_not_applied_and_says_so() -> None:
+    rule = Rule("T", (Condition("a", "BETWEEN", "1@3"),), (Effect("x", visible=False),))
+    assert not rule.understood
+    assert rule.describe() == (
+        "T: when a BETWEEN 1@3: x hidden; otherwise the opposite "
+        "(not checked: an operator is not understood)"
+    )
+    states = evaluate((rule,), {"x": State(visible=True, mandatory=True)}, {"a": "2"})
+    assert states["x"] == State(visible=True, mandatory=True)
+
+
+def test_a_rule_that_does_not_reverse_leaves_things_when_it_fails() -> None:
+    rule = Rule("T", (Condition("a", "=", "1"),), (Effect("x", mandatory=True),), reverse=False)
+    base = {"x": State(visible=True, mandatory=False)}
+    assert evaluate((rule,), base, {"a": "2"})["x"] == State(visible=True, mandatory=False)
+    assert evaluate((rule,), base, {"a": "1"})["x"] == State(visible=True, mandatory=True)
+    assert "otherwise" not in rule.describe()
+    always = Rule("A", (), (Effect("x", visible=False, mandatory=False),))
+    assert always.describe() == "A: always: x hidden and optional"
+    assert evaluate((always,), {}, {}) == {}  # a question not on the form is left alone
+
+
+def test_policy_settings_and_operators_are_read_loosely() -> None:
+    policies: JsonValue = [
+        {
+            "reverse": "false",
+            "conditions": [{"field": "a", "operator": " = ", "value": "1", "or": "true"}],
+            "actions": [{"name": "x", "visible": True, "mandatory": "ignore"}],
+        },
+        {"actions": [{"name": "x", "visible": "ignore", "mandatory": "ignore"}]},
+        "not a policy",
+    ]
+    (rule,) = parse_rules(policies, frozenset({"x"}))
+    assert rule.title == "A form rule"
+    assert rule.reverse is False
+    assert rule.conditions == (Condition("a", "=", "1", joins_with_or=True),)
+    assert rule.effects == (Effect("x", visible=True),)
+    assert Effect("x").describe() == "x "

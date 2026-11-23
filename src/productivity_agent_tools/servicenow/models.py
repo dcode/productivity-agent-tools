@@ -91,7 +91,14 @@ class FormQuestion(BaseModel):
     name: str = Field(description="The question's name; answers may be keyed by it.")
     label: str = Field(description="The question as the form shows it; also accepted as a key.")
     kind: str = Field(description="The kind of answer, such as select_box or multi_line_text.")
-    required: bool = Field(description="True if the form requires an answer.")
+    shown: bool = Field(
+        description="True if the form shows it, given the configured defaults; the form's "
+        "rules can show or hide it as answers change. A hidden question takes no answer."
+    )
+    required: bool = Field(
+        description="True if the form requires an answer, given the configured defaults; "
+        "the form's rules can change this as answers change."
+    )
     choices: list[QuestionChoice] = Field(
         default_factory=list, description="The choices; an answer must be one of them."
     )
@@ -121,5 +128,10 @@ class IncidentForm(BaseModel):
         default_factory=list,
         description="Configured defaults that do not fit this form; servicenow_create_incident "
         "refuses until the user fixes them in the config.",
+    )
+    rules: list[str] = Field(
+        default_factory=list,
+        description="The form's rules in words: which answers show, hide or require which "
+        "questions. servicenow_create_incident applies them to the answers given.",
     )
     questions: list[FormQuestion] = Field(description="The questions, in the form's order.")

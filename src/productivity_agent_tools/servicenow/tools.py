@@ -180,24 +180,31 @@ def register_servicenow_tools(
         Call this before servicenow_create_incident and answer its questions from
         what the user has said. A question with a default (set by the user in the
         config, or by the form) need not be answered. Ask the user for any required
-        answer you do not know; never invent a phone number or a site. A question
+        answer you do not know; never invent a phone number or a site. The form's
+        rules show, hide and require questions as answers change (such as a
+        subcategory only for one category): shown and required here are for the
+        configured defaults alone, so read rules and ask about a question only
+        once the answers that bring it up are known. A question
         with a lookup_table takes a record's sys_id; a name is looked up in that
         table, and used if exactly one record has it.
         """
         form = await servicenow.catalog_form(servicenow.settings.incident_form)
         defaults = await servicenow.with_lookups(form, servicenow.settings.incident_defaults)
         configured, problems = form.configured_each(defaults)
+        states = form.states(form.values(configured))
         return IncidentForm(
             name=form.name,
             source=form.source,
             problems=problems,
+            rules=[rule.describe() for rule in form.rules],
             description=form.description or None,
             questions=[
                 FormQuestion(
                     name=question.name,
                     label=question.label,
                     kind=question.kind,
-                    required=question.mandatory,
+                    shown=states[question.name].visible,
+                    required=states[question.name].mandatory,
                     choices=[
                         QuestionChoice(value=choice.value, label=choice.label)
                         for choice in question.choices

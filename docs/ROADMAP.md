@@ -116,12 +116,23 @@ Last updated: 2026-11-23.
     (Additional comments)`. **Changed the same day:** `servicenow_get_incident` returns
     them as a list (`at`, `author`, `kind`, `body`), split at the header lines
     (`servicenow/journal.py`), since a comment can hold blank lines.
-  - **Still to check on the laptop:**
-    1. One real create with `--no-dry-run` through the form, checked in the portal
-       (site, phone, network connection, category, urgency, impact, caller), then
-       cancelled. This is the first submission through `submit_producer`.
-    2. Whether subcategory's choices depend on the category: those rules run in the
-       browser and are not checked here.
+  - **Real create through the form: done (user, 2026-11-23).** A `--no-dry-run`
+    create succeeded and was cancelled; comments read back and split cleanly.
+  - **Subcategory depends on category (user, 2026-11-23, sanitized HAR):** no request
+    is made when the category changes. The form's four UI policies come in the page
+    answer (`sc_cat_item.policy`) as data: Subcategory shown and required only for
+    category `hardware`; Hostname and Network shown and required for hardware and
+    subcategory desktop or laptop; two others touch variables not on the form. The
+    subcategory's choices never change. The one client script (caller change sets
+    Site from the caller's location by GlideAjax) does not run on load.
+    **Changed the same day:** `servicenow/rules.py` evaluates the policies;
+    `servicenow_create_incident` requires what they require, refuses answers to
+    hidden questions, and drops defaults for them; the form tool lists `rules` in
+    words and each question's `shown`/`required` for the defaults. Checked against
+    the real page: Software needs no subcategory; Hardware needs one; Hardware laptop
+    needs hostname (network from the default); Software with a subcategory is refused.
+  - **To check on the laptop:** `call servicenow_get_incident_form` shows two rules,
+    and a dry-run create with `category=Hardware` and no subcategory is refused.
   - Open, from the roadmap's ServiceNow questions: confirm the helpdesk is fine with
     tickets opened through the API.
   - **Smoke run 2026-11-23 (94 passed, 1 failed, 3 skipped), the failure explained.**
@@ -423,7 +434,7 @@ Last updated: 2026-11-23.
   spikes and version 0.4.0 (built on `claude/servicenow-credential-seam`).
 - **Also on `main`, in 0.5.0:** the Outlook REST spikes and the Microsoft
   refresh-token lifecycle (`login-microsoft`).
-- **Tests:** 918 passing, about 99.97% branch coverage. All hooks clean.
+- **Tests:** 939 passing, about 99.97% branch coverage. All hooks clean.
 - **In use:** Goose on the work laptop, against Jira 11.3.12, Bitbucket 10.2.8 and Confluence
   10.2.19. No CI
   server (Bamboo or other) reports builds or deployments to this Bitbucket.
