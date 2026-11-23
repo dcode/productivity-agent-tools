@@ -31,8 +31,14 @@ class Incident(IncidentSummary):
     """One incident in detail."""
 
     description: str | None = Field(default=None, description="Full description.")
-    urgency: str | None = Field(default=None, description="Urgency, such as 2 - Medium.")
-    impact: str | None = Field(default=None, description="Impact, such as 3 - Low.")
+    urgency: str | None = Field(
+        default=None, description="Urgency, such as 2 - Medium. Null when not readable."
+    )
+    impact: str | None = Field(
+        default=None,
+        description="Impact, such as 3 - Low. Null when your account may not read it, as "
+        "with urgency; the priority still reflects both.",
+    )
     category: str | None = Field(default=None, description="Category.")
     assignment_group: str | None = Field(default=None, description="Group working on it.")
     assigned_to: str | None = Field(default=None, description="Person working on it.")
@@ -49,3 +55,10 @@ class IncidentWriteResult(WriteReport):
     number: str | None = Field(default=None, description="The new incident's number.")
     sys_id: str | None = Field(default=None, description="The new incident's sys_id.")
     url: str | None = Field(default=None, description="Its form in the web interface.")
+
+
+class Choice(BaseModel):
+    """One choice of a field on a ServiceNow form."""
+
+    value: str = Field(description="What is stored, and what the create tool sends.")
+    label: str | None = Field(default=None, description="What the form shows.")

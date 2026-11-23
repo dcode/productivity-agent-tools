@@ -21,17 +21,33 @@ Last updated: 2026-11-23.
     no `caller_id`, nothing with its own parameter). The product's agent instructions say
     to check for an open duplicate and confirm wording with the user first.
   - Smoke test: lists incidents, reads the first, and runs a dry-run create.
-  - Tests: 853 passing, 99.97% branch coverage; ruff and ty clean.
-  - **Not probed: the instance has never been sent a write.** To check on the laptop,
-    in order: (1) the smoke test (list, get, dry-run create); (2) whether
-    `comments` comes back readable through the record's own field (the probe left
-    this unchecked); (3) one real create with `--no-dry-run` (e.g. `call
-    servicenow_create_incident "short_description=test, please close" urgency=low
-    --no-dry-run`): does the Table API accept a `POST` from the browser session (CSRF
-    token included) or answer 403 (ACL) / 400 (a data policy wanting a `u_` field)?
-    Then open the returned `url`: the classic form, or a redirect to the portal?
-    (4) The open question below on acceptable use still stands: the user asked for this,
-    but confirm the helpdesk is fine with tickets opened through the API.
+  - Tests: 859 passing, 99.97% branch coverage; ruff and ty clean.
+  - **Checked live (2026-11-23, build `v0.10.0-1-g221632b`, work laptop):** the smoke
+    test passed its ServiceNow checks, and one real create (`INC0162364`, since
+    cancelled by the user) was accepted from the browser session: no 403, no data
+    policy. `servicenow_get_incident` read it back. What it showed:
+    - **Category:** the incident form requires one, the Table API does not (the form's
+      mandatory rule is a browser-side UI policy). The record came back as "Software".
+      **Fixed the same day:** `category` is now required on `servicenow_create_incident`,
+      matched by label or value (any case) against the form's choices read from
+      `sys_choice` (`servicenow_list_incident_categories`, new), and an unknown one is
+      refused with the list. When `sys_choice` cannot be read (403/404) or lists nothing,
+      the category is sent as written.
+    - **Urgency and impact read back empty** while the priority was "5 - Planning" (low
+      and low on the stock matrix), so they were set but the account cannot read those
+      two fields. Documented; not a bug.
+    - `comments` was empty (no comments yet), so whether they read back is still open.
+  - **To check on the laptop:** the smoke test's new "servicenow incident categories"
+    check, i.e. that the account can read `sys_choice` (if it fails with a permission
+    error, the create still works but the category goes unchecked); and the dry-run
+    create showing the category's value. Also whether the form requires a
+    **subcategory** once a category is picked; if so, it goes the same way.
+  - Open, from the roadmap's ServiceNow questions: confirm the helpdesk is fine with
+    tickets opened through the API.
+  - Smoke run 2026-11-23: 94 passed, 1 failed ("mail list unread"), 3 skipped. The zip
+    attached (same build) holds a *passing* "mail list unread" result and an expect
+    that ran, so the zip came from a different run than the summary, and the failure's
+    error text was not kept. Re-run if it comes back; nothing changed in Outlook here.
 - **0.10.0, the Obsidian vault, all 6 steps done; merged to `main` as a6899ac
   ([#19](https://github.com/dcode/productivity-agent-tools/pull/19), 2026-11-21).
   To do: tag `v0.10.0` at a6899ac from the laptop.**
@@ -318,7 +334,7 @@ Last updated: 2026-11-23.
   spikes and version 0.4.0 (built on `claude/servicenow-credential-seam`).
 - **Also on `main`, in 0.5.0:** the Outlook REST spikes and the Microsoft
   refresh-token lifecycle (`login-microsoft`).
-- **Tests:** 853 passing, about 99.97% branch coverage. All hooks clean.
+- **Tests:** 859 passing, about 99.97% branch coverage. All hooks clean.
 - **In use:** Goose on the work laptop, against Jira 11.3.12, Bitbucket 10.2.8 and Confluence
   10.2.19. No CI
   server (Bamboo or other) reports builds or deployments to this Bitbucket.
@@ -492,10 +508,11 @@ chance comes up and tick it here.
         past the idle limit even though rotated cookies are dropped, with no absolute
         cap hit in that window. Still to record: the loop's start time (the "saved" time
         in `servicenow_status`) and interval, to state the lifetime as a number.
-  - [ ] The smoke test's incident checks: list, get, and the dry-run create show you
-        as the caller
-  - [ ] One real `servicenow_create_incident`: accepted (or which error), the number
-        and link it returns, and `servicenow_get_incident` on it; close it afterwards
+  - [x] The smoke test's incident checks: list, get, and the dry-run create show you
+        as the caller (2026-11-23)
+  - [x] One real `servicenow_create_incident`: accepted, `INC0162364`, read back with
+        `servicenow_get_incident`, cancelled by the user (2026-11-23)
+  - [ ] `servicenow_list_incident_categories` answers (the account can read `sys_choice`)
   - [ ] `servicenow_get_incident` on an incident with comments: are they readable?
   - [ ] With a top-level `[cookies]` table, add an empty `[servicenow.cookies]` so those
         cookies are not sent to the helpdesk
@@ -908,7 +925,8 @@ Rough order. Each item is one pull request. API references: the Jira 11.0.2 and 
      Not done, on purpose: no `logout` verb yet (the Keychain entry can be deleted by
      hand), and `login` is POSIX-only.
   3. **`servicenow` product, reads and writes.** **Incidents done (2026-11-23, 0.11.0):**
-     `servicenow_list_incidents`, `servicenow_get_incident`, `servicenow_create_incident`
+     `servicenow_list_incidents`, `servicenow_get_incident`, `servicenow_create_incident`,
+     `servicenow_list_incident_categories`
      (see "Where things stand"). Still to build, next: my requests and items with stage
      and approval, one item in detail with comments, catalog search, an item's form.
   4. **More writes behind `dry_run`:** order an item (`order_now` with the form's

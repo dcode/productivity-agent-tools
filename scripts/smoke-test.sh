@@ -462,12 +462,16 @@ if offers servicenow_status; then
   INCIDENT_NUMBER="$(pick "servicenow incidents" result 0 number)"
   check "servicenow incident" "$INCIDENT_NUMBER" -- \
     servicenow_get_incident "number=$INCIDENT_NUMBER"
-  # Write tool, forced into dry-run: reads your user record for the caller, sends nothing.
-  check "servicenow create incident (dry run)" -- \
-    servicenow_create_incident "short_description=smoke test, not sent" urgency=low --dry-run
+  check "servicenow incident categories" -- servicenow_list_incident_categories
+  CATEGORY_LABEL="$(pick "servicenow incident categories" result 0 label)"
+  # Write tool, forced into dry-run: reads the categories and your user record, sends nothing.
+  # The label is matched back to its value, so this also checks that matching.
+  check "servicenow create incident (dry run)" "$CATEGORY_LABEL" -- \
+    servicenow_create_incident "short_description=smoke test, not sent" \
+    "category=$CATEGORY_LABEL" urgency=low --dry-run
   expect "servicenow create not sent" "servicenow create incident (dry run)" \
-    "dry-run shows the request with you as the caller" \
-    'r["sent"] is False and r["request"]["body"]["caller_id"]'
+    "dry-run shows the request with you as the caller and a category" \
+    'r["sent"] is False and r["request"]["body"]["caller_id"] and r["request"]["body"]["category"]'
 else
   printf '\n== servicenow\n   skipped: no [servicenow] table in the config\n'
   SKIPPED+=("servicenow (not configured)")
