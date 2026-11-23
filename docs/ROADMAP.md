@@ -101,19 +101,23 @@ Last updated: 2026-11-23.
     says which column the picker searches: `ed.searchField = "u_name"`.
     **Fixed the same day:** lookups search `ed.searchField` (else `name`) within
     `ed.qualifier` (unless a script), and the message names the column.
-  - **To check on the laptop, in order:**
-    1. `call servicenow_get_incident_form` with `u_site = "N/A"`: the `u_site`
-       default should be `998d2bf1afd2d5505732526559274912` and `problems` empty. If
-       it is still listed, the account cannot read the `u_site` table through the
-       Table API; then put the sys_id itself in the config.
-    2. Fill in `[servicenow.incident_defaults]` (`u_site`,
-       `u_preferred_contact_phone_number`, `u_network_connection`) and
-       `SERVICENOW_ANSWERS` in `.env` (category, impact, urgency, comments), then the
-       smoke test: the dry-run create should pass.
-    3. One real create with `--no-dry-run`, checked in the portal (site, phone,
-       network connection, category, urgency, impact), then cancelled.
-    4. Whether subcategory's choices depend on the category: those rules run in the
-       browser.
+  - **Checked live (2026-11-23, fourth time): the lookup works.** `u_site = "N/A"`
+    resolves to `998d2bf1afd2d5505732526559274912` (so the user can read the `u_site`
+    table by `u_name`), and `problems` is empty. **Smoke run on build
+    `v0.10.0-...-g2f50987`: 98 passed, 0 failed, 2 skipped** (Bitbucket builds and code
+    search, as before), including the form read and the dry-run create with
+    `SERVICENOW_ANSWERS`. Note for later sessions: `SERVICENOW_ANSWERS` is read only by
+    the smoke test; `call` takes answers as `answers=...` on the command line.
+    The user's working setup: `[servicenow]` `incident_form = "10f19840..."`,
+    `portal = "arlsp2"`; `[servicenow.incident_defaults]` `u_site`,
+    `u_preferred_contact_phone_number`, `u_network_connection`, `u_network`.
+  - **Still to check on the laptop:**
+    1. One real create with `--no-dry-run` through the form, checked in the portal
+       (site, phone, network connection, category, urgency, impact, caller), then
+       cancelled. This is the first submission through `submit_producer`.
+    2. Whether subcategory's choices depend on the category: those rules run in the
+       browser and are not checked here.
+    3. `servicenow_get_incident` on an incident with comments: are they readable?
   - Open, from the roadmap's ServiceNow questions: confirm the helpdesk is fine with
     tickets opened through the API.
   - **Smoke run 2026-11-23 (94 passed, 1 failed, 3 skipped), the failure explained.**
