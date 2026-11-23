@@ -30,6 +30,8 @@ to check it, and restart your agent to load the tools.
 |---|---|---|
 | `browser` | Chrome, then Edge | Browser `login servicenow` starts: a path or a command name |
 | `login_timeout_seconds` | `300` | How long `login servicenow` waits for you to finish |
+| `incident_form` | `"Create an incident"` | The catalog form that opens an incident: its exact name or `sys_id` |
+| `[servicenow.incident_defaults]` | none | Answers to that form's questions used when the agent gives none |
 
 ## Tools
 
@@ -38,46 +40,58 @@ to check it, and restart your agent to load the tools.
 | `servicenow_status` | read | Who is signed in, when they signed in, dry-run |
 | `servicenow_list_incidents` | read | Your incidents (you are the caller or opened them), open ones by default, newest first |
 | `servicenow_get_incident` | read | One incident by number: state, who has it, comments, resolution |
-| `servicenow_list_incident_categories` | read | The categories the incident form offers |
-| `servicenow_create_incident` | write | Open an incident with you as the caller |
+| `servicenow_get_incident_form` | read | The incident form's questions: which are required, their choices, defaults |
+| `servicenow_create_incident` | write | Open an incident by submitting that form |
 
 ### Opening an incident
 
-`servicenow_create_incident` takes a one-line `short_description`, a
-`category`, and optionally a `description`, `urgency` and `impact` (`high`,
-`medium` or `low`, the instance's standard 1-3 values; priority follows from the
-two). The caller is always you: the tool reads your own user record first, even
-in dry-run, to fill it.
+An incident is opened by submitting the helpdesk's own form, the portal's
+"Create an incident" page, exactly as the portal does. That form is a catalog
+item (a record producer): its questions are not incident fields, and its script
+builds the incident from the answers, with you as the caller. Writing the
+incident table directly would skip every question the helpdesk requires, since
+the form checks them in the browser, not the API.
 
-The category is required because the helpdesk's form requires it. The API does
-not enforce that, since the form's mandatory fields are checked in the browser,
-so the tool does instead. It reads the form's categories
-(`servicenow_list_incident_categories`), accepts a label or value in any case,
-sends the value, and refuses one that is not listed, naming those that are. If
-your account cannot read the list, the category is sent as written.
-
-`servicenow_get_incident` can show urgency and impact as empty even when they
-were set: your account may not be allowed to read those fields. The priority
-still reflects them.
-
-If your instance requires a field with no parameter (a site-specific `u_`
-field, say), pass it in `fields`, by column name:
+The agent reads the form first with `servicenow_get_incident_form`: each
+question's name and label, whether it is required, its choices and help text,
+and the default it will get. Then `servicenow_create_incident` takes the answers,
+keyed by name or label:
 
 ```bash
 uv run productivity-agent-tools call servicenow_create_incident \
-  "short_description=VPN client fails to connect" category=Network urgency=medium \
-  'fields={"u_location": "Building 2"}' --dry-run
+  'answers={"Category": "Network", "Please describe your issue below": "VPN drops hourly"}' \
+  --dry-run
 ```
 
-`fields` may not set `sys_` fields, the caller, or anything that has its own
-parameter. Like every write, nothing is sent while `dry_run` is on (the result
-shows the request that would be sent), and an identical create within 30
-seconds is not sent twice. The agent is told to check your open incidents for
-the same problem and confirm the wording with you first.
+Before anything is sent, the answers are checked against the form: a choice is
+matched by its label or value in any case and sent as its value; an unknown
+question or choice is refused with the list; and a required question left
+unanswered is refused, naming all that are. An empty answer clears a default.
+
+Answers that rarely change go in the config, so the agent does not ask each
+time. A question takes the agent's answer, else this default, else the form's
+own:
+
+```toml
+[servicenow.incident_defaults]
+Site = "N/A"
+"Preferred Contact Phone Number" = "555-0100"
+"Network Connection" = "VPN"
+```
+
+Like every write, nothing is sent while `dry_run` is on (the result shows the
+request that would be sent), and an identical submission within 30 seconds is
+not sent twice. The agent is told to check your open incidents for the same
+problem, ask you for required answers it does not know, and confirm the answers
+with you first.
 
 The result has the new number and a link to its form
 (`<base_url>/incident.do?sys_id=...`); if your instance sends you to a portal
 instead, the number is what to search for.
+
+`servicenow_get_incident` can show urgency and impact as empty even when they
+were set: your account may not be allowed to read those fields. The priority
+still reflects them.
 
 ## How the sign-in works
 

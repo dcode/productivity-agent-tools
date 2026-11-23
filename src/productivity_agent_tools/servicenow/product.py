@@ -20,8 +20,9 @@ INSTRUCTIONS: str = (
     "reports that the session has expired, do not retry: ask the user to run "
     "'productivity-agent-tools login servicenow' in a terminal, then continue. "
     "servicenow_create_incident opens a ticket the helpdesk staff will see and act on: "
-    "check servicenow_list_incidents for one already open about the same problem, and "
-    "confirm the wording with the user before creating it."
+    "check servicenow_list_incidents for one already open about the same problem, read "
+    "the form's questions with servicenow_get_incident_form, ask the user for required "
+    "answers you do not know, and confirm the answers with them before creating it."
 )
 
 

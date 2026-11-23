@@ -11,37 +11,51 @@ Last updated: 2026-11-23.
   `main` after #19 merged, 2026-11-23). Start here.** Asked for on 2026-11-23: "add the
   ServiceNow support to create tickets". Read as **incidents** (the helpdesk's tickets),
   not catalog orders; ordering software stays the next ServiceNow step (see "Later").
-  - New tools: `servicenow_create_incident` (write, behind `dry_run`, 30 s repeat guard),
-    plus the two reads it needs so the agent can check for a duplicate first and follow
-    up after: `servicenow_list_incidents` (the user's, as caller or opener; open only by
-    default) and `servicenow_get_incident` (by number, display values, comments).
-  - The caller is always the user: their `sys_id` is read from `sys_user` before the
-    `POST`. `urgency`/`impact` are `high`/`medium`/`low` mapped to the stock 1-3 values;
-    `category` is passed as given; site-required `u_` fields go in `fields` (no `sys_`,
-    no `caller_id`, nothing with its own parameter). The product's agent instructions say
-    to check for an open duplicate and confirm wording with the user first.
-  - Smoke test: lists incidents, reads the first, and runs a dry-run create.
-  - Tests: 871 passing, 99.97% branch coverage; ruff and ty clean.
-  - **Checked live (2026-11-23, build `v0.10.0-1-g221632b`, work laptop):** the smoke
-    test passed its ServiceNow checks, and one real create (`INC0162364`, since
-    cancelled by the user) was accepted from the browser session: no 403, no data
-    policy. `servicenow_get_incident` read it back. What it showed:
-    - **Category:** the incident form requires one, the Table API does not (the form's
-      mandatory rule is a browser-side UI policy). The record came back as "Software".
-      **Fixed the same day:** `category` is now required on `servicenow_create_incident`,
-      matched by label or value (any case) against the form's choices read from
-      `sys_choice` (`servicenow_list_incident_categories`, new), and an unknown one is
-      refused with the list. When `sys_choice` cannot be read (403/404) or lists nothing,
-      the category is sent as written.
-    - **Urgency and impact read back empty** while the priority was "5 - Planning" (low
-      and low on the stock matrix), so they were set but the account cannot read those
-      two fields. Documented; not a bug.
-    - `comments` was empty (no comments yet), so whether they read back is still open.
-  - **To check on the laptop:** the smoke test's new "servicenow incident categories"
-    check, i.e. that the account can read `sys_choice` (if it fails with a permission
-    error, the create still works but the category goes unchecked); and the dry-run
-    create showing the category's value. Also whether the form requires a
-    **subcategory** once a category is picked; if so, it goes the same way.
+  - **Tools:** `servicenow_get_incident_form` (read), `servicenow_create_incident`
+    (write, behind `dry_run`, 30 s repeat guard), and the reads that go with it:
+    `servicenow_list_incidents` (the user's, as caller or opener; open only by default)
+    and `servicenow_get_incident` (by number, display values, comments).
+  - **How a create works now (third version, 2026-11-23):** it submits the portal's
+    "Create an incident" form, a record producer, through the Service Catalog API
+    (`submit_producer`), as the portal does. The answers are checked against the form's
+    definition first (`servicenow/forms.py`): every required question answered, every
+    choice one the form offers (label or value, any case), unknown questions refused,
+    nothing sent on a refusal. Defaults come from `[servicenow.incident_defaults]` (by
+    name or label), then the form's own. `[servicenow] incident_form` names the form
+    (default "Create an incident", or a `sys_id`). DESIGN.md, Write safety, has why.
+  - **How it got here, all on 2026-11-23:**
+    1. The first version wrote the `incident` table directly. A real create
+       (`INC0162364`, since cancelled) was accepted, but the record had no site,
+       network connection or contact phone, and came back with category "Software".
+    2. The second required a category, checked against `sys_choice`. The smoke run
+       showed `sys_choice` returns no rows to the user (`{"result": []}`, no error),
+       so that check could never work.
+    3. The user listed the portal form's required questions: Preferred Contact Phone
+       Number (text), Site (N/A for the user), Category (12 choices, from "Above
+       Baseline Project" to "Windows 11"), What's the impact (4 levels), What's the
+       urgency (5 levels), Network Connection (6 choices), and "Please describe your
+       issue below" (text area). None but category and the description are incident
+       fields, so the form itself is now what is submitted.
+    - Also seen on the first create: **urgency and impact read back empty** while the
+      priority was "5 - Planning", so they were set but the account cannot read those
+      fields. Documented; not a bug.
+  - Smoke test: lists incidents, reads the first, reads the form (expects required
+    questions), and dry-runs a create with `SERVICENOW_ANSWERS` from `.env` (JSON).
+  - **To check on the laptop, in order:**
+    1. `call servicenow_get_incident_form`: the form is found by name; the questions
+       match the list above, with the right ones required and their choices filled in.
+       **Built from the API's documented shape, not yet seen on this instance:** the
+       question `name`, `friendly_type`, `mandatory` and `choices` fields. If Site is a
+       reference or lookup (no `choices` in the answer), say so: it would need the
+       record's `sys_id`, and that needs handling.
+    2. Add `[servicenow.incident_defaults]` (Site, phone, network connection) and see
+       them as each question's `default`.
+    3. The smoke test with `SERVICENOW_ANSWERS` filled in.
+    4. One real create with `--no-dry-run`, then `servicenow_get_incident` on it:
+       site, phone, urgency and category in place, as the portal would set them? Then
+       cancel it.
+    5. Whether a question becomes required after another is answered (a subcategory
+       after a category): those rules run in the browser and are not checked here.
   - Open, from the roadmap's ServiceNow questions: confirm the helpdesk is fine with
     tickets opened through the API.
   - **Smoke run 2026-11-23 (94 passed, 1 failed, 3 skipped), the failure explained.**
@@ -521,7 +535,9 @@ chance comes up and tick it here.
         as the caller (2026-11-23)
   - [x] One real `servicenow_create_incident`: accepted, `INC0162364`, read back with
         `servicenow_get_incident`, cancelled by the user (2026-11-23)
-  - [ ] `servicenow_list_incident_categories` answers (the account can read `sys_choice`)
+  - [x] `sys_choice` is readable: no, it returns no rows (2026-11-23), so the create
+        submits the portal's form instead
+  - [ ] `servicenow_get_incident_form` reads the form, and a real create through it
   - [ ] `servicenow_get_incident` on an incident with comments: are they readable?
   - [ ] With a top-level `[cookies]` table, add an empty `[servicenow.cookies]` so those
         cookies are not sent to the helpdesk
@@ -934,13 +950,14 @@ Rough order. Each item is one pull request. API references: the Jira 11.0.2 and 
      Not done, on purpose: no `logout` verb yet (the Keychain entry can be deleted by
      hand), and `login` is POSIX-only.
   3. **`servicenow` product, reads and writes.** **Incidents done (2026-11-23, 0.11.0):**
-     `servicenow_list_incidents`, `servicenow_get_incident`, `servicenow_create_incident`,
-     `servicenow_list_incident_categories`
-     (see "Where things stand"). Still to build, next: my requests and items with stage
-     and approval, one item in detail with comments, catalog search, an item's form.
+     `servicenow_list_incidents`, `servicenow_get_incident`, `servicenow_get_incident_form`,
+     `servicenow_create_incident` through the form (see "Where things stand"). Still to
+     build, next: my requests and items with stage and approval, one item in detail with
+     comments, catalog search, and any item's form (`servicenow/forms.py` reads one
+     already).
   4. **More writes behind `dry_run`:** order an item (`order_now` with the form's
-     variables), add a comment to an incident or item. Not probed beyond what the
-     incident create checks will show.
+     variables, checked by the same `forms.py`), add a comment to an incident or item.
+     Not probed beyond what the incident create checks will show.
 
   Open questions:
   - How long a session lasts in practice (see "Confirm against the real servers").

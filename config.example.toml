@@ -189,8 +189,17 @@ current-sprint = "assignee = currentUser() AND sprint in openSprints() ORDER BY 
 # browser = "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"
 # How long `login servicenow` waits for you to finish signing in.
 # login_timeout_seconds = 300
+# The catalog form that opens an incident: its exact name or sys_id.
+# incident_form = "Create an incident"
 # An empty cookies table, so the top-level [cookies] are not sent to this host.
 # [servicenow.cookies]
+# Answers to the incident form's questions that rarely change, so the agent need
+# not ask each time. Keys are question names or labels (servicenow_get_incident_form
+# lists them); a choice may be given by its label.
+# [servicenow.incident_defaults]
+# Site = "N/A"
+# "Preferred Contact Phone Number" = "555-0100"
+# "Network Connection" = "VPN"
 
 # Optional: your Obsidian vault, read from its folder (Obsidian need not be
 # running). Off until this table exists. No token and no base_url. Task notes

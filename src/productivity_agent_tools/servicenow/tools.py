@@ -1,6 +1,5 @@
 """MCP tool definitions for ServiceNow: status, the user's incidents, and opening one."""
 
-import dataclasses
 from typing import Annotated
 
 from mcp.server.mcpserver import MCPServer
@@ -9,12 +8,14 @@ from pydantic import Field
 from productivity_agent_tools.payload import JsonObject, text
 from productivity_agent_tools.products import ToolContext
 from productivity_agent_tools.repeats import RepeatGuard
-from productivity_agent_tools.servicenow.client import IncidentDraft, Level, ServiceNow
+from productivity_agent_tools.servicenow.client import ServiceNow
 from productivity_agent_tools.servicenow.models import (
-    Choice,
+    FormQuestion,
     Incident,
+    IncidentForm,
     IncidentSummary,
     IncidentWriteResult,
+    QuestionChoice,
     ServiceNowStatus,
 )
 from productivity_agent_tools.tooling import READ, WRITE, anticipated
@@ -132,75 +133,75 @@ def register_servicenow_tools(
 
     @server.tool(annotations=READ)
     @anticipated
-    async def servicenow_list_incident_categories() -> list[Choice]:
-        """List the categories the helpdesk's incident form offers.
+    async def servicenow_get_incident_form() -> IncidentForm:
+        """Show the helpdesk's incident form: its questions, what is required, the choices.
 
-        servicenow_create_incident needs one; pick the closest to the problem and
-        confirm it with the user.
+        Call this before servicenow_create_incident and answer its questions from
+        what the user has said. A question with a default (set by the user in the
+        config, or by the form) need not be answered. Ask the user for any required
+        answer you do not know; never invent a phone number or a site.
         """
-        rows = await servicenow.incident_categories()
-        return [
-            Choice(value=text(row, "value") or "", label=_blank_to_none(row, "label"))
-            for row in rows
-        ]
+        form = await servicenow.catalog_form(servicenow.settings.incident_form)
+        configured = form.configured(servicenow.settings.incident_defaults)
+        return IncidentForm(
+            name=form.name,
+            description=form.description or None,
+            questions=[
+                FormQuestion(
+                    name=question.name,
+                    label=question.label,
+                    kind=question.kind,
+                    required=question.mandatory,
+                    choices=[
+                        QuestionChoice(value=choice.value, label=choice.label)
+                        for choice in question.choices
+                    ],
+                    default=configured.get(question.name) or question.default or None,
+                    help_text=question.help_text or None,
+                )
+                for question in form.questions
+            ],
+        )
 
     @server.tool(annotations=WRITE)
     @anticipated
-    async def servicenow_create_incident(
-        short_description: str,
-        category: str,
-        description: str | None = None,
-        urgency: Level | None = None,
-        impact: Level | None = None,
-        fields: dict[str, str] | None = None,
-    ) -> IncidentWriteResult:
-        """Open a helpdesk incident (a ticket) with the user as the caller.
+    async def servicenow_create_incident(answers: dict[str, str]) -> IncidentWriteResult:
+        """Open a helpdesk incident (a ticket) by submitting the "Create an incident" form.
 
-        The helpdesk staff see it and act on it: confirm the wording with the
-        user first, and check servicenow_list_incidents for one already open
-        about the same problem. Leave urgency and impact out unless the user
-        says how urgent it is; the instance then uses its defaults.
+        The helpdesk staff see it and act on it: check servicenow_list_incidents
+        for one already open about the same problem, and confirm the answers with
+        the user first. The form is submitted as the portal would, so the user is
+        the caller and the helpdesk's own rules fill the incident from it.
 
-        A category is required, as on the helpdesk's form (the API alone would
-        accept none). servicenow_list_incident_categories lists them; a label or
-        value is accepted in any case, and an unknown one is refused with the list.
+        Answers are checked against the form before anything is sent: every
+        required question must be answered (or have a default), and a choice must
+        be one the form offers, given by its label or value in any case. If not,
+        the error says what is missing or what the choices are, and nothing is sent.
 
         In dry-run mode nothing is sent and the result shows the request that
         would have been made. An identical create within 30 seconds is not sent again.
 
         Args:
-            short_description: One-line title, such as "VPN client fails to connect".
-            category: Category label or value, such as Software or Network.
-            description: What happened, what was tried, and any error text. Plain text.
-            urgency: How soon it needs fixing: high, medium or low.
-            impact: How much it affects: high (many people), medium or low (just the user).
-            fields: Other fields by column name, such as {"u_location": "Building 2"}, for
-                fields the instance requires that have no parameter here.
+            answers: Answers by question name or label, as servicenow_get_incident_form
+                lists them, such as {"Category": "Software", "Please describe your issue
+                below": "..."}. An empty answer clears a default.
         """
-        draft = IncidentDraft.build(
-            short_description,
-            category,
-            description=description,
-            urgency=urgency,
-            impact=impact,
-            fields=fields,
-        )
-        draft = dataclasses.replace(
-            draft, category=await servicenow.incident_category(draft.category)
-        )
+        form = await servicenow.catalog_form(servicenow.settings.incident_form)
+        variables = form.answers(answers, servicenow.settings.incident_defaults)
 
         async def send() -> IncidentWriteResult:
-            outcome = await servicenow.create_incident(draft)
+            outcome = await servicenow.submit_form(form, variables)
             number = text(outcome.response, "result", "number")
             sys_id = text(outcome.response, "result", "sys_id")
-            done = f"Opened incident {number}." if number else "Opened the incident."
+            table = text(outcome.response, "result", "table") or "incident"
+            done = f"Opened incident {number}." if number else "Submitted the incident form."
             return IncidentWriteResult.model_validate(
                 {
                     **report("create_incident", "ServiceNow", outcome, done),
                     "number": number,
                     "sys_id": sys_id,
-                    "url": servicenow.record_url("incident", sys_id) if sys_id else None,
+                    "url": servicenow.record_url(table, sys_id) if sys_id else None,
                 }
             )
 
-        return await once(guard, ("create_incident", draft), send)
+        return await once(guard, ("create_incident", form.sys_id, tuple(variables.items())), send)

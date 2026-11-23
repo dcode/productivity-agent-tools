@@ -3,7 +3,7 @@
 # Smoke test: run every tool once against your real servers with `call`,
 # no agent and no model credits. Nothing here changes Jira, Bitbucket or Confluence:
 # every write tool it runs is forced into dry-run. The Outlook tools are read-only,
-# and the one ServiceNow write (a new incident) is forced into dry-run too.
+# and the one ServiceNow write (submitting the incident form) is forced into dry-run too.
 #
 # Some checks feed on earlier ones (a message id from the inbox list, say) and
 # some assert something about a result rather than only that the call worked;
@@ -47,6 +47,7 @@ fi
 : "${CONFLUENCE_SPACE:=<space-key>}"
 : "${CONFLUENCE_PAGE:=<page-id>}"
 : "${OUTLOOK_SEARCH:=<search-text>}"
+: "${SERVICENOW_ANSWERS:=<incident-answers>}"
 OUT_DIR="$(mktemp -d "${TMPDIR:-/tmp}/productivity-smoke.XXXXXX")"
 PASSED=()
 FAILED=()
@@ -462,16 +463,16 @@ if offers servicenow_status; then
   INCIDENT_NUMBER="$(pick "servicenow incidents" result 0 number)"
   check "servicenow incident" "$INCIDENT_NUMBER" -- \
     servicenow_get_incident "number=$INCIDENT_NUMBER"
-  check "servicenow incident categories" -- servicenow_list_incident_categories
-  CATEGORY_LABEL="$(pick "servicenow incident categories" result 0 label)"
-  # Write tool, forced into dry-run: reads the categories and your user record, sends nothing.
-  # The label is matched back to its value, so this also checks that matching.
-  check "servicenow create incident (dry run)" "$CATEGORY_LABEL" -- \
-    servicenow_create_incident "short_description=smoke test, not sent" \
-    "category=$CATEGORY_LABEL" urgency=low --dry-run
+  check "servicenow incident form" -- servicenow_get_incident_form
+  expect "servicenow incident form has questions" "servicenow incident form" \
+    "the form was found and has required questions" \
+    'any(q["required"] for q in r["questions"])'
+  # Write tool, forced into dry-run: reads the form and checks the answers, sends nothing.
+  check "servicenow create incident (dry run)" "$SERVICENOW_ANSWERS" -- \
+    servicenow_create_incident "answers=$SERVICENOW_ANSWERS" --dry-run
   expect "servicenow create not sent" "servicenow create incident (dry run)" \
-    "dry-run shows the request with you as the caller and a category" \
-    'r["sent"] is False and r["request"]["body"]["caller_id"] and r["request"]["body"]["category"]'
+    "dry-run shows the form submission, every required question answered" \
+    'r["sent"] is False and r["request"]["path"].endswith("/submit_producer")'
 else
   printf '\n== servicenow\n   skipped: no [servicenow] table in the config\n'
   SKIPPED+=("servicenow (not configured)")

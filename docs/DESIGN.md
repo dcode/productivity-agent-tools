@@ -462,16 +462,20 @@ keeps writes behind a dry-run switch that is on by default.
   Bitbucket writes
   are add a pull-request comment (new, reply or task) and set the user's review (approve,
   needs work, or neither). The ServiceNow write is open an incident
-  (`servicenow_create_incident`, 2026-11-23): a Table API `POST` to `incident`, with the
-  caller always the signed-in user (their `sys_id`, read from `sys_user` first, even in
-  dry-run; a `javascript:` value is not evaluated in a field being set). Urgency and
-  impact take the out-of-the-box 1-3 values; site-specific required fields go in
-  `fields` by column name, which refuses `sys_` fields, `caller_id` and anything with its
-  own parameter. A category is required and matched against the form's `sys_choice`
-  rows, because the form requires it and the API does not (a browser-side UI policy);
-  if the choices cannot be read, it is sent as written. Incidents were chosen over
-  ordering from the catalog for the first write because they need no form: an order has
-  to read the item's variables first.
+  (`servicenow_create_incident`, 2026-11-23) **by submitting the helpdesk's "Create an
+  incident" form** (a record producer) through the Service Catalog API
+  (`POST .../items/{id}/submit_producer`), as the portal does. A first version wrote the
+  `incident` table directly; the live check showed the form's required questions (site,
+  network connection, contact phone, a five-level urgency, category) are not incident
+  fields and are enforced only in the browser, so the table write skipped them all, and
+  `sys_choice` returned no rows to the user, so categories could not be checked either.
+  The form's definition (`GET .../items/{id}`) carries its questions, choices and which
+  are required, all readable to the user. `servicenow/forms.py` checks the answers
+  against it before sending (required answered, choices offered, matched by label or
+  value), with defaults from `[servicenow.incident_defaults]`, then the form's own.
+  Conditional rules (a question required only after another's answer) run in the
+  browser and are not known to the API, so they are not checked. Incidents came before
+  catalog orders because the user asked for tickets; an order reuses the same form code.
 - Dry-run is on by default and returns the would-be request. This was chosen over relying on
   the agent's approval prompt alone, or a two-step confirm tool that the agent could call
   itself.
@@ -483,7 +487,7 @@ keeps writes behind a dry-run switch that is on by default.
 - Tools carry MCP read and write annotations so the host's approval mode applies as well.
 - Repeat suppression keys on (issue, comment text), (issue, transition), (issue, duration,
   start, comment), (issue, resolved username), (issue, requested edits), (project, issue type, fields),
-  (issue, relation, other issue), (incident draft), (pull request,
+  (issue, relation, other issue), (form, answers), (pull request,
   parent comment, task flag, comment text) or (pull request, review) with a 30-second window
   (`repeats.py`). Simultaneous repeats share one in-flight result. Each product has its own
   guard.
