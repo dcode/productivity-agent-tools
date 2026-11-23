@@ -3,13 +3,38 @@
 Read this first when coming back to the project. The design and the reasons behind it are in
 [DESIGN.md](DESIGN.md). Update this file in the same commit as the work it describes.
 
-Last updated: 2026-11-19.
+Last updated: 2026-11-23.
 
 ## Where things stand
 
-- **0.10.0, the Obsidian vault, all 6 steps done (branch `claude/zealous-mendel-ny1eml`,
-  2026-11-19, in review as
-  [#19](https://github.com/dcode/productivity-agent-tools/pull/19)). Start here.**
+- **0.11.0, ServiceNow incidents (branch `claude/zealous-mendel-ny1eml`, restarted from
+  `main` after #19 merged, 2026-11-23). Start here.** Asked for on 2026-11-23: "add the
+  ServiceNow support to create tickets". Read as **incidents** (the helpdesk's tickets),
+  not catalog orders; ordering software stays the next ServiceNow step (see "Later").
+  - New tools: `servicenow_create_incident` (write, behind `dry_run`, 30 s repeat guard),
+    plus the two reads it needs so the agent can check for a duplicate first and follow
+    up after: `servicenow_list_incidents` (the user's, as caller or opener; open only by
+    default) and `servicenow_get_incident` (by number, display values, comments).
+  - The caller is always the user: their `sys_id` is read from `sys_user` before the
+    `POST`. `urgency`/`impact` are `high`/`medium`/`low` mapped to the stock 1-3 values;
+    `category` is passed as given; site-required `u_` fields go in `fields` (no `sys_`,
+    no `caller_id`, nothing with its own parameter). The product's agent instructions say
+    to check for an open duplicate and confirm wording with the user first.
+  - Smoke test: lists incidents, reads the first, and runs a dry-run create.
+  - Tests: 853 passing, 99.97% branch coverage; ruff and ty clean.
+  - **Not probed: the instance has never been sent a write.** To check on the laptop,
+    in order: (1) the smoke test (list, get, dry-run create); (2) whether
+    `comments` comes back readable through the record's own field (the probe left
+    this unchecked); (3) one real create with `--no-dry-run` (e.g. `call
+    servicenow_create_incident "short_description=test, please close" urgency=low
+    --no-dry-run`): does the Table API accept a `POST` from the browser session (CSRF
+    token included) or answer 403 (ACL) / 400 (a data policy wanting a `u_` field)?
+    Then open the returned `url`: the classic form, or a redirect to the portal?
+    (4) The open question below on acceptable use still stands: the user asked for this,
+    but confirm the helpdesk is fine with tickets opened through the API.
+- **0.10.0, the Obsidian vault, all 6 steps done; merged to `main` as a6899ac
+  ([#19](https://github.com/dcode/productivity-agent-tools/pull/19), 2026-11-21).
+  To do: tag `v0.10.0` at a6899ac from the laptop.**
   Asked for on 2026-11-19: use these tools from Obsidian to plan the day, keep task notes
   (TaskNotes) for what I am responsible for, keep meeting notes, and never get the same
   task or meeting twice from one day to the next. The design is agreed and recorded in
@@ -207,7 +232,7 @@ Last updated: 2026-11-19.
     when this was set up. Revisit before then.
   - **Merged** as one commit, 39b34d8, which also carries the version bump, so that is
     where `v0.9.0` goes.
-- **Version:** 0.10.0 on the branch (the Obsidian work); 0.9.0 on `main` (above).
+- **Version:** 0.11.0 on the branch (ServiceNow incidents); 0.10.0 on `main`.
   Before that, 0.8.0, on `main` via
   [#17](https://github.com/dcode/productivity-agent-tools/pull/17) (2026-11-19, rebase
   merge, so the branch's commit ids differ from `main`'s). **To do: tag `v0.8.0` at
@@ -293,7 +318,7 @@ Last updated: 2026-11-19.
   spikes and version 0.4.0 (built on `claude/servicenow-credential-seam`).
 - **Also on `main`, in 0.5.0:** the Outlook REST spikes and the Microsoft
   refresh-token lifecycle (`login-microsoft`).
-- **Tests:** 838 passing, about 99.98% branch coverage. All hooks clean.
+- **Tests:** 853 passing, about 99.97% branch coverage. All hooks clean.
 - **In use:** Goose on the work laptop, against Jira 11.3.12, Bitbucket 10.2.8 and Confluence
   10.2.19. No CI
   server (Bamboo or other) reports builds or deployments to this Bitbucket.
@@ -317,7 +342,8 @@ Last updated: 2026-11-19.
   `ServiceNowClient` adapter, `login servicenow` and a `servicenow_status` tool.
   **Confirmed on the work laptop (2026-11-14):** `login servicenow`, the Keychain round
   trip, `doctor` and `servicenow_status` all work against the real instance.
-  **Next action: step 3 under "Later": the read-only tools.** The slower session checks
+  **Next action: the laptop checks for incidents (see the top of this list), then the
+  catalog reads under "Later", step 3.** The slower session checks
   (idle expiry, API-only lifetime) are still open under "Confirm against the real servers".
 
 ## Done
@@ -466,6 +492,11 @@ chance comes up and tick it here.
         past the idle limit even though rotated cookies are dropped, with no absolute
         cap hit in that window. Still to record: the loop's start time (the "saved" time
         in `servicenow_status`) and interval, to state the lifetime as a number.
+  - [ ] The smoke test's incident checks: list, get, and the dry-run create show you
+        as the caller
+  - [ ] One real `servicenow_create_incident`: accepted (or which error), the number
+        and link it returns, and `servicenow_get_incident` on it; close it afterwards
+  - [ ] `servicenow_get_incident` on an incident with comments: are they readable?
   - [ ] With a top-level `[cookies]` table, add an empty `[servicenow.cookies]` so those
         cookies are not sent to the helpdesk
 - [x] `login microsoft` (browser sign-in) on the work laptop. **Worked first time
@@ -791,8 +822,8 @@ Rough order. Each item is one pull request. API references: the Jira 11.0.2 and 
 - **ServiceNow (helpdesk requests):** request software for the laptop and keep track of
   the requests. Sign-in is SAML through a federation host that asks for a smart-card
   certificate, so there is no token to store: basic auth has no password to use, and OAuth
-  needs a client that an instance admin registers. **Status: probe passed, design not
-  started.**
+  needs a client that an instance admin registers. **Status: sign-in, status and
+  incidents (list, read, create) built; catalog requests next.**
 
   Confirmed by `scripts/servicenow_probe.py` on the real instance (2026-11-14):
   - **The browser session works from a plain client, but only with the CSRF token.** The
@@ -876,10 +907,13 @@ Rough order. Each item is one pull request. API references: the Jira 11.0.2 and 
 
      Not done, on purpose: no `logout` verb yet (the Keychain entry can be deleted by
      hand), and `login` is POSIX-only.
-  3. **`servicenow` product, read-only** (next): my requests and items with stage and approval, one
-     item in detail with comments, my incidents, catalog search, an item's form.
-  4. **Writes behind `dry_run`:** order an item (`order_now` with the form's variables), add
-     a comment. Not probed: the probe sent no writes.
+  3. **`servicenow` product, reads and writes.** **Incidents done (2026-11-23, 0.11.0):**
+     `servicenow_list_incidents`, `servicenow_get_incident`, `servicenow_create_incident`
+     (see "Where things stand"). Still to build, next: my requests and items with stage
+     and approval, one item in detail with comments, catalog search, an item's form.
+  4. **More writes behind `dry_run`:** order an item (`order_now` with the form's
+     variables), add a comment to an incident or item. Not probed beyond what the
+     incident create checks will show.
 
   Open questions:
   - How long a session lasts in practice (see "Confirm against the real servers").

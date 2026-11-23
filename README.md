@@ -10,7 +10,7 @@ its own table in the config:
 | Jira (Data Center) | reads, plus comments, transitions, worklogs, edits, new issues, links | personal access token |
 | Bitbucket (Data Center) | reads, plus branches, pull-request comments and reviews | personal access token |
 | Confluence (Data Center) | reads and search, plus creating and editing pages | personal access token |
-| ServiceNow | status | browser sign-in (`login servicenow`) |
+| ServiceNow | status and your incidents, plus opening one | browser sign-in (`login servicenow`) |
 | Outlook mail and calendar | reads only | browser sign-in (`login microsoft`) |
 | Obsidian vault (task notes, daily and meeting notes) | reads, plus task notes and sections of notes | none: a folder on this machine |
 

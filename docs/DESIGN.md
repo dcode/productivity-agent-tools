@@ -448,7 +448,14 @@ keeps writes behind a dry-run switch that is on by default.
   resolution), log work, assign, edit issue, create issue and link issues.
   Bitbucket writes
   are add a pull-request comment (new, reply or task) and set the user's review (approve,
-  needs work, or neither).
+  needs work, or neither). The ServiceNow write is open an incident
+  (`servicenow_create_incident`, 2026-11-23): a Table API `POST` to `incident`, with the
+  caller always the signed-in user (their `sys_id`, read from `sys_user` first, even in
+  dry-run; a `javascript:` value is not evaluated in a field being set). Urgency and
+  impact take the out-of-the-box 1-3 values; site-specific required fields go in
+  `fields` by column name, which refuses `sys_` fields, `caller_id` and anything with its
+  own parameter. Incidents were chosen over ordering from the catalog for the first write
+  because they need no form: an order has to read the item's variables first.
 - Dry-run is on by default and returns the would-be request. This was chosen over relying on
   the agent's approval prompt alone, or a two-step confirm tool that the agent could call
   itself.
@@ -460,7 +467,7 @@ keeps writes behind a dry-run switch that is on by default.
 - Tools carry MCP read and write annotations so the host's approval mode applies as well.
 - Repeat suppression keys on (issue, comment text), (issue, transition), (issue, duration,
   start, comment), (issue, resolved username), (issue, requested edits), (project, issue type, fields),
-  (issue, relation, other issue), (pull request,
+  (issue, relation, other issue), (incident draft), (pull request,
   parent comment, task flag, comment text) or (pull request, review) with a 30-second window
   (`repeats.py`). Simultaneous repeats share one in-flight result. Each product has its own
   guard.

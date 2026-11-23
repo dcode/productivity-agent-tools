@@ -1,8 +1,8 @@
 # ServiceNow
 
-A ServiceNow helpdesk behind single sign-on. For now the product offers its
-status tool, which proves the sign-in works; reads of requests and the service
-catalog are next on the roadmap.
+A ServiceNow helpdesk behind single sign-on. The agent can list and read your
+incidents (helpdesk tickets) and open a new one for you. Software requests
+through the service catalog are next on the roadmap.
 
 ## Setup
 
@@ -36,6 +36,36 @@ to check it, and restart your agent to load the tools.
 | Tool | Kind | What it does |
 |---|---|---|
 | `servicenow_status` | read | Who is signed in, when they signed in, dry-run |
+| `servicenow_list_incidents` | read | Your incidents (you are the caller or opened them), open ones by default, newest first |
+| `servicenow_get_incident` | read | One incident by number: state, who has it, comments, resolution |
+| `servicenow_create_incident` | write | Open an incident with you as the caller |
+
+### Opening an incident
+
+`servicenow_create_incident` takes a one-line `short_description` and,
+optionally, a `description`, `urgency` and `impact` (`high`, `medium` or `low`,
+the instance's standard 1-3 values; priority follows from the two), and a
+`category` (your instance's value, such as `software`). The caller is always
+you: the tool reads your own user record first, even in dry-run, to fill it.
+
+If your instance requires a field with no parameter (a site-specific `u_`
+field, say), pass it in `fields`, by column name:
+
+```bash
+uv run productivity-agent-tools call servicenow_create_incident \
+  "short_description=VPN client fails to connect" urgency=medium \
+  'fields={"u_location": "Building 2"}' --dry-run
+```
+
+`fields` may not set `sys_` fields, the caller, or anything that has its own
+parameter. Like every write, nothing is sent while `dry_run` is on (the result
+shows the request that would be sent), and an identical create within 30
+seconds is not sent twice. The agent is told to check your open incidents for
+the same problem and confirm the wording with you first.
+
+The result has the new number and a link to its form
+(`<base_url>/incident.do?sys_id=...`); if your instance sends you to a portal
+instead, the number is what to search for.
 
 ## How the sign-in works
 

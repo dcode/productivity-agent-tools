@@ -2,8 +2,8 @@
 #
 # Smoke test: run every tool once against your real servers with `call`,
 # no agent and no model credits. Nothing here changes Jira, Bitbucket or Confluence:
-# every write tool it runs is forced into dry-run. The Outlook and ServiceNow tools
-# are read-only.
+# every write tool it runs is forced into dry-run. The Outlook tools are read-only,
+# and the one ServiceNow write (a new incident) is forced into dry-run too.
 #
 # Some checks feed on earlier ones (a message id from the inbox list, say) and
 # some assert something about a result rather than only that the call worked;
@@ -458,6 +458,16 @@ if offers servicenow_status; then
   check "servicenow status" -- servicenow_status
   expect "servicenow status is live" "servicenow status" "session_source says when you signed in" \
     '"signed in at" in r["session_source"]'
+  check "servicenow incidents" -- servicenow_list_incidents include_closed=true max_results=5
+  INCIDENT_NUMBER="$(pick "servicenow incidents" result 0 number)"
+  check "servicenow incident" "$INCIDENT_NUMBER" -- \
+    servicenow_get_incident "number=$INCIDENT_NUMBER"
+  # Write tool, forced into dry-run: reads your user record for the caller, sends nothing.
+  check "servicenow create incident (dry run)" -- \
+    servicenow_create_incident "short_description=smoke test, not sent" urgency=low --dry-run
+  expect "servicenow create not sent" "servicenow create incident (dry run)" \
+    "dry-run shows the request with you as the caller" \
+    'r["sent"] is False and r["request"]["body"]["caller_id"]'
 else
   printf '\n== servicenow\n   skipped: no [servicenow] table in the config\n'
   SKIPPED+=("servicenow (not configured)")

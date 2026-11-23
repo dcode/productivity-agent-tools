@@ -5,7 +5,7 @@
 | [Jira](jira.md) | `[jira]` | `jira_` | comments, transitions, worklogs, assignment, edits, new issues, links |
 | [Bitbucket](bitbucket.md) | `[bitbucket]` | `bitbucket_` | branches, pull-request comments, reviews |
 | [Confluence](confluence.md) | `[confluence]` | `confluence_` | creating and editing pages |
-| [ServiceNow](servicenow.md) | `[servicenow]` | `servicenow_` | none |
+| [ServiceNow](servicenow.md) | `[servicenow]` | `servicenow_` | new incidents |
 | [Outlook mail and calendar](outlook.md) | `[outlook_mail]`, `[outlook_calendar]` | `outlook_mail_`, `outlook_calendar_` | none |
 | [Obsidian](obsidian.md) | `[obsidian]` | `obsidian_` | task notes, scheduling, sections of daily and other notes |
 
