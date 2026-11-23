@@ -33,6 +33,7 @@ from productivity_agent_tools.errors import (
 from productivity_agent_tools.products import installed_products
 from productivity_agent_tools.server import Connected, build_server
 from productivity_agent_tools.servicenow.client import ServiceNow
+from productivity_agent_tools.servicenow.forms import parse_form
 from productivity_agent_tools.servicenow.http import ServiceNowClient
 from productivity_agent_tools.servicenow.login import sign_in
 from productivity_agent_tools.servicenow.product import PRODUCT, doctor
@@ -986,3 +987,38 @@ def test_incident_form_settings() -> None:
     )
     assert custom.incident_form == "Report a problem"
     assert custom.incident_defaults == {"Site": "N/A"}
+
+
+@pytest.mark.parametrize(
+    ("key", "name"),
+    [
+        ("network_connection", "network_connection"),
+        ("networkConnection", "network_connection"),
+        ("NetworkConnection", "network_connection"),
+        ("preferred_contact_phone_number", "contact_phone"),
+        ("whats_the_impact", "impact"),
+        ("WHAT'S THE IMPACT", "impact"),
+        ("please_describe_your_issue_below", "description"),
+        ("U_SITE", "u_site"),
+    ],
+)
+def test_a_question_can_be_named_as_an_identifier(key: str, name: str) -> None:
+    assert parse_form(FORM).question(key).name == name
+
+
+@pytest.mark.parametrize("key", ["___", "network"])
+def test_an_identifier_must_match_a_whole_label(key: str) -> None:
+    with pytest.raises(AgentToolsError, match="is not a question"):
+        parse_form(FORM).question(key)
+
+
+def test_defaults_in_the_config_need_no_quoted_keys() -> None:
+    settings = parse_servicenow_settings(
+        {"incident_defaults": {"site": "N/A", "network_connection": "VPN"}}
+    )
+    variables = parse_form(FORM).answers(
+        {k: v for k, v in ANSWERS.items() if k not in ("Site", "Network Connection")},
+        settings.incident_defaults,
+    )
+    assert variables["u_site"] == "na"
+    assert variables["network_connection"] == "vpn"

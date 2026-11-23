@@ -21,7 +21,8 @@ Last updated: 2026-11-23.
     definition first (`servicenow/forms.py`): every required question answered, every
     choice one the form offers (label or value, any case), unknown questions refused,
     nothing sent on a refusal. Defaults come from `[servicenow.incident_defaults]` (by
-    name or label), then the form's own. `[servicenow] incident_form` names the form
+    name, label, or label as snake_case/camelCase, so the config needs no quoted keys;
+    asked for 2026-11-23), then the form's own. `[servicenow] incident_form` names the form
     (default "Create an incident", or a `sys_id`). DESIGN.md, Write safety, has why.
   - **How it got here, all on 2026-11-23:**
     1. The first version wrote the `incident` table directly. A real create
@@ -357,7 +358,7 @@ Last updated: 2026-11-23.
   spikes and version 0.4.0 (built on `claude/servicenow-credential-seam`).
 - **Also on `main`, in 0.5.0:** the Outlook REST spikes and the Microsoft
   refresh-token lifecycle (`login-microsoft`).
-- **Tests:** 871 passing, about 99.97% branch coverage. All hooks clean.
+- **Tests:** 882 passing, about 99.97% branch coverage. All hooks clean.
 - **In use:** Goose on the work laptop, against Jira 11.3.12, Bitbucket 10.2.8 and Confluence
   10.2.19. No CI
   server (Bamboo or other) reports builds or deployments to this Bitbucket.
