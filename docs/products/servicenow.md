@@ -80,6 +80,24 @@ matched by its label or value in any case and sent as its value; an unknown
 question or choice is refused with the list; and a required question left
 unanswered is refused, naming all that are. An empty answer clears a default.
 
+#### Rules that change the form
+
+A form can show, hide and require questions as answers change: on the
+instance this was built against, Subcategory appears (and is required) only when
+Category is Hardware, and Hostname and Network only for a Hardware desktop or
+laptop. These rules (the form's UI policies) come with the form, and the tool
+applies them to the answers the way the portal does:
+
+- a question the answers bring up must be answered if the rule requires it;
+- an answer to a question the answers hide is refused, naming the rule;
+- a configured default for a hidden question is left out, so a default such as
+  `u_network` costs nothing on a ticket that does not ask for it.
+
+`servicenow_get_incident_form` lists the rules in words under `rules`, and shows
+each question's `shown` and `required` for the configured defaults alone. A rule
+using a condition the tool does not understand is listed as not checked, and not
+applied.
+
 A question answered by picking a record, such as a site, shows the table it is
 picked from as `lookup_table`. Its answer is the picked record's `sys_id`. A name
 given instead is looked up in that table the way the portal's picker searches it

@@ -10,12 +10,14 @@ sent: every required question answered, every choice one the form offers.
 """
 
 import re
+from collections.abc import Mapping
 from dataclasses import dataclass, field
 
 from pydantic import JsonValue
 
 from productivity_agent_tools.errors import AgentToolsError
 from productivity_agent_tools.payload import JsonObject, objects, text, value
+from productivity_agent_tools.servicenow.rules import Rule, State, evaluate, parse_rules
 
 _SYS_ID = re.compile(r"^[0-9a-f]{32}$")
 # Catalog variable types answered by picking a record from a table.
@@ -83,6 +85,7 @@ class Question:
         lookup_field: The column the portal's picker searches by name (``u_name`` for the
             work instance's sites); ``name`` when the form does not say.
         lookup_filter: The picker's fixed filter (an encoded query), if any.
+        visible: Shown on the form before any of its rules apply.
     """
 
     name: str
@@ -95,6 +98,7 @@ class Question:
     lookup_table: str = ""
     lookup_field: str = "name"
     lookup_filter: str = ""
+    visible: bool = True
 
     def choose(self, answer: str) -> str:
         """Turn an answer into the value to send, matching a choice by value or label.
@@ -139,6 +143,8 @@ class CatalogForm:
         description: The item's short description.
         questions: The questions that take an answer, in the form's order.
         source: Where the form was read: ``"portal page"`` or ``"catalog API"``.
+        rules: The form's UI policies, which show, hide, require and free questions
+            as answers change (read from the portal page only).
     """
 
     sys_id: str
@@ -146,6 +152,32 @@ class CatalogForm:
     description: str = ""
     questions: tuple[Question, ...] = field(default=())
     source: str = "catalog API"
+    rules: tuple[Rule, ...] = ()
+
+    def states(self, values: Mapping[str, str]) -> dict[str, State]:
+        """Work out which questions are shown and required, given these answers.
+
+        Args:
+            values: The stored value of every answered question, by name.
+
+        Returns:
+            Each question's state, after the form's rules.
+        """
+        base = {q.name: State(visible=q.visible, mandatory=q.mandatory) for q in self.questions}
+        return evaluate(self.rules, base, values)
+
+    def values(self, chosen: Mapping[str, str]) -> dict[str, str]:
+        """Each question's value: the one chosen, else the form's own default.
+
+        Args:
+            chosen: Values by question name, from the agent and the config.
+
+        Returns:
+            The values of the questions that have one, by name, in the form's order.
+        """
+        return {
+            q.name: answer for q in self.questions if (answer := chosen.get(q.name) or q.default)
+        }
 
     def find(self, key: str) -> Question | None:
         """Find a question as ``question`` does, or None when there is none.
@@ -212,15 +244,29 @@ class CatalogForm:
             AgentToolsError: If an answer names no question, a choice is not offered,
                 or a required question is left unanswered.
         """
-        chosen = self._chosen(given, self.configured(defaults or {}))
-        variables: dict[str, str] = {}
-        missing: list[str] = []
-        for question in self.questions:
-            answer = chosen.get(question.name) or question.default
-            if answer:
-                variables[question.name] = answer
-            elif question.mandatory:
-                missing.append(f"{question.name} ({question.label})")
+        values = self.values(self._chosen(given, self.configured(defaults or {})))
+        states = self.states(values)
+        answered = {self.question(key).name for key, answer in given.items() if answer.strip()}
+        hidden = [q for q in self.questions if q.name in answered and not states[q.name].visible]
+        if hidden:
+            names = {q.name for q in hidden}
+            why = "; ".join(
+                rule.describe() for rule in self.rules if any(e.name in names for e in rule.effects)
+            )
+            labels = ", ".join(f"{q.name} ({q.label})" for q in hidden)
+            raise AgentToolsError(
+                f"With these answers '{self.name}' does not show {labels}, so leave "
+                f"{'it' if len(hidden) == 1 else 'them'} out."
+                + (f" The form's rules: {why}." if why else "")
+                + " Nothing was sent."
+            )
+        # A default for a question these answers hide is left out, as the portal would.
+        variables = {name: answer for name, answer in values.items() if states[name].visible}
+        missing = [
+            f"{q.name} ({q.label})"
+            for q in self.questions
+            if states[q.name].visible and states[q.name].mandatory and q.name not in variables
+        ]
         if missing:
             raise AgentToolsError(
                 f"'{self.name}' requires answers to: {'; '.join(missing)}. "
@@ -383,7 +429,7 @@ def _portal_question(field: JsonObject) -> Question | None:
     """
     name = text(field, "name")
     kind = _kind(field)
-    if not name or kind in LAYOUT_KINDS or value(field, "visible") is False:
+    if not name or kind in LAYOUT_KINDS:
         return None
     return Question(
         name=name,
@@ -398,6 +444,7 @@ def _portal_question(field: JsonObject) -> Question | None:
         )
         if kind in LOOKUP_KINDS
         else "",
+        visible=value(field, "visible") is not False,
         lookup_field=text(field, "ed", "searchField") or "name",
         lookup_filter=_static_filter(text(field, "ed", "qualifier") or ""),
     )
@@ -471,9 +518,11 @@ def parse_portal_form(page: JsonValue) -> CatalogForm | None:
     # _fields is keyed by name in no set order; the form's layout gives the order.
     order = {name: place for place, name in enumerate(_laid_out(value(item, "_sections")))}
     questions.sort(key=lambda question: order.get(question.name, len(order)))
+    rules = parse_rules(value(item, "policy"), frozenset(q.name for q in questions))
     return CatalogForm(
         sys_id=text(item, "sys_id") or "",
         name=text(item, "name") or "",
         description=text(item, "short_description") or "",
         questions=tuple(questions),
+        rules=rules,
     )

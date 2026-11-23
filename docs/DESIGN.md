@@ -488,8 +488,14 @@ keeps writes behind a dry-run switch that is on by default.
   otherwise it is refused. The portal's own picker uses an undocumented `angular.do`
   call (`sp_ref_list_data`), which this does not copy. An item name shared by several
   items (the stock form beside the instance's own) is refused with their `sys_id`s.
-  Conditional rules (a question required only after another's answer) run in the
-  browser and are not known to the API, so they are not checked. Incidents came before
+  Conditional rules (a question shown or required only after another's answer) are the
+  form's UI policies, sent with the form in `sc_cat_item.policy` as data (conditions
+  and actions, not scripts); `servicenow/rules.py` evaluates them against the final
+  answers as the portal does (encoded-query AND/OR/new-group, later policies win,
+  "reverse if false"). Answers to hidden questions are refused; defaults for them are
+  dropped. A policy with an operator it does not know is listed, not applied.
+  Catalog client scripts are not run: the work form's one script fills Site from the
+  caller on change, which the defaults cover. Incidents came before
   catalog orders because the user asked for tickets; an order reuses the same form code.
 - Dry-run is on by default and returns the would-be request. This was chosen over relying on
   the agent's approval prompt alone, or a two-step confirm tool that the agent could call
