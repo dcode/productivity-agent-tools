@@ -26,12 +26,15 @@ class ServiceNowSettings(ProductSettings):
             incident"): its exact name or its ``sys_id``.
         incident_defaults: Answers to that form's questions used when the agent gives
             none, by question name or label, from ``[servicenow.incident_defaults]``.
+        portal_id: The ``sys_id`` of the service portal whose page the form is read
+            from; None lets the instance use its default portal.
     """
 
     browser: str | None = None
     login_timeout_seconds: float = 300.0
     incident_form: str = DEFAULT_INCIDENT_FORM
     incident_defaults: dict[str, str] = field(default_factory=dict)
+    portal_id: str | None = None
 
 
 def parse_servicenow_settings(raw: dict[str, Any]) -> ServiceNowSettings:
@@ -60,5 +63,6 @@ def parse_servicenow_settings(raw: dict[str, Any]) -> ServiceNowSettings:
         login_timeout_seconds=login_timeout(raw, "servicenow", default),
         incident_form=(as_str(raw, "incident_form", None) or "").strip() or DEFAULT_INCIDENT_FORM,
         incident_defaults={str(key): answer for key, answer in defaults.items()},
+        portal_id=(as_str(raw, "portal_id", None) or "").strip() or None,
         **product_overrides(raw, "servicenow"),
     )

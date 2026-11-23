@@ -34,6 +34,11 @@ LAYOUT_KINDS: frozenset[str] = frozenset(
         "macro_with_label",
         "ui_page",
         "rich_text_label",
+        # As the portal names them: a formatter, a group of checkboxes' frame, an
+        # attachment drop (which the API cannot fill).
+        "formatter",
+        "checkbox_container",
+        "sc_attachment",
         "11",
         "12",
         "14",
@@ -102,9 +107,9 @@ class Question:
         if self.lookup_table and not _SYS_ID.match(written):
             raise AgentToolsError(
                 f"'{self.label}' is picked from a table ({self.lookup_table}), so its answer "
-                f"is the chosen record's sys_id (32 hex characters), not '{written}'. To find "
-                "it, read an incident of yours that has it set with servicenow_get_incident "
-                f"and extra_fields=['{self.name}'], and use the value shown beside the name."
+                f"is the chosen record's sys_id (32 hex characters). No single record named "
+                f"'{written}' was found there (or the table cannot be read), so ask the user "
+                "for the sys_id."
             )
         if not self.choices:
             return written
@@ -127,12 +132,28 @@ class CatalogForm:
         name: The item's name, such as "Create an incident".
         description: The item's short description.
         questions: The questions that take an answer, in the form's order.
+        source: Where the form was read: ``"portal page"`` or ``"catalog API"``.
     """
 
     sys_id: str
     name: str
     description: str = ""
     questions: tuple[Question, ...] = field(default=())
+    source: str = "catalog API"
+
+    def find(self, key: str) -> Question | None:
+        """Find a question as ``question`` does, or None when there is none.
+
+        Args:
+            key: A variable name, a label, or a label as an identifier.
+
+        Returns:
+            The question, or None.
+        """
+        try:
+            return self.question(key)
+        except AgentToolsError:
+            return None
 
     def question(self, key: str) -> Question:
         """Find a question by its name, or by its label in any case or written as an identifier.
@@ -253,6 +274,11 @@ def _plain(label: str) -> str:
     return label.strip().rstrip(":?*").strip().casefold()
 
 
+def is_sys_id(candidate: str) -> bool:
+    """Tell whether a string is a record's ``sys_id`` (32 lowercase hex characters)."""
+    return bool(_SYS_ID.match(candidate))
+
+
 def _flag(raw: JsonValue) -> bool:
     """Read a flag the API may send as a boolean or as the string ``"true"``."""
     return raw is True or (isinstance(raw, str) and raw.strip().casefold() == "true")
@@ -311,6 +337,80 @@ def parse_form(item: JsonObject) -> CatalogForm:
                 else "",
             )
         )
+    return CatalogForm(
+        sys_id=text(item, "sys_id") or "",
+        name=text(item, "name") or "",
+        description=text(item, "short_description") or "",
+        questions=tuple(questions),
+    )
+
+
+def _portal_question(field: JsonObject) -> Question | None:
+    """Read one question from the portal's form model, or None for layout or hidden ones.
+
+    Args:
+        field: One entry of the portal's ``sc_cat_item._fields``.
+
+    Returns:
+        The question, or None.
+    """
+    name = text(field, "name")
+    kind = _kind(field)
+    if not name or kind in LAYOUT_KINDS or value(field, "visible") is False:
+        return None
+    return Question(
+        name=name,
+        label=text(field, "label") or name,
+        kind=kind,
+        mandatory=_flag(value(field, "mandatory")),
+        choices=_choices(field),
+        default=_string(value(field, "value")),
+        help_text=text(field, "help_text") or text(field, "instructions") or "",
+        lookup_table=(
+            text(field, "ed", "reference") or text(field, "refTable") or "an unnamed table"
+        )
+        if kind in LOOKUP_KINDS
+        else "",
+    )
+
+
+def _find_catalog_item(source: JsonValue) -> JsonObject | None:
+    """Find the form model (an object with ``_fields``) anywhere in a portal page answer."""
+    if isinstance(source, dict):
+        item = source.get("sc_cat_item")
+        if isinstance(item, dict) and isinstance(item.get("_fields"), dict | list):
+            return item
+        children = list(source.values())
+    elif isinstance(source, list):
+        children = source
+    else:
+        return None
+    for child in children:
+        if (found := _find_catalog_item(child)) is not None:
+            return found
+    return None
+
+
+def parse_portal_form(page: JsonValue) -> CatalogForm | None:
+    """Read a catalog item's form from the portal's page answer, as the portal shows it.
+
+    The Service Catalog API can leave out questions the portal shows (seen on the
+    work instance: only one of eleven came back), so the form is read the way the
+    portal reads it: from ``GET /api/now/sp/page?id=sc_cat_item&sys_id=...``, whose
+    catalog-item widget carries the whole form model.
+
+    Args:
+        page: The decoded page answer.
+
+    Returns:
+        The form, or None when the page holds no catalog item.
+    """
+    item = _find_catalog_item(page)
+    if item is None:
+        return None
+    raw = item["_fields"]
+    fields = objects(list(raw.values()) if isinstance(raw, dict) else raw)
+    questions = [q for field in fields if (q := _portal_question(field)) is not None]
     return CatalogForm(
         sys_id=text(item, "sys_id") or "",
         name=text(item, "name") or "",

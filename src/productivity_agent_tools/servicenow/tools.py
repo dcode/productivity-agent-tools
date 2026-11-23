@@ -180,12 +180,15 @@ def register_servicenow_tools(
         what the user has said. A question with a default (set by the user in the
         config, or by the form) need not be answered. Ask the user for any required
         answer you do not know; never invent a phone number or a site. A question
-        with a lookup_table takes a record's sys_id, not its name.
+        with a lookup_table takes a record's sys_id; a name is looked up in that
+        table, and used if exactly one record has it.
         """
         form = await servicenow.catalog_form(servicenow.settings.incident_form)
-        configured = form.configured(servicenow.settings.incident_defaults)
+        defaults = await servicenow.with_lookups(form, servicenow.settings.incident_defaults)
+        configured = form.configured(defaults)
         return IncidentForm(
             name=form.name,
+            source=form.source,
             description=form.description or None,
             questions=[
                 FormQuestion(
@@ -229,7 +232,10 @@ def register_servicenow_tools(
                 below": "..."}. An empty answer clears a default.
         """
         form = await servicenow.catalog_form(servicenow.settings.incident_form)
-        variables = form.answers(answers, servicenow.settings.incident_defaults)
+        variables = form.answers(
+            await servicenow.with_lookups(form, answers),
+            await servicenow.with_lookups(form, servicenow.settings.incident_defaults),
+        )
 
         async def send() -> IncidentWriteResult:
             outcome = await servicenow.submit_form(form, variables)

@@ -95,7 +95,7 @@ class FormQuestion(BaseModel):
     lookup_table: str | None = Field(
         default=None,
         description="For a question answered by picking a record (such as a site): the table "
-        "it is picked from. Its answer is that record's sys_id, not its name.",
+        "it is picked from. Its answer is that record's sys_id; a name is looked up there.",
     )
 
 
@@ -103,5 +103,9 @@ class IncidentForm(BaseModel):
     """The helpdesk's form for opening an incident."""
 
     name: str = Field(description="The form's name in the catalog.")
+    source: str = Field(
+        description="Where the form was read: the portal's page (as the portal shows it) "
+        "or the catalog API (which can leave questions out)."
+    )
     description: str | None = Field(default=None, description="The form's description.")
     questions: list[FormQuestion] = Field(description="The questions, in the form's order.")

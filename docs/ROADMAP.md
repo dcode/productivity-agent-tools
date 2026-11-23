@@ -60,16 +60,31 @@ Last updated: 2026-11-23.
     (a name is refused, saying how to find one); `servicenow_get_incident` takes
     `extra_fields` and returns each with its stored value and display text, which is
     how to find the "N/A" site's sys_id.
+  - **Checked live (2026-11-23):** with `incident_form` set to the portal form's
+    sys_id, the catalog API **still returned only `comments`**, so it does not serve
+    this form's other questions. `extra_fields=["u_site"]` on an incident came back
+    null in both forms: `u_site` is not a readable incident field (it is a form
+    variable). The saved page's scripts show how the portal works: it reads the form
+    with `GET /api/now/sp/page?id=sc_cat_item&sys_id=...&portal_id=...` (model in
+    `sc_cat_item._fields`: `name`, `label`, `type`, `mandatory`, `choices`,
+    `ed.reference`) and submits with `POST /api/sn_sc/v1/servicecatalog/items/{id}/
+    submit_producer` `{"variables": ...}`, which is what the tool already sends.
+    **Changed the same day:** the form is read from the portal page first (catalog API
+    as the fallback; the result's `source` says which), `[servicenow] portal_id` is
+    new, and a lookup answer given by name is looked up in its table (`name=`), used
+    when exactly one record matches. The work portal's sys_id, from the saved page's
+    style-sheet address, is `733f07dfaf2203508b18f269a02749dc`.
   - **To check on the laptop, in order:**
-    1. Set `incident_form = "10f198405863e700eb7b1e2c93eae7ca"` and run `call
-       servicenow_get_incident_form`. **The open question:** does the Service Catalog
-       API return this form's questions as the portal shows them (names above, the
-       right ones required, choices filled, `u_site` with a `lookup_table`)? If it
-       again returns only `comments`, the API is not serving this form's questions and
-       the next step is reading them the way the portal does (its page API).
-    2. `call servicenow_get_incident number=<one with Site N/A> 'extra_fields=["u_site"]'`
-       for the site's sys_id; put it, the phone and the network connection in
-       `[servicenow.incident_defaults]`.
+    1. Set `incident_form = "10f198405863e700eb7b1e2c93eae7ca"` and
+       `portal_id = "733f07dfaf2203508b18f269a02749dc"`, then `call
+       servicenow_get_incident_form`: `source` should be "portal page" and the
+       questions those listed above. If `source` is still "catalog API", the page
+       answer did not hold the form where expected; save it with `--log-level debug`
+       or a browser's network tab and look for `_fields`.
+    2. `u_site = "N/A"` in `[servicenow.incident_defaults]`: the form tool's `default`
+       for `u_site` shows a sys_id if the site table could be read by name. If it
+       refuses, the table is not readable to the user, and the sys_id must come from
+       the portal (the picker's network request).
     3. The smoke test with `SERVICENOW_ANSWERS` filled in.
     4. One real create with `--no-dry-run`, checked in the portal, then cancelled.
     5. Whether a question becomes required after another is answered (subcategory
@@ -375,7 +390,7 @@ Last updated: 2026-11-23.
   spikes and version 0.4.0 (built on `claude/servicenow-credential-seam`).
 - **Also on `main`, in 0.5.0:** the Outlook REST spikes and the Microsoft
   refresh-token lifecycle (`login-microsoft`).
-- **Tests:** 887 passing, about 99.97% branch coverage. All hooks clean.
+- **Tests:** 902 passing, about 99.97% branch coverage. All hooks clean.
 - **In use:** Goose on the work laptop, against Jira 11.3.12, Bitbucket 10.2.8 and Confluence
   10.2.19. No CI
   server (Bamboo or other) reports builds or deployments to this Bitbucket.

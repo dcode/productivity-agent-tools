@@ -31,6 +31,7 @@ to check it, and restart your agent to load the tools.
 | `browser` | Chrome, then Edge | Browser `login servicenow` starts: a path or a command name |
 | `login_timeout_seconds` | `300` | How long `login servicenow` waits for you to finish |
 | `incident_form` | `"Create an incident"` | The catalog form that opens an incident: its exact name or `sys_id` (see below) |
+| `portal_id` | the default portal | The `sys_id` of the service portal the form is read from |
 | `[servicenow.incident_defaults]` | none | Answers to that form's questions used when the agent gives none |
 
 ## Tools
@@ -54,7 +55,11 @@ the form checks them in the browser, not the API.
 
 The agent reads the form first with `servicenow_get_incident_form`: each
 question's name and label, whether it is required, its choices and help text,
-and the default it will get. Then `servicenow_create_incident` takes the answers.
+and the default it will get. The form is read the way the portal reads it, from
+the portal's page for the item (`/api/now/sp/page`), because the Service Catalog
+API can leave questions out: on the instance this was built against it returned
+one of eleven. If the page has no form, the catalog API is used; the result's
+`source` says which. Then `servicenow_create_incident` takes the answers.
 A key can be the question's name (`u_preferred_contact_phone_number`), its label
 as shown ("Network Connection", any case), or that label as an identifier in
 snake_case or camelCase (`network_connection`, `networkConnection`):
@@ -71,17 +76,12 @@ question or choice is refused with the list; and a required question left
 unanswered is refused, naming all that are. An empty answer clears a default.
 
 A question answered by picking a record, such as a site, shows the table it is
-picked from as `lookup_table`. Its answer is the picked record's `sys_id`, not its
-name, and the tool refuses a name rather than send it. To find the `sys_id`, read
-one of your incidents that has the field set:
+picked from as `lookup_table`. Its answer is the picked record's `sys_id`. A name
+given instead is looked up in that table (`name=...`) and used if exactly one
+record has it; otherwise the tool refuses rather than send the name.
 
-```bash
-uv run productivity-agent-tools call servicenow_get_incident \
-  number=INC0012345 'extra_fields=["u_site"]'
-```
-
-`extra_fields` returns each field's stored `value` (the `sys_id`) beside its
-`display` text.
+`servicenow_get_incident` also takes `extra_fields`, which returns any other
+incident field's stored `value` beside its `display` text.
 
 Answers that rarely change go in the config, so the agent does not ask each
 time. A question takes the agent's answer, else this default, else the form's
@@ -89,7 +89,7 @@ own:
 
 ```toml
 [servicenow.incident_defaults]
-u_site = "<sys_id from extra_fields>"
+u_site = "N/A"
 u_preferred_contact_phone_number = "555-0100"
 u_network_connection = "VPN"
 ```
