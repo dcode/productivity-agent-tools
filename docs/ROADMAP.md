@@ -74,21 +74,36 @@ Last updated: 2026-11-23.
     new, and a lookup answer given by name is looked up in its table (`name=`), used
     when exactly one record matches. The work portal's sys_id, from the saved page's
     style-sheet address, is `733f07dfaf2203508b18f269a02749dc`.
+  - **Checked live (2026-11-23, second time):** with `incident_form` and `portal_id`
+    set, the form tool still fell back to the catalog API, and failed outright on the
+    `u_site` default ("not a question ... Questions: comments"). The user's HAR of the
+    portal showed the portal's page answer holds the whole form where expected
+    (`...widget.data.sc_cat_item._fields`, keyed by name, order in `_sections`); the
+    tool's parser, run on that answer, read all fourteen entries correctly (thirteen
+    questions and a search widget). So the tool's own request was answered
+    differently. The portal's request also carries an `x-portal` header and
+    `request_uri=/arlsp2?id=sc_cat_item&sys_id=...`; the tool sent neither, and its
+    fallback hid the reason. Also seen: `u_site` picks from the table `u_site`;
+    `caller_id` defaults to the user's sys_id; category has 12 choices; the portal
+    submits with `get_portal_messages` and `sysparm_no_validation` set.
+    **Changed the same day:** `[servicenow] portal` (the address suffix, `arlsp2`); the
+    portal's sys_id is read from its page; the page is asked for as the portal asks
+    (param, header, `request_uri`); a fallback says why in `source`; questions follow
+    `_sections` order and the search widget is skipped; the form tool lists defaults
+    that do not fit under `problems` instead of failing; the submission body matches
+    the portal's. `ApiClient.get` takes optional extra `headers` (credentials win).
   - **To check on the laptop, in order:**
-    1. Set `incident_form = "10f198405863e700eb7b1e2c93eae7ca"` and
-       `portal_id = "733f07dfaf2203508b18f269a02749dc"`, then `call
-       servicenow_get_incident_form`: `source` should be "portal page" and the
-       questions those listed above. If `source` is still "catalog API", the page
-       answer did not hold the form where expected; save it with `--log-level debug`
-       or a browser's network tab and look for `_fields`.
-    2. `u_site = "N/A"` in `[servicenow.incident_defaults]`: the form tool's `default`
-       for `u_site` shows a sys_id if the site table could be read by name. If it
-       refuses, the table is not readable to the user, and the sys_id must come from
-       the portal (the picker's network request).
+    1. `incident_form = "10f198405863e700eb7b1e2c93eae7ca"`, `portal = "arlsp2"` (drop
+       `portal_id`, or keep it), then `call servicenow_get_incident_form`. `source`
+       should be "portal page" with the thirteen questions; if not, `source` now says
+       why.
+    2. `u_site = "N/A"` under `[servicenow.incident_defaults]`: the `u_site` default
+       shows a sys_id if the `u_site` table can be read by name; otherwise it is
+       listed under `problems`, and the sys_id must come from the portal's picker.
     3. The smoke test with `SERVICENOW_ANSWERS` filled in.
     4. One real create with `--no-dry-run`, checked in the portal, then cancelled.
-    5. Whether a question becomes required after another is answered (subcategory
-       after category): those rules run in the browser and are not checked here.
+    5. Whether subcategory's choices depend on the category (the page listed hardware
+       ones with no category chosen): those rules run in the browser.
   - Open, from the roadmap's ServiceNow questions: confirm the helpdesk is fine with
     tickets opened through the API.
   - **Smoke run 2026-11-23 (94 passed, 1 failed, 3 skipped), the failure explained.**
@@ -390,7 +405,7 @@ Last updated: 2026-11-23.
   spikes and version 0.4.0 (built on `claude/servicenow-credential-seam`).
 - **Also on `main`, in 0.5.0:** the Outlook REST spikes and the Microsoft
   refresh-token lifecycle (`login-microsoft`).
-- **Tests:** 902 passing, about 99.97% branch coverage. All hooks clean.
+- **Tests:** 908 passing, about 99.97% branch coverage. All hooks clean.
 - **In use:** Goose on the work laptop, against Jira 11.3.12, Bitbucket 10.2.8 and Confluence
   10.2.19. No CI
   server (Bamboo or other) reports builds or deployments to this Bitbucket.

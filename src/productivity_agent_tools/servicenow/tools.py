@@ -185,10 +185,11 @@ def register_servicenow_tools(
         """
         form = await servicenow.catalog_form(servicenow.settings.incident_form)
         defaults = await servicenow.with_lookups(form, servicenow.settings.incident_defaults)
-        configured = form.configured(defaults)
+        configured, problems = form.configured_each(defaults)
         return IncidentForm(
             name=form.name,
             source=form.source,
+            problems=problems,
             description=form.description or None,
             questions=[
                 FormQuestion(

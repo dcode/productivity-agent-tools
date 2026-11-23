@@ -108,4 +108,9 @@ class IncidentForm(BaseModel):
         "or the catalog API (which can leave questions out)."
     )
     description: str | None = Field(default=None, description="The form's description.")
+    problems: list[str] = Field(
+        default_factory=list,
+        description="Configured defaults that do not fit this form; servicenow_create_incident "
+        "refuses until the user fixes them in the config.",
+    )
     questions: list[FormQuestion] = Field(description="The questions, in the form's order.")
