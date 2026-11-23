@@ -47,6 +47,21 @@ Last updated: 2026-11-23 (evening).
       agent to follow. **Open question for the user:** whether to also call those two
       lookups (`xmlhttp.do`) so the tool enforces the item's real platform choices and its
       license requirement.
+  - **A real order through the portal (user, 2026-11-23, Non-Standard Software Request,
+    terraform; REQ0094044):** the portal used the cart: `POST .../items/{id}/add_to_cart`
+    with `sysparm_quantity`, `variables`, `sysparm_item_guid`, `sysparm_no_validation`,
+    then checkout through the cart widget (`checkout_two`), not `order_now`. The request
+    came back approved at once, stage Requested. The tool keeps `order_now` (allowed on
+    every item seen, and the portal's own script supports it; it never touches the
+    user's cart). The variables matched the tool's questions; `platform_oms` "Mac" is
+    `mac_oms`, which the tool sends. The portal also sent 18 layout variables
+    (containers, labels, a widget, an attachment) as "true" or "", which the tool leaves
+    out. **Caution seen:** the cart held an earlier copy of the same item (21:20), so the
+    checkout likely ordered both; the user to check REQ0094044 for a second RITM.
+  - **Still to check on the laptop:** `servicenow_search_catalog "query=macports"`;
+    `servicenow_get_catalog_form` on MacPorts with `[servicenow.order_defaults]`; a
+    dry-run order; then one real `servicenow_order_item` (the first through
+    `order_now`), checked in the portal and cancelled.
   - Tests: 955 passing, 99.97% branch coverage; ruff and ty clean.
 - **0.11.0, ServiceNow incidents: merged to `main` via
   [#20](https://github.com/dcode/productivity-agent-tools/pull/20) (2026-11-23, rebase
