@@ -535,6 +535,9 @@ printf '   full output: %s\n' "$OUT_DIR"
 
 zip_name="$(basename $(pwd))-$(build-identifier).zip"
 mkdir -p dist
+# zip adds to an archive that already exists, and two runs of one build share a name,
+# so start afresh: otherwise a result a failed check removed survives from the last run.
+rm -f "dist/${zip_name}"
 zip -j -r "dist/${zip_name}" "$OUT_DIR" >/dev/null 2>&1
 printf '   full output zip: dist/%s.zip\n' "${zip_name%.zip}"
 

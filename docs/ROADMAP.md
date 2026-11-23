@@ -21,7 +21,7 @@ Last updated: 2026-11-23.
     no `caller_id`, nothing with its own parameter). The product's agent instructions say
     to check for an open duplicate and confirm wording with the user first.
   - Smoke test: lists incidents, reads the first, and runs a dry-run create.
-  - Tests: 859 passing, 99.97% branch coverage; ruff and ty clean.
+  - Tests: 871 passing, 99.97% branch coverage; ruff and ty clean.
   - **Checked live (2026-11-23, build `v0.10.0-1-g221632b`, work laptop):** the smoke
     test passed its ServiceNow checks, and one real create (`INC0162364`, since
     cancelled by the user) was accepted from the browser session: no 403, no data
@@ -44,10 +44,19 @@ Last updated: 2026-11-23.
     **subcategory** once a category is picked; if so, it goes the same way.
   - Open, from the roadmap's ServiceNow questions: confirm the helpdesk is fine with
     tickets opened through the API.
-  - Smoke run 2026-11-23: 94 passed, 1 failed ("mail list unread"), 3 skipped. The zip
-    attached (same build) holds a *passing* "mail list unread" result and an expect
-    that ran, so the zip came from a different run than the summary, and the failure's
-    error text was not kept. Re-run if it comes back; nothing changed in Outlook here.
+  - **Smoke run 2026-11-23 (94 passed, 1 failed, 3 skipped), the failure explained.**
+    "mail list unread" failed with `Could not reach the Microsoft login host
+    login.microsoftonline.us (ReadTimeout)`: a 30 s timeout renewing the access token,
+    3 s after the previous mail call had renewed fine. The cause was that the access
+    token lived only in memory, so every `call` process redeemed the refresh token
+    again. **Fixed the same day:** the access token is now stored with the session and
+    reused across processes while it has more than a minute left, and a renewal that
+    cannot reach the login host is tried once more after 2 s (DESIGN.md, Credentials).
+    Also fixed: the smoke test's zip was *added to* when a build was run twice (same
+    file name), so a second run's zip kept the first run's results; it is now removed
+    first. **To check on the laptop:** a smoke run, then `doctor` or any `call` within
+    the hour should not renew (run with `--log-level debug`: no request to the login
+    host), and `outlook_mail_status` still describes the sign-in correctly.
 - **0.10.0, the Obsidian vault, all 6 steps done; merged to `main` as a6899ac
   ([#19](https://github.com/dcode/productivity-agent-tools/pull/19), 2026-11-21).
   Tagged `v0.10.0` (confirmed by the user, 2026-11-23).**
@@ -334,7 +343,7 @@ Last updated: 2026-11-23.
   spikes and version 0.4.0 (built on `claude/servicenow-credential-seam`).
 - **Also on `main`, in 0.5.0:** the Outlook REST spikes and the Microsoft
   refresh-token lifecycle (`login-microsoft`).
-- **Tests:** 859 passing, about 99.97% branch coverage. All hooks clean.
+- **Tests:** 871 passing, about 99.97% branch coverage. All hooks clean.
 - **In use:** Goose on the work laptop, against Jira 11.3.12, Bitbucket 10.2.8 and Confluence
   10.2.19. No CI
   server (Bamboo or other) reports builds or deployments to this Bitbucket.

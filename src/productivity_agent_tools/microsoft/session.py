@@ -1,10 +1,13 @@
 """The Microsoft refresh token and how to renew it, and where both are kept.
 
-The only secret is the refresh token; the redemption parameters beside it are
-not, but they are stored together so the stored credential is self-contained:
-the resolver that builds the runtime provider is handed only a name, so it reads
-everything it needs to renew from here. The refresh token rotates on each use,
-so the provider writes the session back after every redemption.
+The secrets are the refresh token and the latest access token; the redemption
+parameters beside them are not, but they are stored together so the stored
+credential is self-contained: the resolver that builds the runtime provider is
+handed only a name, so it reads everything it needs to renew from here. The
+refresh token rotates on each use, so the provider writes the session back after
+every redemption, with the new access token. Keeping the access token lets a
+short-lived process (each ``call``, the smoke test, a sync run from a button)
+reuse it for its hour instead of going to the login host every time.
 """
 
 from __future__ import annotations
@@ -18,7 +21,7 @@ from datetime import UTC, datetime, timedelta
 import keyring
 import keyring.errors
 
-from productivity_agent_tools.microsoft.oauth import RESEED_ADVICE, RedeemConfig
+from productivity_agent_tools.microsoft.oauth import RESEED_ADVICE, RedeemConfig, TokenGrant
 from productivity_agent_tools.tokens import KEYRING_SERVICE
 
 TOKEN_NAME: str = "microsoft"
@@ -40,6 +43,9 @@ class MicrosoftSession:
             counts from here.
         window_hours: How long the tenant lets a sign-in be renewed, from the
             ``[microsoft]`` ``sign_in_hours`` setting at sign-in; None when not set.
+        access_token: The access token from the latest redemption, empty when there has
+            been none since sign-in. Excluded from ``repr``.
+        access_expires_at: When that access token expires, ISO 8601 UTC; empty with it.
     """
 
     refresh_token: str = field(repr=False)
@@ -47,6 +53,8 @@ class MicrosoftSession:
     config: RedeemConfig
     signed_in_at: str = ""
     window_hours: float | None = None
+    access_token: str = field(default="", repr=False)
+    access_expires_at: str = ""
 
     def __post_init__(self) -> None:
         """Default the sign-in time to when the token was obtained."""
@@ -76,19 +84,51 @@ class MicrosoftSession:
             window_hours=window_hours,
         )
 
-    def rotated(self, refresh_token: str) -> MicrosoftSession:
-        """Return a copy holding a freshly rotated refresh token, stamped now.
+    def rotated(self, grant: TokenGrant) -> MicrosoftSession:
+        """Return a copy holding a redemption's tokens, stamped now.
 
         The sign-in time and window are kept: rotating does not extend the sign-in.
 
         Args:
-            refresh_token: The rotated refresh token from the latest redemption.
+            grant: The latest redemption: its rotated refresh token and access token.
 
         Returns:
             The updated session.
         """
         stamp = datetime.now(UTC).isoformat(timespec="seconds")
-        return dataclasses.replace(self, refresh_token=refresh_token, obtained_at=stamp)
+        return dataclasses.replace(
+            self,
+            refresh_token=grant.refresh_token,
+            obtained_at=stamp,
+            access_token=grant.access_token,
+            access_expires_at=grant.expires_at.isoformat(timespec="seconds"),
+        )
+
+    def cached_grant(self, now: datetime, *, skew_seconds: float) -> TokenGrant | None:
+        """Return the stored access token as a grant, if it is still good to use.
+
+        Args:
+            now: The current time, in UTC.
+            skew_seconds: Treat it as expired this many seconds early.
+
+        Returns:
+            The grant, or None when there is none or it is (nearly) expired.
+        """
+        if not (self.access_token and self.access_expires_at):
+            return None
+        try:
+            expires_at = datetime.fromisoformat(self.access_expires_at)
+        except ValueError:
+            return None
+        if expires_at.tzinfo is None:
+            return None
+        grant = TokenGrant(
+            access_token=self.access_token,
+            refresh_token=self.refresh_token,
+            expires_at=expires_at,
+            scope=self.config.scope,
+        )
+        return None if grant.expired(now, skew_seconds=skew_seconds) else grant
 
     def window_ends_at(self) -> datetime | None:
         """Estimate when the sign-in can no longer be renewed, if the window is known."""
@@ -137,6 +177,8 @@ class MicrosoftSession:
                 "signed_in_at": self.signed_in_at,
                 "window_hours": self.window_hours,
                 "config": config,
+                "access_token": self.access_token,
+                "access_expires_at": self.access_expires_at,
             }
         )
 
@@ -167,6 +209,8 @@ class MicrosoftSession:
         if not all(isinstance(value, str) and value for value in values.values()):
             return None
         signed_in = data.get("signed_in_at")
+        access = data.get("access_token")
+        access_expires = data.get("access_expires_at")
         hours = data.get("window_hours")
         usable_hours = isinstance(hours, int | float) and not isinstance(hours, bool) and hours > 0
         return cls(
@@ -176,6 +220,8 @@ class MicrosoftSession:
             # Sessions stored before these were kept have neither; fall back quietly.
             signed_in_at=signed_in if isinstance(signed_in, str) else "",
             window_hours=float(hours) if usable_hours else None,
+            access_token=access if isinstance(access, str) else "",
+            access_expires_at=access_expires if isinstance(access_expires, str) else "",
         )
 
 

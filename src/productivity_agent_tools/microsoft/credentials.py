@@ -2,10 +2,13 @@
 
 The access token lasts about an hour, so the provider caches it in memory and
 hands it out until it is nearly expired. When it needs a new one it reloads the
-session from the keychain (so a sign-in done while the server runs is picked up),
-redeems the refresh token, and writes the rotated refresh token straight back. A
-lock makes concurrent requests share one redemption rather than racing to spend —
-and so rotate — the same refresh token.
+session from the keychain (so a sign-in done while the server runs is picked up)
+and uses the access token stored there if it is still good, which is what spares
+short-lived processes a trip to the login host each. Otherwise it redeems the
+refresh token, trying once more after a network failure, and writes the rotated
+refresh token and the new access token straight back. A lock makes concurrent
+requests share one redemption rather than racing to spend — and so rotate — the
+same refresh token.
 """
 
 from __future__ import annotations
@@ -16,9 +19,10 @@ from datetime import UTC, datetime
 from typing import Protocol
 
 import httpx
+import structlog
 
 from productivity_agent_tools.credentials import Credential
-from productivity_agent_tools.errors import AuthenticationError
+from productivity_agent_tools.errors import AuthenticationError, ConnectivityError
 from productivity_agent_tools.microsoft.oauth import (
     RedeemConfig,
     TokenGrant,
@@ -32,6 +36,8 @@ from productivity_agent_tools.microsoft.session import (
     store_session,
 )
 from productivity_agent_tools.tokens import TokenSources
+
+_log = structlog.get_logger(__name__)
 
 NO_CREDENTIAL = f"No Microsoft credential is stored. {SEED_ADVICE}"
 
@@ -55,6 +61,7 @@ class Redeemer(Protocol):
 type Loader = Callable[[str], Awaitable[MicrosoftSession | None]]
 type Storer = Callable[[MicrosoftSession, str], Awaitable[None]]
 type Clock = Callable[[], datetime]
+type Sleeper = Callable[[float], Awaitable[None]]
 
 
 class MicrosoftCredential:
@@ -71,6 +78,9 @@ class MicrosoftCredential:
         skew_seconds: float = 60.0,
         timeout_seconds: float = 30.0,
         transport: httpx.AsyncBaseTransport | None = None,
+        attempts: int = 2,
+        retry_delay_seconds: float = 2.0,
+        sleep: Sleeper = asyncio.sleep,
     ) -> None:
         """Create the provider.
 
@@ -83,6 +93,10 @@ class MicrosoftCredential:
             skew_seconds: Refresh the access token this many seconds before it expires.
             timeout_seconds: Per-request timeout for the redemption.
             transport: Replacement transport for the redemption, used by tests.
+            attempts: How many times to try a redemption that fails to reach the login
+                host (a timeout or a dropped connection).
+            retry_delay_seconds: Pause between those attempts.
+            sleep: Waits between attempts; replaced in tests.
         """
         self._name = name
         self._redeem = redeem
@@ -92,6 +106,9 @@ class MicrosoftCredential:
         self._skew = skew_seconds
         self._timeout = timeout_seconds
         self._transport = transport
+        self._attempts = max(1, attempts)
+        self._retry_delay = retry_delay_seconds
+        self._sleep = sleep
         self._grant: TokenGrant | None = None
         self._lock = asyncio.Lock()
 
@@ -122,21 +139,54 @@ class MicrosoftCredential:
             session = await self._load(self._name)
             if session is None:
                 raise AuthenticationError(NO_CREDENTIAL)
-            grant = await self._redeem(
-                session.config,
-                session.refresh_token,
-                now=self._now(),
-                timeout_seconds=self._timeout,
-                transport=self._transport,
-            )
+            # Another process (an earlier 'call', the server) may have renewed it lately.
+            if (stored := session.cached_grant(self._now(), skew_seconds=self._skew)) is not None:
+                self._grant = stored
+                return {"Authorization": stored.authorization()}
+            grant = await self._redeem_with_retry(session)
             # A 'login microsoft' may have stored a new sign-in while this redemption was
             # in flight. Writing back now would replace it with the old sign-in's rotated
             # token, so keep the new one; this grant is still good until it expires.
             latest = await self._load(self._name)
             if latest is None or latest.refresh_token == session.refresh_token:
-                await self._store(session.rotated(grant.refresh_token), self._name)
+                await self._store(session.rotated(grant), self._name)
             self._grant = grant
             return {"Authorization": grant.authorization()}
+
+    async def _redeem_with_retry(self, session: MicrosoftSession) -> TokenGrant:
+        """Redeem the session's refresh token, trying again if the login host is not reached.
+
+        Only failures to reach the host are retried; a refusal (an expired sign-in)
+        is final. Retrying is safe: the token endpoint does not revoke a refresh token
+        when it issues the next one.
+
+        Args:
+            session: The stored session.
+
+        Returns:
+            The new grant.
+
+        Raises:
+            ConnectivityError: If every attempt failed to reach the host.
+        """
+        attempt = 1
+        while True:
+            try:
+                return await self._redeem(
+                    session.config,
+                    session.refresh_token,
+                    now=self._now(),
+                    timeout_seconds=self._timeout,
+                    transport=self._transport,
+                )
+            except ConnectivityError as exc:
+                if attempt >= self._attempts:
+                    if attempt == 1:
+                        raise
+                    raise ConnectivityError(f"{exc} Tried {attempt} times.") from exc
+                _log.info("token_renewal_retry", attempt=attempt, reason=str(exc))
+                await self._sleep(self._retry_delay)
+                attempt += 1
 
     async def describe(self) -> str:
         """Describe the stored sign-in as it is now, for the status tools.
