@@ -111,13 +111,17 @@ Last updated: 2026-11-23.
     The user's working setup: `[servicenow]` `incident_form = "10f19840..."`,
     `portal = "arlsp2"`; `[servicenow.incident_defaults]` `u_site`,
     `u_preferred_contact_phone_number`, `u_network_connection`, `u_network`.
+  - **Comments are readable (user, 2026-11-23):** the record's `comments` field comes
+    back as one text, newest first, each entry headed `<date time> - <name>
+    (Additional comments)`. **Changed the same day:** `servicenow_get_incident` returns
+    them as a list (`at`, `author`, `kind`, `body`), split at the header lines
+    (`servicenow/journal.py`), since a comment can hold blank lines.
   - **Still to check on the laptop:**
     1. One real create with `--no-dry-run` through the form, checked in the portal
        (site, phone, network connection, category, urgency, impact, caller), then
        cancelled. This is the first submission through `submit_producer`.
     2. Whether subcategory's choices depend on the category: those rules run in the
        browser and are not checked here.
-    3. `servicenow_get_incident` on an incident with comments: are they readable?
   - Open, from the roadmap's ServiceNow questions: confirm the helpdesk is fine with
     tickets opened through the API.
   - **Smoke run 2026-11-23 (94 passed, 1 failed, 3 skipped), the failure explained.**
@@ -419,7 +423,7 @@ Last updated: 2026-11-23.
   spikes and version 0.4.0 (built on `claude/servicenow-credential-seam`).
 - **Also on `main`, in 0.5.0:** the Outlook REST spikes and the Microsoft
   refresh-token lifecycle (`login-microsoft`).
-- **Tests:** 912 passing, about 99.97% branch coverage. All hooks clean.
+- **Tests:** 918 passing, about 99.97% branch coverage. All hooks clean.
 - **In use:** Goose on the work laptop, against Jira 11.3.12, Bitbucket 10.2.8 and Confluence
   10.2.19. No CI
   server (Bamboo or other) reports builds or deployments to this Bitbucket.
@@ -600,7 +604,7 @@ chance comes up and tick it here.
   - [x] `sys_choice` is readable: no, it returns no rows (2026-11-23), so the create
         submits the portal's form instead
   - [ ] `servicenow_get_incident_form` reads the form, and a real create through it
-  - [ ] `servicenow_get_incident` on an incident with comments: are they readable?
+  - [x] `servicenow_get_incident` on an incident with comments: readable (2026-11-23)
   - [ ] With a top-level `[cookies]` table, add an empty `[servicenow.cookies]` so those
         cookies are not sent to the helpdesk
 - [x] `login microsoft` (browser sign-in) on the work laptop. **Worked first time

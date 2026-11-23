@@ -90,7 +90,9 @@ request (`angular.do?sysparm_type=sp_ref_list_data` in the browser's network tab
 lists each record's `sys_id` beside its name.
 
 `servicenow_get_incident` also takes `extra_fields`, which returns any other
-incident field's stored `value` beside its `display` text.
+incident field's stored `value` beside its `display` text. Its comments come as a
+list, newest first, each with `at`, `author`, `kind` (such as "Additional
+comments") and `body`.
 
 Answers that rarely change go in the config, so the agent does not ask each
 time. A question takes the agent's answer, else this default, else the form's

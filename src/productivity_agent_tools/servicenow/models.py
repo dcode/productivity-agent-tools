@@ -27,6 +27,15 @@ class IncidentSummary(BaseModel):
     url: str | None = Field(default=None, description="Its form in the web interface.")
 
 
+class Comment(BaseModel):
+    """One comment on a record's journal."""
+
+    at: str | None = Field(default=None, description="When it was written, instance time.")
+    author: str | None = Field(default=None, description="Who wrote it.")
+    kind: str | None = Field(default=None, description="Its journal, such as Additional comments.")
+    body: str = Field(description="The comment.")
+
+
 class FieldValue(BaseModel):
     """A field read in both its forms."""
 
@@ -53,8 +62,8 @@ class Incident(IncidentSummary):
     assigned_to: str | None = Field(default=None, description="Person working on it.")
     resolved_at: str | None = Field(default=None, description="When it was resolved.")
     close_notes: str | None = Field(default=None, description="How it was resolved.")
-    comments: str | None = Field(
-        default=None, description="Comments visible to you, newest first, as one text."
+    comments: list[Comment] = Field(
+        default_factory=list, description="Comments visible to you, newest first."
     )
     extra_fields: dict[str, FieldValue] = Field(
         default_factory=dict, description="The fields asked for with extra_fields."
