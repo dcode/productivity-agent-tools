@@ -78,6 +78,11 @@ INCIDENTS: list[dict[str, str]] = [
 FORM_ID = "f" * 32
 SITE_ID = "5" * 32  # the "N/A" site's record
 PORTAL_ID = "7" * 32
+# The work instance's site table names its records in u_name (2026-11-23).
+U_SITES: list[dict[str, str]] = [
+    {"sys_id": "998d2bf1afd2d5505732526559274912", "u_name": "N/A"},
+    {"sys_id": "6f7653b358dfa700eb7b1e2c93eae76b", "u_name": "Other"},
+]
 CATALOG = "/api/sn_sc/servicecatalog/items"
 
 
@@ -194,6 +199,10 @@ class FakeServiceNow:
             if self.portal_page is None:
                 return httpx.Response(self.portal_status, json={"error": {"message": "no"}})
             return httpx.Response(200, headers=who, json=self.portal_page)
+        if path == "/api/now/table/u_site":
+            query = request.url.params.get("sysparm_query", "")
+            rows = [site for site in U_SITES if query.endswith(f"u_name={site['u_name']}")]
+            return httpx.Response(200, headers=who, json={"result": rows})
         if path == "/api/now/table/cmn_location":
             if self.site_status != 200:
                 return httpx.Response(self.site_status, json={"error": {"message": "ACL"}})
@@ -1098,7 +1107,7 @@ async def test_a_lookup_answer_must_resolve_to_one_record(
     with pytest.raises(
         ToolError,
         match=r"'Site' is picked from a table \(cmn_location\), so its answer is the chosen "
-        r"record's sys_id .*No single record named .* ask the user for the sys_id\.",
+        r"record's sys_id .*No single record with name 'N/A.* ask the user for the sys_id\.",
     ):
         await call(instance, "servicenow_create_incident", {"answers": ANSWERS | {"Site": site}})
     assert "POST" not in [r.method for r in instance.requests]
@@ -1430,3 +1439,57 @@ def test_the_portal_settings() -> None:
     settings = parse_servicenow_settings({"portal": " /sp/ "})
     assert settings.portal == "sp"
     assert parse_servicenow_settings({}).portal is None
+
+
+def u_site_form(qualifier: str) -> JsonValue:
+    site: JsonValue = {
+        "name": "u_site",
+        "label": "Site",
+        "type": "reference",
+        "mandatory": True,
+        "refTable": "u_site",
+        "ed": {
+            "reference": "u_site",
+            "searchField": "u_name",
+            "defaultOperator": "STARTSWITH",
+            "qualifier": qualifier,
+        },
+    }
+    comments: JsonValue = {"name": "comments", "type": "textarea", "mandatory": True}
+    return portal_page(
+        {"sys_id": FORM_ID, "name": "Create an Incident", "_fields": {"a": site, "b": comments}}
+    )
+
+
+@pytest.mark.parametrize(
+    ("qualifier", "query"),
+    [
+        ("", "u_name=N/A"),
+        ("u_active=true", "u_active=true^u_name=N/A"),
+        ("javascript:new SiteFilter().get()", "u_name=N/A"),  # a script is not repeated
+    ],
+)
+async def test_a_lookup_searches_the_column_and_filter_the_portal_uses(
+    instance: FakeServiceNow, qualifier: str, query: str
+) -> None:
+    instance.portal_page = u_site_form(qualifier)
+    settings = with_settings(incident_defaults={"site": "N/A"})
+    form = await call_with(instance, settings, "servicenow_get_incident_form", {})
+    assert form["problems"] == []
+    questions = form["questions"]
+    assert isinstance(questions, list)
+    assert questions[0]["default"] == "998d2bf1afd2d5505732526559274912"
+    looked_up = [r for r in instance.requests if r.url.path == "/api/now/table/u_site"]
+    assert looked_up[0].url.params["sysparm_query"] == query
+    assert looked_up[0].url.params["sysparm_fields"] == "sys_id,u_name"
+
+
+async def test_a_lookup_that_misses_names_the_column_it_searched(
+    instance: FakeServiceNow,
+) -> None:
+    instance.portal_page = u_site_form("")
+    settings = with_settings(incident_defaults={"site": "Mars"})
+    form = await call_with(instance, settings, "servicenow_get_incident_form", {})
+    problems = form["problems"]
+    assert isinstance(problems, list)
+    assert "No single record with u_name 'Mars' was found there" in problems[0]
