@@ -475,8 +475,8 @@ keeps writes behind a dry-run switch that is on by default.
   the Service Catalog API (`GET .../items/{id}`) as the fallback. Seen live
   (2026-11-23): the catalog API returned only one of the portal form's eleven
   questions, so it cannot be the source of truth for what the form requires.
-  `servicenow/forms.py` checks the answers against it before sending (required answered, choices offered, matched by label or
-  value), with defaults from `[servicenow.incident_defaults]`, then the form's own.
+  `servicenow/forms.py` checks the answers against it before sending (required
+  answered, choices offered, matched by label or value), with defaults from `[servicenow.incident_defaults]`, then the form's own.
   A reference question (a site) takes the picked record's `sys_id`. A name is looked up
   in the referenced table by `name=` and used only when exactly one record matches;
   otherwise it is refused. The portal's own picker uses an undocumented `angular.do`
