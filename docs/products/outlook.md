@@ -76,6 +76,11 @@ says the sign-in has expired; run `login microsoft` again, typically once each
 morning. A running server picks up the new sign-in at its next hourly
 access-token renewal, without a restart.
 
+The current access token is kept in the keychain with the sign-in, so separate
+runs of `call` within its hour reuse it instead of each asking Microsoft for a
+new one. A renewal that cannot reach Microsoft is tried once more before it
+fails.
+
 To see when you signed in and when to sign in again, ask your agent (it calls
 `outlook_mail_status`), or run `call outlook_mail_status`. The estimate needs
 `sign_in_hours`. The status is read from the keychain each time, so it reflects a

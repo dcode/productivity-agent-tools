@@ -1,11 +1,11 @@
 """Tests for storing and reading the Microsoft refresh-token session."""
 
 import json
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 
 import pytest
 
-from productivity_agent_tools.microsoft.oauth import RedeemConfig
+from productivity_agent_tools.microsoft.oauth import RedeemConfig, TokenGrant
 from productivity_agent_tools.microsoft.session import (
     MicrosoftSession,
     load_session,
@@ -20,6 +20,16 @@ CONFIG = RedeemConfig(
     redirect_uri="https://o/r",
     scope="https://outlook.example.us/.default",
 )
+NOW = datetime(2026, 1, 1, 12, 0, tzinfo=UTC)
+
+
+def grant(refresh: str = "new", *, access: str = "a1", ttl: int = 3600) -> TokenGrant:
+    return TokenGrant(
+        access_token=access,
+        refresh_token=refresh,
+        expires_at=NOW + timedelta(seconds=ttl),
+        scope="",
+    )
 
 
 def test_dumps_and_loads_round_trip() -> None:
@@ -38,14 +48,14 @@ def test_seeded_now_stamps_a_time() -> None:
 
 def test_rotated_replaces_the_token_and_keeps_the_config() -> None:
     session = MicrosoftSession.seeded_now("old", CONFIG)
-    rotated = session.rotated("new")
+    rotated = session.rotated(grant())
     assert rotated.refresh_token == "new"
     assert rotated.config == CONFIG
 
 
 def test_rotating_keeps_the_sign_in_time_and_window() -> None:
     session = MicrosoftSession("old", "2026-01-01T08:00:00+00:00", CONFIG, window_hours=18.0)
-    rotated = session.rotated("new")
+    rotated = session.rotated(grant())
     assert rotated.signed_in_at == "2026-01-01T08:00:00+00:00"
     assert rotated.obtained_at != session.obtained_at
     assert rotated.window_hours == 18.0
@@ -141,3 +151,47 @@ async def test_load_survives_a_keychain_error(monkeypatch: pytest.MonkeyPatch) -
 
     monkeypatch.setattr("keyring.get_password", boom)
     assert await load_session() is None
+
+
+def test_rotating_keeps_the_access_token_and_its_expiry() -> None:
+    rotated = MicrosoftSession.seeded_now("old", CONFIG).rotated(grant(access="a9"))
+    assert rotated.access_token == "a9"
+    assert rotated.access_expires_at == "2026-01-01T13:00:00+00:00"
+    assert "a9" not in repr(rotated)
+    restored = MicrosoftSession.loads(rotated.dumps())
+    assert restored == rotated
+    cached = restored.cached_grant(NOW, skew_seconds=60) if restored else None
+    assert cached is not None
+    assert cached.authorization() == "Bearer a9"
+    assert cached.refresh_token == "new"
+    assert cached.scope == CONFIG.scope
+
+
+@pytest.mark.parametrize(
+    ("access", "expires"),
+    [
+        ("", ""),
+        ("a", ""),
+        ("a", "not a time"),
+        ("a", "2026-01-01T13:00:00"),  # no time zone: not trusted
+        ("a", "2026-01-01T12:00:30+00:00"),  # inside the skew
+    ],
+)
+def test_a_missing_bad_or_expiring_access_token_is_not_used(access: str, expires: str) -> None:
+    session = MicrosoftSession(
+        "r", "2026-01-01T08:00:00+00:00", CONFIG, access_token=access, access_expires_at=expires
+    )
+    assert session.cached_grant(NOW, skew_seconds=60) is None
+
+
+def test_a_session_stored_without_an_access_token_still_loads() -> None:
+    stored = json.loads(MicrosoftSession.seeded_now("r", CONFIG).dumps())
+    del stored["access_token"], stored["access_expires_at"]
+    restored = MicrosoftSession.loads(json.dumps(stored))
+    assert restored is not None
+    assert restored.access_token == ""
+    stored["access_token"] = 7
+    stored["access_expires_at"] = None
+    odd = MicrosoftSession.loads(json.dumps(stored))
+    assert odd is not None
+    assert (odd.access_token, odd.access_expires_at) == ("", "")

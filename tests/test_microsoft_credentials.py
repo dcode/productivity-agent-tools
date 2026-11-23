@@ -6,8 +6,12 @@ from datetime import UTC, datetime, timedelta
 import httpx
 import pytest
 
-from productivity_agent_tools.errors import AuthenticationError
-from productivity_agent_tools.microsoft.credentials import MicrosoftCredential, microsoft_token
+from productivity_agent_tools.errors import AuthenticationError, ConnectivityError
+from productivity_agent_tools.microsoft.credentials import (
+    MicrosoftCredential,
+    Redeemer,
+    microsoft_token,
+)
 from productivity_agent_tools.microsoft.oauth import RedeemConfig, TokenGrant
 from productivity_agent_tools.microsoft.session import MicrosoftSession
 from productivity_agent_tools.tokens import TokenSources
@@ -225,6 +229,90 @@ async def test_a_reseed_error_propagates() -> None:
     provider = MicrosoftCredential(redeem=redeem, load=load, store=store, now=clock)
     with pytest.raises(AuthenticationError, match="re-seed"):
         await provider()
+
+
+async def test_another_process_reuses_the_stored_access_token() -> None:
+    clock = Clock()
+    keychain: list[MicrosoftSession] = []
+    first = make_provider(
+        clock,
+        session=MicrosoftSession.seeded_now("r0", CONFIG),
+        grants=[make_grant("access-1", "r1", START)],
+        stored=keychain,
+        redeems=(spent := []),
+    )
+    assert await first() == {"Authorization": "Bearer access-1"}
+    # A second process (a new 'call') starts with nothing in memory.
+    clock.now = START + timedelta(minutes=30)
+    second = make_provider(clock, session=None, grants=[], stored=keychain, redeems=spent)
+    assert await second() == {"Authorization": "Bearer access-1"}
+    assert spent == ["r0"]  # no second trip to the login host
+    assert len(keychain) == 1
+    assert "valid until 2026-01-01T13:00:00+00:00" in await second.describe()
+
+
+def flaky(failures: int, *, error: Exception | None = None) -> tuple[list[str], Redeemer]:
+    """A redeemer that fails ``failures`` times, then grants; it records each try."""
+    tries: list[str] = []
+
+    async def redeem(config: RedeemConfig, refresh_token: str, **_: object) -> TokenGrant:
+        tries.append(refresh_token)
+        if len(tries) <= failures:
+            raise error or ConnectivityError(
+                "Could not reach the Microsoft login host x (ReadTimeout)."
+            )
+        return make_grant("access-1", "r1", START)
+
+    return tries, redeem
+
+
+def retrying(redeem: Redeemer, waits: list[float], attempts: int = 2) -> MicrosoftCredential:
+    stored: list[MicrosoftSession] = []
+
+    async def load(name: str) -> MicrosoftSession:
+        return stored[-1] if stored else MicrosoftSession.seeded_now("r0", CONFIG)
+
+    async def store(new: MicrosoftSession, name: str) -> None:
+        stored.append(new)
+
+    async def sleep(seconds: float) -> None:
+        waits.append(seconds)
+
+    return MicrosoftCredential(
+        redeem=redeem, load=load, store=store, now=Clock(), sleep=sleep, attempts=attempts
+    )
+
+
+async def test_a_renewal_that_cannot_reach_the_host_is_tried_again() -> None:
+    tries, redeem = flaky(1)
+    waits: list[float] = []
+    assert await retrying(redeem, waits)() == {"Authorization": "Bearer access-1"}
+    assert tries == ["r0", "r0"]
+    assert waits == [2.0]
+
+
+async def test_a_renewal_that_keeps_failing_says_how_often_it_tried() -> None:
+    tries, redeem = flaky(5)
+    waits: list[float] = []
+    with pytest.raises(ConnectivityError, match=r"\(ReadTimeout\)\. Tried 3 times\.$"):
+        await retrying(redeem, waits, attempts=3)()
+    assert len(tries) == 3
+    assert waits == [2.0, 2.0]
+
+
+async def test_one_attempt_raises_the_error_unchanged() -> None:
+    _, redeem = flaky(1)
+    with pytest.raises(ConnectivityError, match=r"\(ReadTimeout\)\.$"):
+        await retrying(redeem, [], attempts=1)()
+
+
+async def test_a_refused_renewal_is_not_tried_again() -> None:
+    tries, redeem = flaky(1, error=AuthenticationError("sign in again"))
+    waits: list[float] = []
+    with pytest.raises(AuthenticationError):
+        await retrying(redeem, waits)()
+    assert tries == ["r0"]
+    assert waits == []
 
 
 async def test_resolver_describes_the_stored_session(monkeypatch: pytest.MonkeyPatch) -> None:

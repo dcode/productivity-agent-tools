@@ -347,6 +347,19 @@ keeps writes behind a dry-run switch that is on by default.
 - **A renewal never overwrites a newer sign-in.** After redeeming, the provider re-reads
   the keychain and writes the rotated token back only if the stored one is still the one
   it redeemed; otherwise `login microsoft` stored a new sign-in meanwhile, and that wins.
+- **The access token is kept beside the refresh token (2026-11-23).** Before, it lived
+  only in the provider's memory, so every short-lived process (each `call`, so each smoke
+  check, and a sync run from a button) redeemed the refresh token again: about 40 trips
+  to the login host per smoke run, one of which timed out on the work laptop. The session
+  now stores the latest access token and its expiry, and a provider with nothing in
+  memory uses the stored one while it has more than the skew (60 s) left. This adds no
+  new kind of secret to the keychain entry, and a weaker one than the refresh token
+  already there. A new sign-in stores a session without one.
+- **A renewal that cannot reach the login host is tried once more** after 2 s (a timeout
+  or dropped connection only; a refusal is final). The token endpoint does not revoke a
+  refresh token when it issues the next, so a retry after a lost answer is safe. The
+  error after the last try says how many were made. Authorization codes (`login`) are
+  single-use and are never retried.
 - **An adapter is never handed a secret.** `credentials.py` defines `HeaderProvider`, an
   async callable returning the authentication *headers*, and the adapter asks it before
   every request. A credential that changes while the server runs (a refreshed OAuth token,
