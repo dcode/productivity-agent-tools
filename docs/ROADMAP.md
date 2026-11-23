@@ -50,7 +50,7 @@ Last updated: 2026-11-23.
     error text was not kept. Re-run if it comes back; nothing changed in Outlook here.
 - **0.10.0, the Obsidian vault, all 6 steps done; merged to `main` as a6899ac
   ([#19](https://github.com/dcode/productivity-agent-tools/pull/19), 2026-11-21).
-  To do: tag `v0.10.0` at a6899ac from the laptop.**
+  Tagged `v0.10.0` (confirmed by the user, 2026-11-23).**
   Asked for on 2026-11-19: use these tools from Obsidian to plan the day, keep task notes
   (TaskNotes) for what I am responsible for, keep meeting notes, and never get the same
   task or meeting twice from one day to the next. The design is agreed and recorded in
