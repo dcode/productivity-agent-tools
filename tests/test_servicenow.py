@@ -33,7 +33,12 @@ from productivity_agent_tools.errors import (
 from productivity_agent_tools.products import installed_products
 from productivity_agent_tools.server import Connected, build_server
 from productivity_agent_tools.servicenow.client import ServiceNow
-from productivity_agent_tools.servicenow.forms import CatalogForm, parse_form, parse_portal_form
+from productivity_agent_tools.servicenow.forms import (
+    CatalogForm,
+    parse_form,
+    parse_portal_form,
+    parse_scripts,
+)
 from productivity_agent_tools.servicenow.http import ServiceNowClient
 from productivity_agent_tools.servicenow.journal import parse_journal
 from productivity_agent_tools.servicenow.login import sign_in
@@ -2117,3 +2122,68 @@ def test_order_defaults_settings() -> None:
     assert settings.order_defaults == {"site": "N/A"}
     with pytest.raises(ConfigError, match="order_defaults"):
         parse_servicenow_settings({"order_defaults": {"site": 1}})
+
+
+LICENSE_SCRIPT = """function onLoad() {
+    var ga = new GlideAjax('ToGetLicenseRequiredInfo');
+    ga.getXML(function (response) {
+        g_form.setMandatory("license_key_or_proof_of_purchase", true);
+    });
+}"""
+CLASSIFIED_SCRIPT = """function onChange(control, oldValue, newValue, isLoading) {
+    var classified = g_form.getValue("classified_workstation");
+    if (classified == "Yes" && g_form.getValue("platform_os") == "mac") {
+        alert("ARL does not currently support classified Mac systems.");
+    }
+}"""
+
+
+def test_scripts_that_change_the_form_are_shown_once_each() -> None:
+    scripts: JsonValue = {
+        "onLoad": [
+            {"script": LICENSE_SCRIPT},
+            {"script": "function onLoad() { g_form.getValue('x'); }"},
+        ],
+        "onChange": [
+            {"fieldName": "classified_workstation", "script": CLASSIFIED_SCRIPT},
+            {"fieldName": "classified_workstation", "script": CLASSIFIED_SCRIPT},
+            "not a script",
+        ],
+        "messages": "ignored",
+    }
+    found = parse_scripts(scripts)
+    assert [(script.when, script.field) for script in found] == [
+        ("onLoad", ""),
+        ("onChange", "classified_workstation"),
+    ]
+    assert found[0].code == LICENSE_SCRIPT
+
+
+async def test_the_catalog_form_shows_its_scripts(instance: FakeServiceNow) -> None:
+    instance.portal_page = portal_page(
+        {
+            **PORTAL_ITEM,
+            "client_script": {
+                "onLoad": [{"script": LICENSE_SCRIPT}],
+                "onChange": [{"fieldName": "category", "script": CLASSIFIED_SCRIPT}],
+            },
+        }
+    )
+    form = await call(instance, "servicenow_get_catalog_form", {"item": FORM_ID})
+    assert isinstance(form, dict)
+    assert form["scripts"] == [
+        {"when": "onLoad", "field": None, "code": LICENSE_SCRIPT},
+        {"when": "onChange", "field": "category", "code": CLASSIFIED_SCRIPT},
+    ]
+
+
+def test_anything_and_empty_conditions() -> None:
+    anything = Condition("platform_oms", "ANYTHING", "")
+    assert anything.holds({})
+    assert anything.describe() == "platform_oms is anything"
+    assert (
+        Condition("classified_workstation", "=", "").describe() == "classified_workstation is empty"
+    )
+    assert Condition("classified_workstation", "!=", "").describe() == (
+        "classified_workstation is answered"
+    )

@@ -42,6 +42,7 @@ OPERATORS: dict[str, Callable[[str, str], bool]] = {
     "ENDSWITH": lambda answer, wanted: answer.endswith(wanted),
     "LIKE": lambda answer, wanted: wanted in answer,
     "NOT LIKE": lambda answer, wanted: wanted not in answer,
+    "ANYTHING": lambda _answer, _wanted: True,
 }
 _WORDS: dict[str, str] = {
     "=": "is",
@@ -54,6 +55,7 @@ _WORDS: dict[str, str] = {
     "ENDSWITH": "ends with",
     "LIKE": "contains",
     "NOT LIKE": "does not contain",
+    "ANYTHING": "is anything",
 }
 
 
@@ -82,8 +84,10 @@ class Condition:
     def describe(self) -> str:
         """The condition in words, such as "category is hardware"."""
         words = _WORDS.get(self.operator, self.operator)
-        if self.operator in ("ISEMPTY", "ISNOTEMPTY"):
+        if self.operator in ("ISEMPTY", "ISNOTEMPTY", "ANYTHING"):
             return f"{self.field} {words}"
+        if self.operator in ("=", "!=") and not self.value:
+            return f"{self.field} {'is empty' if self.operator == '=' else 'is answered'}"
         return f"{self.field} {words} {self.value}"
 
 

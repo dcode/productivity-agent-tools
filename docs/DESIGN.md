@@ -494,8 +494,12 @@ keeps writes behind a dry-run switch that is on by default.
   answers as the portal does (encoded-query AND/OR/new-group, later policies win,
   "reverse if false"). Answers to hidden questions are refused; defaults for them are
   dropped. A policy with an operator it does not know is listed, not applied.
-  Catalog client scripts are not run: the work form's one script fills Site from the
-  caller on change, which the defaults cover. Incidents came before
+  Catalog client scripts are not run (the tool has no JavaScript engine, and their
+  `GlideAjax` calls ask the server). The incident form's one script fills Site from the
+  caller, which the defaults cover. Software items' scripts matter more (a license
+  requirement looked up on load, the platform choices replaced by the item's own, a
+  classified Mac refused), so the form tools list every script that changes the form,
+  as code, for the agent to follow; they are not enforced. Incidents came before
   catalog orders because the user asked for tickets; an order reuses the same form code.
 - Dry-run is on by default and returns the would-be request. This was chosen over relying on
   the agent's approval prompt alone, or a two-step confirm tool that the agent could call

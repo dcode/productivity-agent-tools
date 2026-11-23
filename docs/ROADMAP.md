@@ -22,12 +22,32 @@ Last updated: 2026-11-23 (evening).
     `[servicenow.order_defaults]`: shared answers, used for an item only when its form has
     the question. Smoke test: requests, a request item, a search, a form, and a dry-run
     order (`SERVICENOW_SEARCH`, `SERVICENOW_ORDER_ITEM`, `SERVICENOW_ORDER_ANSWERS`).
-  - **Waiting on:** the user offered a sanitized HAR of searching for software, opening
-    an item and ordering it. To settle: the search request and answer (is it this API,
-    or the portal's search widget?); whether software is one item per program or one
-    "request software" form with a lookup; and whether the portal orders with
-    `order_now` or a cart (`add_to_cart`, then `submit_order`).
-  - Tests: 952 passing, 99.97% branch coverage; ruff and ty clean.
+  - **HAR of the portal's catalog (user, 2026-11-23, sanitized; no order submitted):**
+    - **Software is one item per program,** class `pc_software_cat_item` (Acrobat 2019 DC
+      MAC OS Only, MacPorts), plus a generic "Non-Standard Software Request"
+      (`sc_cat_item`, ~70 questions, 11 rules). All allow "Order now" (`no_order_now`
+      false, no cart forced), so `order_now` fits. Not yet seen: the order request.
+    - Required on the software items: `preferred_contact_phone_number_vs`,
+      `classified_workstation` (Yes/No), `platform_os` (`unix`/`mac`/`windows`);
+      `requested_for` defaults to the user. Shared order defaults keyed by label
+      identifier (`preferred_contact_phone_number`, `classified_workstation`,
+      `platform`) reach the questions on both kinds of item.
+    - **The portal's search** is `POST /api/now/sp/search` (`{"query", "source": "sc",
+      "portal", "count", ...}`); the tool keeps the catalog API search the probe saw
+      working. To check: that it finds "macports".
+    - **Client scripts matter on software items:** onLoad `GlideAjax('ToGetLicenseRequiredInfo')`
+      (MacPorts answered 0: no license; 1 makes `license_key_or_proof_of_purchase`
+      required); onLoad `GlideAjax('CatItemModelOptions')` replaces `platform_os`'s
+      choices with the item's own (both items: only Mac); onChange refuses a classified
+      Mac, and makes `hostname` required when not classified (`barcode_asset_tag` when
+      classified). Both calls go to `POST /xmlhttp.do` (form-encoded `sysparm_processor`,
+      `sysparm_name`, item id; answer in an XML `answer` attribute).
+    - **Changed the same day:** the `ANYTHING` condition operator (one NSSR rule used it);
+      the form view lists the scripts that change the form (`scripts`), as code, for the
+      agent to follow. **Open question for the user:** whether to also call those two
+      lookups (`xmlhttp.do`) so the tool enforces the item's real platform choices and its
+      license requirement.
+  - Tests: 955 passing, 99.97% branch coverage; ruff and ty clean.
 - **0.11.0, ServiceNow incidents: merged to `main` via
   [#20](https://github.com/dcode/productivity-agent-tools/pull/20) (2026-11-23, rebase
   merge, 17 commits). Tagged `v0.11.0` at 3f25eb1 (the last commit; the user, 2026-11-23).**
@@ -459,7 +479,7 @@ Last updated: 2026-11-23 (evening).
   spikes and version 0.4.0 (built on `claude/servicenow-credential-seam`).
 - **Also on `main`, in 0.5.0:** the Outlook REST spikes and the Microsoft
   refresh-token lifecycle (`login-microsoft`).
-- **Tests:** 939 passing, about 99.97% branch coverage. All hooks clean.
+- **Tests:** 955 passing, about 99.97% branch coverage. All hooks clean.
 - **In use:** Goose on the work laptop, against Jira 11.3.12, Bitbucket 10.2.8 and Confluence
   10.2.19. No CI
   server (Bamboo or other) reports builds or deployments to this Bitbucket.

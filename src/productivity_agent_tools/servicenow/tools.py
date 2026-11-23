@@ -15,6 +15,7 @@ from productivity_agent_tools.servicenow.models import (
     CatalogItem,
     FieldValue,
     FormQuestion,
+    FormScript,
     FormView,
     Incident,
     IncidentSummary,
@@ -128,6 +129,10 @@ async def _form_view(
                 lookup_table=question.lookup_table or None,
             )
             for question in form.questions
+        ],
+        scripts=[
+            FormScript(when=script.when, field=script.field or None, code=script.code)
+            for script in form.scripts
         ],
     )
 
@@ -361,7 +366,9 @@ def register_servicenow_tools(
         the user has said, asking for any required answer you do not know (such as
         a justification or a cost code); never invent one. Defaults from the
         user's [servicenow.order_defaults] fill questions the form has. The rules
-        show, hide and require questions as answers change.
+        show, hide and require questions as answers change. Read the form's scripts
+        too: they can require or hide more, or refuse a combination (such as a
+        platform the item does not support), and the tool does not run them.
 
         Args:
             item: The item's sys_id (from servicenow_search_catalog) or its exact name.

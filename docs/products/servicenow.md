@@ -177,6 +177,25 @@ uv run productivity-agent-tools call servicenow_order_item item=<sys_id> \
 Answers that do not change from one request to the next go in
 `[servicenow.order_defaults]`. Unlike the incident defaults, these are shared by
 every item, so a key is used only for an item whose form has that question.
+Keying them by the label as an identifier lets one entry serve items whose
+question names differ:
+
+```toml
+[servicenow.order_defaults]
+preferred_contact_phone_number = "555-0100"  # preferred_contact_phone_number_vs on software items
+classified_workstation = "No"
+platform = "Mac"                              # platform_os on one item, platform_oms on another
+```
+
+#### Scripts the tool does not run
+
+Besides its rules, an item's form can run scripts in the browser: on the
+instance this was built against, a script asks the server whether the item needs
+a license and then requires a license key, another replaces the platform choices
+with the item's own (often just one), and another refuses a classified Mac. The
+server does not check these on submission, and the tool cannot run them, so
+`servicenow_get_catalog_form` lists every script that requires, hides, sets or
+limits answers under `scripts`, as code, for the agent to read and follow.
 
 ## How the sign-in works
 
