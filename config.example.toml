@@ -193,16 +193,20 @@ current-sprint = "assignee = currentUser() AND sprint in openSprints() ORDER BY 
 # keep the stock form beside their own under the same name; then use the sys_id= from
 # the address of the portal's form page.
 # incident_form = "Create an incident"
+# The service portal the form is read from, as the portal shows it (its sys_id: the
+# portal_id= in the address of any of the portal's style sheets). Default: the
+# instance's default portal.
+# portal_id = "<sys_id of the portal>"
 # An empty cookies table, so the top-level [cookies] are not sent to this host.
 # [servicenow.cookies]
 # Answers to the incident form's questions that rarely change, so the agent need
 # not ask each time. A key is a question's name (servicenow_get_incident_form lists
 # them) or its label in snake_case or camelCase, so no quotes are needed; a choice
 # may be given by its label. A question picked from a table (servicenow_get_incident_form
-# shows its lookup_table) takes the record's sys_id: read it from one of your incidents
-# with `call servicenow_get_incident number=INC... 'extra_fields=["u_site"]'`.
+# shows its lookup_table) takes the record's sys_id; a name is looked up in that table
+# and used if exactly one record has it.
 # [servicenow.incident_defaults]
-# u_site = "<sys_id of your site>"
+# u_site = "N/A"
 # u_preferred_contact_phone_number = "555-0100"
 # u_network_connection = "VPN"
 

@@ -469,15 +469,19 @@ keeps writes behind a dry-run switch that is on by default.
   network connection, contact phone, a five-level urgency, category) are not incident
   fields and are enforced only in the browser, so the table write skipped them all, and
   `sys_choice` returned no rows to the user, so categories could not be checked either.
-  The form's definition (`GET .../items/{id}`) carries its questions, choices and which
-  are required, all readable to the user. `servicenow/forms.py` checks the answers
-  against it before sending (required answered, choices offered, matched by label or
+  The form's definition is read **from the portal's own page answer**
+  (`GET /api/now/sp/page?id=sc_cat_item&sys_id=...`, the request the portal makes;
+  the form model is `sc_cat_item._fields`, found wherever it sits in the answer), with
+  the Service Catalog API (`GET .../items/{id}`) as the fallback. Seen live
+  (2026-11-23): the catalog API returned only one of the portal form's eleven
+  questions, so it cannot be the source of truth for what the form requires.
+  `servicenow/forms.py` checks the answers against it before sending (required answered, choices offered, matched by label or
   value), with defaults from `[servicenow.incident_defaults]`, then the form's own.
-  A reference question (a site) takes the picked record's `sys_id`; the tool refuses a
-  name rather than guess a lookup, since the referenced table's read rules and display
-  field are unknown, and `servicenow_get_incident` `extra_fields` reads a known value off
-  an earlier incident. An item name shared by several items (the stock form beside the
-  instance's own) is refused with their `sys_id`s.
+  A reference question (a site) takes the picked record's `sys_id`. A name is looked up
+  in the referenced table by `name=` and used only when exactly one record matches;
+  otherwise it is refused. The portal's own picker uses an undocumented `angular.do`
+  call (`sp_ref_list_data`), which this does not copy. An item name shared by several
+  items (the stock form beside the instance's own) is refused with their `sys_id`s.
   Conditional rules (a question required only after another's answer) run in the
   browser and are not known to the API, so they are not checked. Incidents came before
   catalog orders because the user asked for tickets; an order reuses the same form code.

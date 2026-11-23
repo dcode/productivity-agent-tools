@@ -6,9 +6,20 @@ import re
 from pydantic import JsonValue
 
 from productivity_agent_tools.api import ApiClient, WriteOutcome
-from productivity_agent_tools.errors import AgentToolsError, ApiError, NotFoundError
+from productivity_agent_tools.errors import (
+    AgentToolsError,
+    ApiError,
+    InterstitialPageError,
+    NotFoundError,
+    PermissionDeniedError,
+)
 from productivity_agent_tools.payload import JsonObject, as_object, objects, text, value
-from productivity_agent_tools.servicenow.forms import CatalogForm, parse_form
+from productivity_agent_tools.servicenow.forms import (
+    CatalogForm,
+    is_sys_id,
+    parse_form,
+    parse_portal_form,
+)
 from productivity_agent_tools.servicenow.settings import ServiceNowSettings
 
 USER_TABLE: str = "/api/now/table/sys_user"
@@ -32,6 +43,7 @@ INCIDENT_SUMMARY_FIELDS: str = (
     "sys_id,number,short_description,state,priority,opened_at,sys_updated_on"
 )
 CATALOG: str = "/api/sn_sc/servicecatalog"
+PORTAL_PAGE: str = "/api/now/sp/page"
 _SYS_ID = re.compile(r"^[0-9a-f]{32}$")
 _COLUMN = re.compile(r"^[a-z][a-z0-9_]*$")
 
@@ -158,9 +170,89 @@ class ServiceNow:
             AgentToolsError: If the item cannot be found or read.
         """
         item_id = await self.find_catalog_item(name)
-        item = as_object(value(await self._api.get(f"{CATALOG}/items/{item_id}"), "result"), "form")
-        form = parse_form(item)
+        form = await self._portal_form(item_id)
+        if form is None:
+            answer = await self._api.get(f"{CATALOG}/items/{item_id}")
+            form = parse_form(as_object(value(answer, "result"), "form"))
         return form if form.sys_id else dataclasses.replace(form, sys_id=item_id)
+
+    async def _portal_form(self, item_id: str) -> CatalogForm | None:
+        """Read a catalog item's form from the portal's page, as the portal shows it.
+
+        Args:
+            item_id: The item's ``sys_id``.
+
+        Returns:
+            The form, or None when the page cannot be read or holds no form with
+            questions; the catalog API is used then.
+
+        Raises:
+            AuthenticationError: If the session has expired.
+        """
+        params: dict[str, str | int] = {"id": "sc_cat_item", "sys_id": item_id}
+        if self.settings.portal_id:
+            params["portal_id"] = self.settings.portal_id
+        try:
+            page = await self._api.get(PORTAL_PAGE, params)
+        except ApiError, InterstitialPageError, NotFoundError, PermissionDeniedError:
+            return None
+        form = parse_portal_form(page)
+        if form is None or not form.questions:
+            return None
+        return dataclasses.replace(form, source="portal page")
+
+    async def lookup_record(self, table: str, name: str) -> str | None:
+        """Find the one record in a table with this name, for a lookup question's answer.
+
+        Args:
+            table: The table the question picks from.
+            name: The name as given, such as "N/A".
+
+        Returns:
+            The record's ``sys_id``, or None when the table cannot be read, has no
+            ``name`` column, or does not have exactly one record by that name.
+
+        Raises:
+            AuthenticationError: If the session has expired.
+        """
+        wanted = name.strip()
+        if not _COLUMN.match(table) or not wanted or "^" in wanted:
+            return None
+        params: dict[str, str | int] = {
+            "sysparm_query": f"name={wanted}",
+            "sysparm_fields": "sys_id,name",
+            "sysparm_limit": 2,
+        }
+        try:
+            answer = await self._api.get(f"/api/now/table/{table}", params)
+        except ApiError, InterstitialPageError, NotFoundError, PermissionDeniedError:
+            return None
+        found = [text(row, "sys_id") for row in objects(value(answer, "result"))]
+        return found[0] if len(found) == 1 and found[0] else None
+
+    async def with_lookups(self, form: CatalogForm, answers: dict[str, str]) -> dict[str, str]:
+        """Replace names given for lookup questions with their records' ``sys_id``s.
+
+        An answer that cannot be resolved is left as it is, so the form's own check
+        explains what is needed.
+
+        Args:
+            form: The form.
+            answers: Answers by question name or label.
+
+        Returns:
+            The answers, with resolved lookups.
+        """
+        resolved = dict(answers)
+        for key, answer in answers.items():
+            question = form.find(key)
+            if question is None or not question.lookup_table or is_sys_id(answer.strip()):
+                continue
+            if answer.strip() and (
+                found := await self.lookup_record(question.lookup_table, answer)
+            ):
+                resolved[key] = found
+        return resolved
 
     async def submit_form(self, form: CatalogForm, variables: dict[str, str]) -> WriteOutcome:
         """Submit a record producer's form, as the portal does.

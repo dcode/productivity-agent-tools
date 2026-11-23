@@ -33,7 +33,7 @@ from productivity_agent_tools.errors import (
 from productivity_agent_tools.products import installed_products
 from productivity_agent_tools.server import Connected, build_server
 from productivity_agent_tools.servicenow.client import ServiceNow
-from productivity_agent_tools.servicenow.forms import parse_form
+from productivity_agent_tools.servicenow.forms import parse_form, parse_portal_form
 from productivity_agent_tools.servicenow.http import ServiceNowClient
 from productivity_agent_tools.servicenow.login import sign_in
 from productivity_agent_tools.servicenow.product import PRODUCT, doctor
@@ -158,6 +158,10 @@ class FakeServiceNow:
             {"sys_id": "x2", "name": "Create an incident (VIP)"},
             {"sys_id": FORM_ID, "name": "create an incident"},
         ]
+        self.portal_page: JsonValue = None
+        self.portal_status = 404
+        self.sites: list[dict[str, str]] = [{"sys_id": SITE_ID, "name": "N/A"}]
+        self.site_status = 200
 
     def handler(self, request: httpx.Request) -> httpx.Response:
         self.requests.append(request)
@@ -180,6 +184,16 @@ class FakeServiceNow:
             return httpx.Response(200, headers=who, json={"result": [ME]})
         if path == CATALOG:
             return httpx.Response(200, headers=who, json={"result": self.catalog_hits})
+        if path == "/api/now/sp/page":
+            if self.portal_page is None:
+                return httpx.Response(self.portal_status, json={"error": {"message": "no"}})
+            return httpx.Response(200, headers=who, json=self.portal_page)
+        if path == "/api/now/table/cmn_location":
+            if self.site_status != 200:
+                return httpx.Response(self.site_status, json={"error": {"message": "ACL"}})
+            query = request.url.params.get("sysparm_query", "")
+            rows = [site for site in self.sites if query == f"name={site['name']}"]
+            return httpx.Response(200, headers=who, json={"result": rows})
         if path == f"{CATALOG}/{FORM_ID}":
             return httpx.Response(200, headers=who, json={"result": FORM})
         if path == f"{CATALOG}/{FORM_ID}/submit_producer":
@@ -848,7 +862,7 @@ async def test_the_form_shows_configured_defaults(instance: FakeServiceNow) -> N
 async def test_the_form_can_be_named_by_sys_id(instance: FakeServiceNow) -> None:
     settings = with_settings(incident_form=FORM_ID)
     await call_with(instance, settings, "servicenow_get_incident_form", {})
-    assert [r.url.path for r in instance.requests] == [f"{CATALOG}/{FORM_ID}"]
+    assert [r.url.path for r in instance.requests] == ["/api/now/sp/page", f"{CATALOG}/{FORM_ID}"]
 
 
 async def test_a_form_that_is_not_found_names_what_the_search_found(
@@ -908,7 +922,8 @@ async def test_create_incident_in_dry_run_sends_nothing(instance: FakeServiceNow
             }
         },
     }
-    assert [r.method for r in instance.requests] == ["GET", "GET"]
+    # Search, the portal page (none here), then the catalog API's form.
+    assert [r.method for r in instance.requests] == ["GET", "GET", "GET"]
 
 
 async def test_create_incident_submits_the_form_and_reports_the_number(
@@ -1047,14 +1062,53 @@ def test_defaults_in_the_config_need_no_quoted_keys() -> None:
     assert variables["network_connection"] == "vpn"
 
 
-async def test_a_lookup_question_needs_a_sys_id(instance: FakeServiceNow) -> None:
+@pytest.mark.parametrize(
+    ("site", "sites", "status"),
+    [
+        ("N/A", [{"sys_id": SITE_ID, "name": "N/A"}] * 2, 200),  # two by that name
+        ("N/A", [], 200),  # none
+        ("N/A", [{"sys_id": SITE_ID, "name": "N/A"}], 403),  # the table cannot be read
+        ("N/A", [{"sys_id": "", "name": "N/A"}], 200),  # a row without its sys_id
+        ("N/A^ORname=x", [{"sys_id": SITE_ID, "name": "N/A^ORname=x"}], 200),  # not a name
+    ],
+)
+async def test_a_lookup_answer_must_resolve_to_one_record(
+    instance: FakeServiceNow, site: str, sites: list[dict[str, str]], status: int
+) -> None:
+    instance.sites = sites
+    instance.site_status = status
     with pytest.raises(
         ToolError,
         match=r"'Site' is picked from a table \(cmn_location\), so its answer is the chosen "
-        r"record's sys_id .*not 'N/A'\. .*extra_fields=\['u_site'\]",
+        r"record's sys_id .*No single record named .* ask the user for the sys_id\.",
     ):
-        await call(instance, "servicenow_create_incident", {"answers": ANSWERS | {"Site": "N/A"}})
+        await call(instance, "servicenow_create_incident", {"answers": ANSWERS | {"Site": site}})
     assert "POST" not in [r.method for r in instance.requests]
+
+
+async def test_a_lookup_answer_given_by_name_is_looked_up(instance: FakeServiceNow) -> None:
+    settings = with_settings(incident_defaults={"site": "n/a"})
+    instance.sites = [{"sys_id": SITE_ID, "name": "n/a"}]
+    answers = {k: v for k, v in ANSWERS.items() if k != "Site"}
+    result = await call_with(instance, settings, "servicenow_create_incident", {"answers": answers})
+    request = result["request"]
+    assert isinstance(request, dict)
+    assert request["body"]["variables"]["u_site"] == SITE_ID
+    looked_up = [r for r in instance.requests if r.url.path == "/api/now/table/cmn_location"]
+    assert looked_up[0].url.params["sysparm_query"] == "name=n/a"
+    form = await call_with(instance, settings, "servicenow_get_incident_form", {})
+    questions = form["questions"]
+    assert isinstance(questions, list)
+    assert {q["name"]: q["default"] for q in questions}["u_site"] == SITE_ID
+
+
+async def test_only_lookup_answers_are_looked_up(instance: FakeServiceNow) -> None:
+    with pytest.raises(ToolError, match="'Colour' is not a question"):
+        await call(instance, "servicenow_create_incident", {"answers": ANSWERS | {"Colour": "x"}})
+    await call(
+        instance, "servicenow_create_incident", {"answers": ANSWERS | {"Site": SITE_ID, "Room": ""}}
+    )
+    assert not [r for r in instance.requests if r.url.path == "/api/now/table/cmn_location"]
 
 
 def test_a_reference_without_its_table_named_is_still_a_lookup() -> None:
@@ -1102,3 +1156,152 @@ async def test_several_forms_with_the_name_are_refused_with_their_ids(
         rf"{FORM_ID} \(no description\)\. Set incident_form",
     ):
         await call(instance, "servicenow_get_incident_form", {})
+
+
+PORTAL_ITEM: dict[str, JsonValue] = {
+    "sys_id": FORM_ID,
+    "name": "Create an Incident",
+    "short_description": "The portal's form",
+    "_fields": {
+        "IO:1": {"name": "intro", "label": "Intro", "type": "container_start"},
+        "IO:2": {
+            "name": "u_site",
+            "label": "Site",
+            "type": "reference",
+            "mandatory": True,
+            "ed": {"reference": "cmn_location", "qualifier": ""},
+            "value": "",
+            "displayValue": "",
+        },
+        "IO:3": {
+            "name": "category",
+            "label": "Category",
+            "type": "choice",
+            "mandatory": True,
+            "choices": [
+                {"value": "", "label": "-- None --"},
+                {"value": "Network", "label": "Network"},
+            ],
+            "instructions": "Network: connectivity, VPN",
+        },
+        "IO:4": {
+            "name": "caller_id",
+            "label": "Caller",
+            "type": "reference",
+            "mandatory": True,
+            "refTable": "sys_user",
+            "value": "u1",
+        },
+        "IO:5": {"name": "u_hidden", "label": "Hidden", "type": "string", "visible": False},
+        "IO:6": {
+            "name": "comments",
+            "label": "Please describe your issue below",
+            "type": "textarea",
+            "mandatory": True,
+        },
+        "IO:7": {"name": "u_where", "label": "Where", "type": "reference", "mandatory": False},
+    },
+}
+
+
+def portal_page(item: JsonValue) -> JsonValue:
+    """A page answer with the catalog item where the portal keeps it: deep in a widget."""
+    widget: JsonValue = {"widget": {"data": {"other": [1, "x"], "sc_cat_item": item}}}
+    page: JsonValue = {"result": {"containers": [{"rows": [{"columns": [{"widgets": [widget]}]}]}]}}
+    return page
+
+
+async def test_the_form_is_read_from_the_portal_page(instance: FakeServiceNow) -> None:
+    instance.portal_page = portal_page(PORTAL_ITEM)
+    settings = with_settings(incident_form=FORM_ID, portal_id="p" * 32)
+    form = await call_with(instance, settings, "servicenow_get_incident_form", {})
+    assert form["source"] == "portal page"
+    assert form["description"] == "The portal's form"
+    questions = form["questions"]
+    assert isinstance(questions, list)
+    by_name = {q["name"]: q for q in questions}
+    assert list(by_name) == ["u_site", "category", "caller_id", "comments", "u_where"]
+    assert by_name["u_site"]["lookup_table"] == "cmn_location"
+    assert by_name["u_site"]["required"] is True
+    assert by_name["caller_id"]["lookup_table"] == "sys_user"
+    assert by_name["caller_id"]["default"] == "u1"
+    assert by_name["u_where"]["lookup_table"] == "an unnamed table"
+    assert by_name["category"]["choices"] == [{"value": "Network", "label": "Network"}]
+    assert by_name["category"]["help_text"] == "Network: connectivity, VPN"
+    params = instance.requests[0].url.params
+    assert dict(params) == {"id": "sc_cat_item", "sys_id": FORM_ID, "portal_id": "p" * 32}
+    # The catalog API was not needed.
+    assert len(instance.requests) == 1
+
+
+async def test_a_form_from_the_portal_page_is_submitted_as_the_portal_does(
+    instance: FakeServiceNow,
+) -> None:
+    instance.portal_page = portal_page(PORTAL_ITEM)
+    answers = {"site": "N/A", "category": "network", "comments": "VPN drops"}
+    result = await call(instance, "servicenow_create_incident", {"answers": answers})
+    assert isinstance(result, dict)
+    request = result["request"]
+    assert isinstance(request, dict)
+    assert request["path"] == f"{CATALOG}/{FORM_ID}/submit_producer"
+    assert request["body"] == {
+        "variables": {
+            "u_site": SITE_ID,
+            "category": "Network",
+            "caller_id": "u1",
+            "comments": "VPN drops",
+        }
+    }
+
+
+@pytest.mark.parametrize(
+    "page",
+    [
+        portal_page({**PORTAL_ITEM, "_fields": {}}),  # a form with no questions
+        portal_page({"sys_id": FORM_ID, "name": "No fields"}),  # not a form model
+        {"result": "nothing here"},
+    ],
+)
+async def test_a_page_without_a_usable_form_falls_back_to_the_catalog_api(
+    instance: FakeServiceNow, page: JsonValue
+) -> None:
+    instance.portal_page = page
+    form = await call(instance, "servicenow_get_incident_form", {})
+    assert isinstance(form, dict)
+    assert form["source"] == "catalog API"
+    assert form["name"] == "Create an incident"
+
+
+async def test_a_portal_page_that_fails_falls_back_to_the_catalog_api(
+    instance: FakeServiceNow,
+) -> None:
+    instance.portal_status = 500
+    form = await call(instance, "servicenow_get_incident_form", {})
+    assert isinstance(form, dict)
+    assert form["source"] == "catalog API"
+
+
+def test_a_portal_form_may_list_its_fields_and_lack_a_sys_id() -> None:
+    item: dict[str, JsonValue] = {
+        "name": "F",
+        "_fields": [{"name": "comments", "type": "textarea"}],
+    }
+    form = parse_portal_form(portal_page(item))
+    assert form is not None
+    assert form.sys_id == ""
+    assert [q.name for q in form.questions] == ["comments"]
+
+
+async def test_a_portal_form_without_its_sys_id_keeps_the_one_it_was_found_by(
+    instance: FakeServiceNow,
+) -> None:
+    instance.portal_page = portal_page({k: v for k, v in PORTAL_ITEM.items() if k != "sys_id"})
+    async with make_api(instance) as api:
+        form = await ServiceNow(api, ServiceNowSettings()).catalog_form(FORM_ID)
+    assert form.sys_id == FORM_ID
+    assert form.source == "portal page"
+
+
+def test_the_portal_id_setting() -> None:
+    assert parse_servicenow_settings({}).portal_id is None
+    assert parse_servicenow_settings({"portal_id": " abc "}).portal_id == "abc"
