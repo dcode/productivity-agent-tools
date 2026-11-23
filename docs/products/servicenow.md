@@ -54,12 +54,14 @@ the form checks them in the browser, not the API.
 
 The agent reads the form first with `servicenow_get_incident_form`: each
 question's name and label, whether it is required, its choices and help text,
-and the default it will get. Then `servicenow_create_incident` takes the answers,
-keyed by name or label:
+and the default it will get. Then `servicenow_create_incident` takes the answers.
+A key can be the question's name (`u_preferred_contact_phone_number`), its label
+as shown ("Network Connection", any case), or that label as an identifier in
+snake_case or camelCase (`network_connection`, `networkConnection`):
 
 ```bash
 uv run productivity-agent-tools call servicenow_create_incident \
-  'answers={"Category": "Network", "Please describe your issue below": "VPN drops hourly"}' \
+  'answers={"category": "Network", "please_describe_your_issue_below": "VPN drops hourly"}' \
   --dry-run
 ```
 
@@ -74,9 +76,9 @@ own:
 
 ```toml
 [servicenow.incident_defaults]
-Site = "N/A"
-"Preferred Contact Phone Number" = "555-0100"
-"Network Connection" = "VPN"
+site = "N/A"
+u_preferred_contact_phone_number = "555-0100"
+network_connection = "VPN"
 ```
 
 Like every write, nothing is sent while `dry_run` is on (the result shows the

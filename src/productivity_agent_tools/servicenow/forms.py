@@ -9,6 +9,7 @@ Service Catalog API and checks a set of answers against it before anything is
 sent: every required question answered, every choice one the form offers.
 """
 
+import re
 from dataclasses import dataclass, field
 
 from pydantic import JsonValue
@@ -119,10 +120,15 @@ class CatalogForm:
     questions: tuple[Question, ...] = field(default=())
 
     def question(self, key: str) -> Question:
-        """Find a question by its name, or by its label in any case.
+        """Find a question by its name, or by its label in any case or written as an identifier.
+
+        In order: the exact name; the label or name in any case; then the label or
+        name in snake_case or camelCase, so ``network_connection`` and
+        ``networkConnection`` both find "Network Connection", and a config file needs
+        no quoted keys.
 
         Args:
-            key: A variable name or a label.
+            key: A variable name, a label, or a label as an identifier.
 
         Returns:
             The question.
@@ -137,6 +143,10 @@ class CatalogForm:
         folded = _plain(wanted)
         for question in self.questions:
             if _plain(question.label) == folded or question.name.casefold() == folded:
+                return question
+        slug = _slug(wanted)
+        for question in self.questions:
+            if slug and slug in (_slug(question.label), _slug(question.name)):
                 return question
         names = ", ".join(q.name for q in self.questions)
         raise AgentToolsError(f"'{wanted}' is not a question on '{self.name}'. Questions: {names}.")
@@ -212,6 +222,15 @@ class CatalogForm:
             else:
                 combined.pop(question.name, None)
         return combined
+
+
+def _slug(words: str) -> str:
+    """Write a label or key as a snake_case identifier: "What's the impact?" -> whats_the_impact.
+
+    camelCase is split first, so ``networkConnection`` becomes ``network_connection``.
+    """
+    split = re.sub(r"(?<=[a-z0-9])(?=[A-Z])", "_", words)
+    return re.sub(r"[^a-z0-9]+", "_", split.replace("'", "").casefold()).strip("_")
 
 
 def _plain(label: str) -> str:
