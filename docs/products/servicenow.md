@@ -1,8 +1,8 @@
 # ServiceNow
 
 A ServiceNow helpdesk behind single sign-on. The agent can list and read your
-incidents (helpdesk tickets) and open a new one for you. Software requests
-through the service catalog are next on the roadmap.
+incidents (helpdesk tickets) and open a new one, and search the service catalog,
+request an item (such as software) and follow your requests.
 
 ## Setup
 
@@ -33,6 +33,7 @@ to check it, and restart your agent to load the tools.
 | `incident_form` | `"Create an incident"` | The catalog form that opens an incident: its exact name or `sys_id` (see below) |
 | `portal` | none | The service portal the form is read from: its address suffix, such as `sp` in `/sp?id=...` |
 | `portal_id` | read from the portal's page | The portal's `sys_id`, to skip reading it |
+| `[servicenow.order_defaults]` | none | Answers used when ordering any catalog item whose form has the question |
 | `[servicenow.incident_defaults]` | none | Answers to that form's questions used when the agent gives none |
 
 ## Tools
@@ -44,6 +45,11 @@ to check it, and restart your agent to load the tools.
 | `servicenow_get_incident` | read | One incident by number: state, who has it, comments, resolution; `extra_fields` reads any other field |
 | `servicenow_get_incident_form` | read | The incident form's questions: which are required, their choices, defaults |
 | `servicenow_create_incident` | write | Open an incident by submitting that form |
+| `servicenow_search_catalog` | read | Find catalog items, such as software, by words |
+| `servicenow_get_catalog_form` | read | An item's form: questions, choices, rules, defaults |
+| `servicenow_order_item` | write | Request an item, as the portal's "Order now" does |
+| `servicenow_list_requests` | read | Your requested items (RITM): stage, approval, delivery |
+| `servicenow_get_request_item` | read | One requested item: who has it, comments |
 
 ### Opening an incident
 
@@ -150,6 +156,27 @@ instead, the number is what to search for.
 `servicenow_get_incident` can show urgency and impact as empty even when they
 were set: your account may not be allowed to read those fields. The priority
 still reflects them.
+
+### Requesting from the catalog
+
+The agent finds an item with `servicenow_search_catalog` (each result has its
+`sys_id`, and `ordered` is false for a form that creates another kind of record),
+reads its form with `servicenow_get_catalog_form`, and requests it with
+`servicenow_order_item`. The form is read and checked exactly as the incident
+form is, rules and lookups included, and the order is sent as the portal's
+"Order now" sends it. The result has the request's number (REQ...) and its items
+(RITM...); `servicenow_list_requests` and `servicenow_get_request_item` follow
+them through approval and delivery.
+
+```bash
+uv run productivity-agent-tools call servicenow_search_catalog "query=visual studio"
+uv run productivity-agent-tools call servicenow_order_item item=<sys_id> \
+  'answers={"justification": "Daily editing"}' --dry-run
+```
+
+Answers that do not change from one request to the next go in
+`[servicenow.order_defaults]`. Unlike the incident defaults, these are shared by
+every item, so a key is used only for an item whose form has that question.
 
 ## How the sign-in works
 

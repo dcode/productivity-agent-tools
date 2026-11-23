@@ -210,6 +210,10 @@ current-sprint = "assignee = currentUser() AND sprint in openSprints() ORDER BY 
 # u_site = "N/A"
 # u_preferred_contact_phone_number = "555-0100"
 # u_network_connection = "VPN"
+# Answers used when ordering from the catalog (software and the like), for whichever
+# item's form has the question; an item whose form lacks it is not affected.
+# [servicenow.order_defaults]
+# u_preferred_contact_phone_number = "555-0100"
 
 # Optional: your Obsidian vault, read from its folder (Obsidian need not be
 # running). Off until this table exists. No token and no base_url. Task notes

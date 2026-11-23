@@ -87,6 +87,61 @@ INCIDENTS: list[dict[str, str]] = [
 FORM_ID = "f" * 32
 SITE_ID = "5" * 32  # the "N/A" site's record
 PORTAL_ID = "7" * 32
+ITEM_ID = "e" * 32
+# A software item as the catalog API describes it.
+SOFTWARE_ITEM: dict[str, JsonValue] = {
+    "sys_id": ITEM_ID,
+    "name": "Visual Studio Code",
+    "short_description": "Code editor",
+    "sys_class_name": "sc_cat_item",
+    "variables": [
+        {
+            "name": "justification",
+            "label": "Business justification",
+            "friendly_type": "multi_line_text",
+            "mandatory": True,
+        },
+        {
+            "name": "u_preferred_contact_phone_number",
+            "label": "Phone",
+            "friendly_type": "single_line_text",
+            "mandatory": True,
+        },
+        {
+            "name": "platform",
+            "label": "Platform",
+            "friendly_type": "select_box",
+            "mandatory": True,
+            "choices": [{"value": "mac", "label": "macOS"}, {"value": "win", "label": "Windows"}],
+        },
+    ],
+}
+REQUEST_ITEMS: list[dict[str, str]] = [
+    {
+        "sys_id": "ri1",
+        "number": "RITM0010001",
+        "short_description": "Visual Studio Code",
+        "cat_item": "Visual Studio Code",
+        "quantity": "1",
+        "stage": "Waiting for Approval",
+        "state": "Open",
+        "approval": "Requested",
+        "request": "REQ0010001",
+        "requested_for": "Pat Example",
+        "estimated_delivery": "2026-11-30 17:00:00",
+        "due_date": "",
+        "opened_at": "2026-11-23 09:00:00",
+        "sys_updated_on": "2026-11-23 10:00:00",
+        "closed_at": "",
+        "close_notes": "",
+        "assignment_group": "Software Desk",
+        "assigned_to": "",
+        "comments": (
+            "2026-11-23 10:00:00 - Sam Desk (Additional comments)\nWaiting on your manager."
+        ),
+    },
+    {"sys_id": "", "number": "RITM0010002", "stage": "Fulfillment"},
+]
 # The work instance's site table names its records in u_name (2026-11-23).
 U_SITES: list[dict[str, str]] = [
     {"sys_id": "998d2bf1afd2d5505732526559274912", "u_name": "N/A"},
@@ -169,7 +224,7 @@ class FakeServiceNow:
     def __init__(self) -> None:
         self.requests: list[httpx.Request] = []
         self.accept_token = True
-        self.catalog_hits: list[dict[str, str]] = [
+        self.catalog_hits: list[dict[str, JsonValue]] = [
             {"sys_id": "x2", "name": "Create an incident (VIP)"},
             {"sys_id": FORM_ID, "name": "create an incident"},
         ]
@@ -179,6 +234,7 @@ class FakeServiceNow:
         self.portal_status = 404
         self.sites: list[dict[str, str]] = [{"sys_id": SITE_ID, "name": "N/A"}]
         self.site_status = 200
+        self.request_item_status = 200
 
     def handler(self, request: httpx.Request) -> httpx.Response:
         self.requests.append(request)
@@ -220,6 +276,28 @@ class FakeServiceNow:
             return httpx.Response(200, headers=who, json={"result": rows})
         if path == f"{CATALOG}/{FORM_ID}":
             return httpx.Response(200, headers=who, json={"result": FORM})
+        if path == f"{CATALOG}/{ITEM_ID}":
+            return httpx.Response(200, headers=who, json={"result": SOFTWARE_ITEM})
+        if path == f"{CATALOG}/{ITEM_ID}/order_now":
+            ordered = {
+                "sys_id": "r9",
+                "number": "REQ0010009",
+                "request_number": "REQ0010009",
+                "request_id": "r9",
+                "table": "sc_request",
+            }
+            return httpx.Response(200, headers=who, json={"result": ordered})
+        if path == "/api/now/table/sc_req_item":
+            if self.request_item_status != 200:
+                return httpx.Response(self.request_item_status, json={"error": "ACL"})
+            query = request.url.params.get("sysparm_query", "")
+            if query == "request=r9":
+                rows: list[dict[str, str]] = [{"number": "RITM0010009"}, {"number": ""}]
+            elif query.startswith("number="):
+                rows = [r for r in REQUEST_ITEMS if f"number={r['number']}" == query]
+            else:
+                rows = REQUEST_ITEMS
+            return httpx.Response(200, headers=who, json={"result": rows})
         if path == f"{CATALOG}/{FORM_ID}/submit_producer":
             created = {"sys_id": "i9", "number": "INC0010009", "table": "incident"}
             return httpx.Response(200, headers=who, json={"result": created})
@@ -811,7 +889,8 @@ async def test_get_incident_reads_one_by_number(instance: FakeServiceNow) -> Non
 
 
 @pytest.mark.parametrize(
-    ("number", "match"), [("INC0099999", "No incident INC0099999"), ("12; drop", "not an incident")]
+    ("number", "match"),
+    [("INC0099999", "No incident INC0099999"), ("12; drop", "not a record number")],
 )
 async def test_get_incident_explains_a_bad_or_unknown_number(
     instance: FakeServiceNow, number: str, match: str
@@ -1797,3 +1876,244 @@ def test_policy_settings_and_operators_are_read_loosely() -> None:
     assert rule.conditions == (Condition("a", "=", "1", joins_with_or=True),)
     assert rule.effects == (Effect("x", visible=True),)
     assert Effect("x").describe() == "x "
+
+
+# --- catalog requests ---------------------------------------------------------------------
+
+ORDER_ANSWERS: dict[str, str] = {"Business justification": "Daily editing", "platform": "macOS"}
+
+
+async def test_the_catalog_is_searched_as_the_portal_searches(instance: FakeServiceNow) -> None:
+    instance.catalog_hits = [
+        {
+            "sys_id": ITEM_ID,
+            "name": "Visual Studio Code",
+            "short_description": "Code editor",
+            "category": {"title": "Software"},
+            "sys_class_name": "sc_cat_item",
+        },
+        {"sys_id": FORM_ID, "name": "", "category": "", "type": "record_producer"},
+        {"name": "no id"},
+    ]
+    items = await call(
+        instance, "servicenow_search_catalog", {"query": " vscode ", "max_results": 5}
+    )
+    assert items == [
+        {
+            "sys_id": ITEM_ID,
+            "name": "Visual Studio Code",
+            "description": "Code editor",
+            "category": "Software",
+            "ordered": True,
+        },
+        {
+            "sys_id": FORM_ID,
+            "name": FORM_ID,
+            "description": None,
+            "category": None,
+            "ordered": False,
+        },
+    ]
+    params = instance.requests[-1].url.params
+    assert (params["sysparm_text"], params["sysparm_limit"]) == ("vscode", "5")
+
+
+async def test_a_blank_catalog_search_is_refused(instance: FakeServiceNow) -> None:
+    with pytest.raises(ToolError, match="Say what to look for"):
+        await call(instance, "servicenow_search_catalog", {"query": "  "})
+    assert instance.requests == []
+
+
+async def test_an_items_form_uses_the_order_defaults_its_form_has(
+    instance: FakeServiceNow,
+) -> None:
+    settings = with_settings(
+        order_defaults={"u_preferred_contact_phone_number": "555-0100", "u_site": "N/A"}
+    )
+    form = await call_with(instance, settings, "servicenow_get_catalog_form", {"item": ITEM_ID})
+    assert form["name"] == "Visual Studio Code"
+    assert form["problems"] == []  # u_site is not on this form: skipped, not a problem
+    questions = form["questions"]
+    assert isinstance(questions, list)
+    defaults = {q["name"]: q["default"] for q in questions}
+    assert defaults["u_preferred_contact_phone_number"] == "555-0100"
+
+
+async def test_an_order_is_checked_then_sent_as_the_portal_sends_it(
+    instance: FakeServiceNow,
+) -> None:
+    settings = with_settings(order_defaults={"u_preferred_contact_phone_number": "555-0100"})
+    result = await call_with(
+        instance,
+        settings,
+        "servicenow_order_item",
+        {"item": ITEM_ID, "answers": ORDER_ANSWERS, "quantity": 2},
+        dry_run=False,
+    )
+    assert result["sent"] is True
+    assert result["item"] == "Visual Studio Code"
+    assert result["number"] == "REQ0010009"
+    assert result["url"] == f"{BASE}/sc_request.do?sys_id=r9"
+    assert result["items"] == ["RITM0010009"]
+    assert result["message"] == "Requested Visual Studio Code: REQ0010009."
+    posted = next(r for r in instance.requests if r.method == "POST")
+    assert posted.url.path == f"{CATALOG}/{ITEM_ID}/order_now"
+    assert json.loads(posted.content) == {
+        "sysparm_quantity": "2",
+        "variables": {
+            "justification": "Daily editing",
+            "u_preferred_contact_phone_number": "555-0100",
+            "platform": "mac",
+        },
+        "get_portal_messages": "true",
+        "sysparm_no_validation": "true",
+    }
+
+
+async def test_an_order_in_dry_run_sends_nothing_and_reads_no_items(
+    instance: FakeServiceNow,
+) -> None:
+    answers = ORDER_ANSWERS | {"Phone": "555-0100"}
+    result = await call(instance, "servicenow_order_item", {"item": ITEM_ID, "answers": answers})
+    assert isinstance(result, dict)
+    assert result["sent"] is False
+    assert result["items"] == []
+    assert str(result["message"]).startswith("DRY RUN")
+    assert "POST" not in [r.method for r in instance.requests]
+    assert not [r for r in instance.requests if r.url.path.endswith("sc_req_item")]
+
+
+async def test_an_order_missing_an_answer_is_refused(instance: FakeServiceNow) -> None:
+    with pytest.raises(ToolError, match=r"requires answers to: u_preferred_contact_phone_number"):
+        await call(
+            instance,
+            "servicenow_order_item",
+            {"item": ITEM_ID, "answers": ORDER_ANSWERS},
+            dry_run=False,
+        )
+    assert "POST" not in [r.method for r in instance.requests]
+
+
+async def test_an_identical_order_is_not_sent_twice(instance: FakeServiceNow) -> None:
+    arguments = {"item": ITEM_ID, "answers": ORDER_ANSWERS | {"Phone": "555-0100"}}
+    async with make_api(instance, dry_run=False) as api:
+        server = build_server(servicenow_settings(), {"servicenow": Connected(api, "x")})
+        await server.call_tool("servicenow_order_item", arguments)
+        again = await server.call_tool("servicenow_order_item", arguments)
+    assert isinstance(again, CallToolResult)
+    assert again.structured_content is not None
+    assert again.structured_content["repeat_suppressed"] is True
+    assert [r.method for r in instance.requests].count("POST") == 1
+
+
+async def test_a_record_producer_item_is_submitted_not_ordered(
+    instance: FakeServiceNow,
+) -> None:
+    instance.portal_page = portal_page({**PORTAL_ITEM, "sys_class_name": "sc_cat_item_producer"})
+    answers = {"site": "N/A", "category": "network", "comments": "VPN drops"}
+    result = await call(
+        instance, "servicenow_order_item", {"item": FORM_ID, "answers": answers}, dry_run=False
+    )
+    assert isinstance(result, dict)
+    assert result["number"] == "INC0010009"
+    assert result["url"] == f"{BASE}/incident.do?sys_id=i9"
+    assert result["items"] == []
+    assert result["message"] == "Submitted Create an Incident: INC0010009."
+
+
+async def test_an_order_whose_items_cannot_be_read_still_reports(
+    instance: FakeServiceNow,
+) -> None:
+    instance.request_item_status = 403
+    arguments: dict[str, object] = {
+        "item": ITEM_ID,
+        "answers": ORDER_ANSWERS | {"Phone": "555-0100"},
+    }
+    result = await call(instance, "servicenow_order_item", arguments, dry_run=False)
+    assert isinstance(result, dict)
+    assert result["number"] == "REQ0010009"
+    assert result["items"] == []
+
+
+async def test_an_order_without_a_number_in_the_answer_still_reports(
+    instance: FakeServiceNow,
+) -> None:
+    class Bare(ServiceNowClient):
+        async def write(
+            self, method: str, path: str, payload: dict[str, JsonValue]
+        ) -> WriteOutcome:
+            return WriteOutcome(sent=True, method=method, path=path, payload=payload)
+
+    session = BrowserSession.collected_now(GOOD, TOKEN)
+
+    async def headers() -> dict[str, str]:
+        return session.headers()
+
+    transport = httpx.MockTransport(instance.handler)
+    arguments = {"item": ITEM_ID, "answers": ORDER_ANSWERS | {"Phone": "555-0100"}}
+    async with Bare(base_url=BASE, credentials=headers, transport=transport) as api:
+        server = build_server(servicenow_settings(), {"servicenow": Connected(api, "x")})
+        result = await server.call_tool("servicenow_order_item", arguments)
+    assert isinstance(result, CallToolResult)
+    assert result.structured_content is not None
+    assert result.structured_content["message"] == "Requested Visual Studio Code."
+    assert result.structured_content["url"] is None
+
+
+async def test_requests_are_listed_for_the_user(instance: FakeServiceNow) -> None:
+    rows = await call(instance, "servicenow_list_requests", {})
+    assert isinstance(rows, list)
+    first = rows[0]
+    assert isinstance(first, dict)
+    assert first == {
+        "number": "RITM0010001",
+        "item": "Visual Studio Code",
+        "short_description": "Visual Studio Code",
+        "request": "REQ0010001",
+        "stage": "Waiting for Approval",
+        "state": "Open",
+        "approval": "Requested",
+        "estimated_delivery": "2026-11-30 17:00:00",
+        "opened_at": "2026-11-23 09:00:00",
+        "updated_at": "2026-11-23 10:00:00",
+        "url": f"{BASE}/sc_req_item.do?sys_id=ri1",
+    }
+    second = rows[1]
+    assert isinstance(second, dict)
+    assert second["url"] is None
+    params = instance.requests[-1].url.params
+    assert params["sysparm_query"] == (
+        "active=true^requested_for=javascript:gs.getUserID()"
+        "^ORopened_by=javascript:gs.getUserID()^ORDERBYDESCopened_at"
+    )
+    await call(instance, "servicenow_list_requests", {"include_closed": True, "max_results": 3})
+    params = instance.requests[-1].url.params
+    assert params["sysparm_query"].startswith("requested_for=")
+    assert params["sysparm_limit"] == "3"
+
+
+async def test_a_request_item_is_read_in_detail(instance: FakeServiceNow) -> None:
+    item = await call(instance, "servicenow_get_request_item", {"number": "ritm0010001"})
+    assert isinstance(item, dict)
+    assert item["stage"] == "Waiting for Approval"
+    assert item["assignment_group"] == "Software Desk"
+    assert item["assigned_to"] is None
+    assert item["quantity"] == "1"
+    assert item["comments"] == [
+        {
+            "at": "2026-11-23 10:00:00",
+            "author": "Sam Desk",
+            "kind": "Additional comments",
+            "body": "Waiting on your manager.",
+        }
+    ]
+    with pytest.raises(ToolError, match="No request item RITM0099999"):
+        await call(instance, "servicenow_get_request_item", {"number": "RITM0099999"})
+
+
+def test_order_defaults_settings() -> None:
+    assert parse_servicenow_settings({}).order_defaults == {}
+    settings = parse_servicenow_settings({"order_defaults": {"site": "N/A"}})
+    assert settings.order_defaults == {"site": "N/A"}
+    with pytest.raises(ConfigError, match="order_defaults"):
+        parse_servicenow_settings({"order_defaults": {"site": 1}})

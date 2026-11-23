@@ -145,6 +145,8 @@ class CatalogForm:
         source: Where the form was read: ``"portal page"`` or ``"catalog API"``.
         rules: The form's UI policies, which show, hide, require and free questions
             as answers change (read from the portal page only).
+        record_class: The item's class, such as ``sc_cat_item`` (ordered) or
+            ``sc_cat_item_producer`` (a form that creates a record, submitted instead).
     """
 
     sys_id: str
@@ -153,6 +155,12 @@ class CatalogForm:
     questions: tuple[Question, ...] = field(default=())
     source: str = "catalog API"
     rules: tuple[Rule, ...] = ()
+    record_class: str = ""
+
+    @property
+    def is_producer(self) -> bool:
+        """True for a record producer: submitted to create a record, not ordered."""
+        return "producer" in self.record_class.casefold()
 
     def states(self, values: Mapping[str, str]) -> dict[str, State]:
         """Work out which questions are shown and required, given these answers.
@@ -415,6 +423,7 @@ def parse_form(item: JsonObject) -> CatalogForm:
         name=text(item, "name") or "",
         description=text(item, "short_description") or "",
         questions=tuple(questions),
+        record_class=text(item, "sys_class_name") or text(item, "type") or "",
     )
 
 
@@ -525,4 +534,5 @@ def parse_portal_form(page: JsonValue) -> CatalogForm | None:
         description=text(item, "short_description") or "",
         questions=tuple(questions),
         rules=rules,
+        record_class=text(item, "sys_class_name") or "",
     )

@@ -43,6 +43,16 @@ INCIDENT_FIELDS: str = (
 INCIDENT_SUMMARY_FIELDS: str = (
     "sys_id,number,short_description,state,priority,opened_at,sys_updated_on"
 )
+REQUEST_ITEM_TABLE: str = "/api/now/table/sc_req_item"
+REQUEST_ITEM_FIELDS: str = (
+    "sys_id,number,short_description,cat_item,quantity,stage,state,approval,request,"
+    "requested_for,estimated_delivery,due_date,opened_at,sys_updated_on,closed_at,"
+    "close_notes,assignment_group,assigned_to,comments"
+)
+REQUEST_ITEM_SUMMARY_FIELDS: str = (
+    "sys_id,number,short_description,cat_item,stage,state,approval,request,"
+    "estimated_delivery,opened_at,sys_updated_on"
+)
 CATALOG: str = "/api/sn_sc/servicecatalog"
 PORTAL_PAGE: str = "/api/now/sp/page"
 _SYS_ID = re.compile(r"^[0-9a-f]{32}$")
@@ -52,7 +62,7 @@ _PORTAL_ID = re.compile(r"portal_id\s*=\s*['\"]([0-9a-f]{32})['\"]")
 
 
 def normalize_incident_number(number: str) -> str:
-    """Tidy an incident number as typed, such as `` inc0012345 ``.
+    """Tidy a record number as typed, such as `` inc0012345 `` or ``ritm0012345``.
 
     Args:
         number: The number.
@@ -65,7 +75,7 @@ def normalize_incident_number(number: str) -> str:
     """
     tidy = number.strip().upper()
     if not re.fullmatch(r"[A-Z]+[0-9]+", tidy):
-        raise AgentToolsError(f"'{number}' is not an incident number, such as INC0012345.")
+        raise AgentToolsError(f"'{number}' is not a record number, such as INC0012345.")
     return tidy
 
 
@@ -317,6 +327,118 @@ class ServiceNow:
             "sysparm_no_validation": "true",
         }
         return await self._api.write("POST", f"{CATALOG}/items/{form.sys_id}/submit_producer", body)
+
+    async def search_catalog(self, query: str, max_results: int) -> list[JsonObject]:
+        """Search the service catalog, as the portal's search does.
+
+        Args:
+            query: Words to look for, such as a program's name.
+            max_results: Most items to return.
+
+        Returns:
+            The items found: ``sys_id``, ``name``, ``short_description``, ``category``
+            and their class, among others.
+
+        Raises:
+            AgentToolsError: If the query is blank.
+        """
+        words = query.strip()
+        if not words:
+            raise AgentToolsError("Say what to look for in the catalog, such as a program's name.")
+        params: dict[str, str | int] = {"sysparm_text": words, "sysparm_limit": max_results}
+        return objects(value(await self._api.get(f"{CATALOG}/items", params), "result"))
+
+    async def order_form(
+        self, form: CatalogForm, variables: dict[str, str], quantity: int
+    ) -> WriteOutcome:
+        """Order a catalog item, as the portal's "Order now" does.
+
+        Args:
+            form: The item's form, as read.
+            variables: Checked answers by variable name.
+            quantity: How many.
+
+        Returns:
+            The outcome; when sent, its response names the new request under ``result``.
+        """
+        # The portal's own body; see submit_form for why the server is asked not to check.
+        body: dict[str, JsonValue] = {
+            "sysparm_quantity": str(quantity),
+            "variables": dict(variables),
+            "get_portal_messages": "true",
+            "sysparm_no_validation": "true",
+        }
+        return await self._api.write("POST", f"{CATALOG}/items/{form.sys_id}/order_now", body)
+
+    async def items_of_request(self, request_id: str) -> list[str]:
+        """List the item numbers (RITM...) a new request holds.
+
+        Args:
+            request_id: The request's ``sys_id``.
+
+        Returns:
+            The numbers; empty when they cannot be read.
+
+        Raises:
+            AuthenticationError: If the session has expired.
+        """
+        params: dict[str, str | int] = {
+            "sysparm_query": f"request={request_id}",
+            "sysparm_fields": "number",
+            "sysparm_limit": 50,
+        }
+        try:
+            answer = await self._api.get(REQUEST_ITEM_TABLE, params)
+        except ApiError, InterstitialPageError, NotFoundError, PermissionDeniedError:
+            return []
+        return [n for row in objects(value(answer, "result")) if (n := text(row, "number"))]
+
+    async def request_item(self, number: str) -> JsonObject:
+        """Read one request item (RITM...) by its number, with display values.
+
+        Args:
+            number: The item's number, such as ``RITM0012345``.
+
+        Returns:
+            The record.
+
+        Raises:
+            AgentToolsError: If it is not found or not visible to the user.
+        """
+        tidy = normalize_incident_number(number)
+        params: dict[str, str | int] = {
+            "sysparm_query": f"number={tidy}",
+            "sysparm_fields": REQUEST_ITEM_FIELDS,
+            "sysparm_display_value": "true",
+            "sysparm_exclude_reference_link": "true",
+            "sysparm_limit": 1,
+        }
+        found = objects(value(await self._api.get(REQUEST_ITEM_TABLE, params), "result"))
+        if not found:
+            raise NotFoundError(f"No request item {tidy}, or it is not visible to your account.")
+        return found[0]
+
+    async def my_request_items(self, *, include_closed: bool, max_results: int) -> list[JsonObject]:
+        """List the request items the user is requested for or opened, newest first.
+
+        Args:
+            include_closed: Also list closed, completed and cancelled items.
+            max_results: Most items to return.
+
+        Returns:
+            The records, with display values.
+        """
+        query = f"requested_for={MY_ID}^ORopened_by={MY_ID}^ORDERBYDESCopened_at"
+        if not include_closed:
+            query = f"active=true^{query}"
+        params: dict[str, str | int] = {
+            "sysparm_query": query,
+            "sysparm_fields": REQUEST_ITEM_SUMMARY_FIELDS,
+            "sysparm_display_value": "true",
+            "sysparm_exclude_reference_link": "true",
+            "sysparm_limit": max_results,
+        }
+        return objects(value(await self._api.get(REQUEST_ITEM_TABLE, params), "result"))
 
     async def incident(self, number: str, extra_fields: tuple[str, ...] = ()) -> JsonObject:
         """Read one incident by its number.
