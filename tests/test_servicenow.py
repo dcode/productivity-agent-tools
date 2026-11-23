@@ -35,6 +35,7 @@ from productivity_agent_tools.server import Connected, build_server
 from productivity_agent_tools.servicenow.client import ServiceNow
 from productivity_agent_tools.servicenow.forms import parse_form, parse_portal_form
 from productivity_agent_tools.servicenow.http import ServiceNowClient
+from productivity_agent_tools.servicenow.journal import parse_journal
 from productivity_agent_tools.servicenow.login import sign_in
 from productivity_agent_tools.servicenow.product import PRODUCT, doctor
 from productivity_agent_tools.servicenow.session import (
@@ -790,7 +791,14 @@ async def test_get_incident_reads_one_by_number(instance: FakeServiceNow) -> Non
     assert incident["description"] == "Every hour."
     assert incident["assignment_group"] == "Service Desk"
     assert incident["assigned_to"] is None
-    assert incident["comments"] == "2026-11-21 10:00:00 - Sam Desk (Additional comments)\nLooking."
+    assert incident["comments"] == [
+        {
+            "at": "2026-11-21 10:00:00",
+            "author": "Sam Desk",
+            "kind": "Additional comments",
+            "body": "Looking.",
+        }
+    ]
     assert instance.requests[-1].url.params["sysparm_query"] == "number=INC0010001"
 
 
@@ -1493,3 +1501,33 @@ async def test_a_lookup_that_misses_names_the_column_it_searched(
     problems = form["problems"]
     assert isinstance(problems, list)
     assert "No single record with u_name 'Mars' was found there" in problems[0]
+
+
+def test_a_journal_is_split_at_its_headers() -> None:
+    journal = (
+        "2026-11-23 09:05:00 - Sam Desk (Additional comments)\n"
+        "Try this:\n\n1. Restart.\n2. Sign in again.\n\n"
+        "2026-11-22 16:00:00 - Pat Example (Work notes)  \n"
+        "Not a header: 2026-11-01 00:00:00 - X (Y) mid-line.\n\n"
+    )
+    entries = parse_journal(journal)
+    assert [(e.at, e.author, e.kind) for e in entries] == [
+        ("2026-11-23 09:05:00", "Sam Desk", "Additional comments"),
+        ("2026-11-22 16:00:00", "Pat Example", "Work notes"),
+    ]
+    assert entries[0].body == "Try this:\n\n1. Restart.\n2. Sign in again."
+    assert entries[1].body == "Not a header: 2026-11-01 00:00:00 - X (Y) mid-line."
+
+
+@pytest.mark.parametrize(
+    ("journal", "bodies"),
+    [
+        ("", []),
+        ("   \n", []),
+        ("Just text, no header.", ["Just text, no header."]),
+        ("Lead text\n2026-11-23 09:05:00 - A (B)\nbody", ["Lead text", "body"]),
+        ("2026-11-23 09:05:00 - A (B)\n", [""]),
+    ],
+)
+def test_a_journal_without_the_usual_shape_keeps_its_text(journal: str, bodies: list[str]) -> None:
+    assert [entry.body for entry in parse_journal(journal)] == bodies

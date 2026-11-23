@@ -9,6 +9,7 @@ from productivity_agent_tools.payload import JsonObject, text
 from productivity_agent_tools.products import ToolContext
 from productivity_agent_tools.repeats import RepeatGuard
 from productivity_agent_tools.servicenow.client import ServiceNow
+from productivity_agent_tools.servicenow.journal import parse_journal
 from productivity_agent_tools.servicenow.models import (
     FieldValue,
     FormQuestion,
@@ -164,7 +165,7 @@ def register_servicenow_tools(
             assigned_to=_blank_to_none(row, "assigned_to"),
             resolved_at=_blank_to_none(row, "resolved_at"),
             close_notes=_blank_to_none(row, "close_notes"),
-            comments=_blank_to_none(row, "comments"),
+            comments=parse_journal(_shown(row, "comments") or ""),
             extra_fields={
                 name: FieldValue(value=_stored(row, name), display=_shown(row, name))
                 for name in extras
