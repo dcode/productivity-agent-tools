@@ -10,9 +10,10 @@ Last updated: 2026-11-23.
 - **0.11.0, ServiceNow incidents (branch `claude/zealous-mendel-ny1eml`, restarted from
   `main` after #19 merged, 2026-11-23; in review as
   [#20](https://github.com/dcode/productivity-agent-tools/pull/20)). Start here.**
-  **Next action: merge #20, then tag `v0.11.0` on the commit it lands as on `main`.** Asked for on 2026-11-23: "add the
-  ServiceNow support to create tickets". Read as **incidents** (the helpdesk's tickets),
-  not catalog orders; ordering software stays the next ServiceNow step (see "Later").
+  **Next action: merge #20, then tag `v0.11.0` on the commit it lands as on `main`.** Asked
+  for on 2026-11-23: "add the ServiceNow support to create tickets". Read as **incidents**
+  (the helpdesk's tickets), not catalog orders; ordering software stays the next ServiceNow
+  step (see "Later").
   - **Tools:** `servicenow_get_incident_form` (read), `servicenow_create_incident`
     (write, behind `dry_run`, 30 s repeat guard), and the reads that go with it:
     `servicenow_list_incidents` (the user's, as caller or opener; open only by default)
