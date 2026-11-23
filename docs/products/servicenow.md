@@ -30,7 +30,7 @@ to check it, and restart your agent to load the tools.
 |---|---|---|
 | `browser` | Chrome, then Edge | Browser `login servicenow` starts: a path or a command name |
 | `login_timeout_seconds` | `300` | How long `login servicenow` waits for you to finish |
-| `incident_form` | `"Create an incident"` | The catalog form that opens an incident: its exact name or `sys_id` |
+| `incident_form` | `"Create an incident"` | The catalog form that opens an incident: its exact name or `sys_id` (see below) |
 | `[servicenow.incident_defaults]` | none | Answers to that form's questions used when the agent gives none |
 
 ## Tools
@@ -39,7 +39,7 @@ to check it, and restart your agent to load the tools.
 |---|---|---|
 | `servicenow_status` | read | Who is signed in, when they signed in, dry-run |
 | `servicenow_list_incidents` | read | Your incidents (you are the caller or opened them), open ones by default, newest first |
-| `servicenow_get_incident` | read | One incident by number: state, who has it, comments, resolution |
+| `servicenow_get_incident` | read | One incident by number: state, who has it, comments, resolution; `extra_fields` reads any other field |
 | `servicenow_get_incident_form` | read | The incident form's questions: which are required, their choices, defaults |
 | `servicenow_create_incident` | write | Open an incident by submitting that form |
 
@@ -70,15 +70,41 @@ matched by its label or value in any case and sent as its value; an unknown
 question or choice is refused with the list; and a required question left
 unanswered is refused, naming all that are. An empty answer clears a default.
 
+A question answered by picking a record, such as a site, shows the table it is
+picked from as `lookup_table`. Its answer is the picked record's `sys_id`, not its
+name, and the tool refuses a name rather than send it. To find the `sys_id`, read
+one of your incidents that has the field set:
+
+```bash
+uv run productivity-agent-tools call servicenow_get_incident \
+  number=INC0012345 'extra_fields=["u_site"]'
+```
+
+`extra_fields` returns each field's stored `value` (the `sys_id`) beside its
+`display` text.
+
 Answers that rarely change go in the config, so the agent does not ask each
 time. A question takes the agent's answer, else this default, else the form's
 own:
 
 ```toml
 [servicenow.incident_defaults]
-site = "N/A"
+u_site = "<sys_id from extra_fields>"
 u_preferred_contact_phone_number = "555-0100"
-network_connection = "VPN"
+u_network_connection = "VPN"
+```
+
+#### Which form
+
+`incident_form` finds the form by its exact name. Instances often keep
+ServiceNow's stock "Create an Incident" item beside their own form of the same
+name; when the name matches more than one, the tool refuses and lists their
+`sys_id`s. Use the one in the portal's address when the form is open
+(`...?id=sc_cat_item&sys_id=<this>`):
+
+```toml
+[servicenow]
+incident_form = "10f198405863e700eb7b1e2c93eae7ca"
 ```
 
 Like every write, nothing is sent while `dry_run` is on (the result shows the

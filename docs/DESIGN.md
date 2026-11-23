@@ -473,6 +473,11 @@ keeps writes behind a dry-run switch that is on by default.
   are required, all readable to the user. `servicenow/forms.py` checks the answers
   against it before sending (required answered, choices offered, matched by label or
   value), with defaults from `[servicenow.incident_defaults]`, then the form's own.
+  A reference question (a site) takes the picked record's `sys_id`; the tool refuses a
+  name rather than guess a lookup, since the referenced table's read rules and display
+  field are unknown, and `servicenow_get_incident` `extra_fields` reads a known value off
+  an earlier incident. An item name shared by several items (the stock form beside the
+  instance's own) is refused with their `sys_id`s.
   Conditional rules (a question required only after another's answer) run in the
   browser and are not known to the API, so they are not checked. Incidents came before
   catalog orders because the user asked for tickets; an order reuses the same form code.

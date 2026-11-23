@@ -33,6 +33,7 @@ INCIDENT_SUMMARY_FIELDS: str = (
 )
 CATALOG: str = "/api/sn_sc/servicecatalog"
 _SYS_ID = re.compile(r"^[0-9a-f]{32}$")
+_COLUMN = re.compile(r"^[a-z][a-z0-9_]*$")
 
 
 def normalize_incident_number(number: str) -> str:
@@ -111,17 +112,33 @@ class ServiceNow:
             The item's ``sys_id``.
 
         Raises:
-            AgentToolsError: If no item has that name, naming the closest the search found.
+            AgentToolsError: If no item has that name, naming the closest the search found,
+                or several do, naming their sys_ids.
         """
         wanted = name.strip()
         if _SYS_ID.match(wanted):
             return wanted
         params: dict[str, str | int] = {"sysparm_text": wanted, "sysparm_limit": 20}
         found = objects(value(await self._api.get(f"{CATALOG}/items", params), "result"))
-        for item in found:
-            item_id = text(item, "sys_id")
-            if item_id and (text(item, "name") or "").strip().casefold() == wanted.casefold():
-                return item_id
+        named = [
+            item
+            for item in found
+            if text(item, "sys_id")
+            and (text(item, "name") or "").strip().casefold() == wanted.casefold()
+        ]
+        if len(named) == 1:
+            return text(named[0], "sys_id") or ""
+        if named:
+            # Instances keep the stock item beside their own, often under the same name.
+            listed = "; ".join(
+                f"{text(item, 'sys_id')} ({text(item, 'short_description') or 'no description'})"
+                for item in named
+            )
+            raise AgentToolsError(
+                f"{len(named)} catalog items are named '{wanted}': {listed}. Set "
+                "incident_form under [servicenow] to the sys_id of the one the portal uses "
+                "(the sys_id= in its page address)."
+            )
         names = "; ".join(text(item, "name") or "?" for item in found) or "none"
         raise NotFoundError(
             f"No catalog item is named '{wanted}'. A search for it found: {names}. Set "
@@ -158,23 +175,30 @@ class ServiceNow:
         body: dict[str, JsonValue] = {"variables": dict(variables)}
         return await self._api.write("POST", f"{CATALOG}/items/{form.sys_id}/submit_producer", body)
 
-    async def incident(self, number: str) -> JsonObject:
+    async def incident(self, number: str, extra_fields: tuple[str, ...] = ()) -> JsonObject:
         """Read one incident by its number.
 
         Args:
             number: The incident number, such as ``INC0012345``.
+            extra_fields: More fields to read, by column name. When given, every field
+                comes back as ``{"value": ..., "display_value": ...}``.
 
         Returns:
-            The record, with display values.
+            The record: display values, or both forms when extra fields were asked for.
 
         Raises:
-            AgentToolsError: If it is not found or not visible to the user.
+            AgentToolsError: If it is not found or not visible to the user, or a field
+                name is not a column name.
         """
         tidy = normalize_incident_number(number)
+        for name in extra_fields:
+            if not _COLUMN.match(name):
+                raise AgentToolsError(f"'{name}' is not a field name, such as u_site.")
+        fields = ",".join(dict.fromkeys((*INCIDENT_FIELDS.split(","), *extra_fields)))
         params: dict[str, str | int] = {
             "sysparm_query": f"number={tidy}",
-            "sysparm_fields": INCIDENT_FIELDS,
-            "sysparm_display_value": "true",
+            "sysparm_fields": fields,
+            "sysparm_display_value": "all" if extra_fields else "true",
             "sysparm_exclude_reference_link": "true",
             "sysparm_limit": 1,
         }

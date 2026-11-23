@@ -189,18 +189,22 @@ current-sprint = "assignee = currentUser() AND sprint in openSprints() ORDER BY 
 # browser = "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"
 # How long `login servicenow` waits for you to finish signing in.
 # login_timeout_seconds = 300
-# The catalog form that opens an incident: its exact name or sys_id.
+# The catalog form that opens an incident: its exact name or sys_id. Instances often
+# keep the stock form beside their own under the same name; then use the sys_id= from
+# the address of the portal's form page.
 # incident_form = "Create an incident"
 # An empty cookies table, so the top-level [cookies] are not sent to this host.
 # [servicenow.cookies]
 # Answers to the incident form's questions that rarely change, so the agent need
 # not ask each time. A key is a question's name (servicenow_get_incident_form lists
 # them) or its label in snake_case or camelCase, so no quotes are needed; a choice
-# may be given by its label.
+# may be given by its label. A question picked from a table (servicenow_get_incident_form
+# shows its lookup_table) takes the record's sys_id: read it from one of your incidents
+# with `call servicenow_get_incident number=INC... 'extra_fields=["u_site"]'`.
 # [servicenow.incident_defaults]
-# site = "N/A"
+# u_site = "<sys_id of your site>"
 # u_preferred_contact_phone_number = "555-0100"
-# network_connection = "VPN"
+# u_network_connection = "VPN"
 
 # Optional: your Obsidian vault, read from its folder (Obsidian need not be
 # running). Off until this table exists. No token and no base_url. Task notes

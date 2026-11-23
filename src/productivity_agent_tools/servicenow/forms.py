@@ -17,6 +17,10 @@ from pydantic import JsonValue
 from productivity_agent_tools.errors import AgentToolsError
 from productivity_agent_tools.payload import JsonObject, objects, text, value
 
+_SYS_ID = re.compile(r"^[0-9a-f]{32}$")
+# Catalog variable types answered by picking a record from a table.
+# (A lookup select box is not one: the API lists its choices like any select box.)
+LOOKUP_KINDS: frozenset[str] = frozenset({"reference", "8"})
 # Catalog variable types that only lay the form out and take no answer, by the
 # Service Catalog API's friendly name and by number.
 LAYOUT_KINDS: frozenset[str] = frozenset(
@@ -68,6 +72,8 @@ class Question:
         choices: The choices, for a question that offers them; empty otherwise.
         default: The form's own default answer, if any.
         help_text: The form's help text, if any.
+        lookup_table: For a question answered by picking a record (a reference, such as a
+            site), the table it is picked from; its answer is that record's ``sys_id``.
     """
 
     name: str
@@ -77,6 +83,7 @@ class Question:
     choices: tuple[FormChoice, ...] = ()
     default: str = ""
     help_text: str = ""
+    lookup_table: str = ""
 
     def choose(self, answer: str) -> str:
         """Turn an answer into the value to send, matching a choice by value or label.
@@ -88,9 +95,17 @@ class Question:
             The choice's value, or the answer as written for a free-text question.
 
         Raises:
-            AgentToolsError: If the question offers choices and none matches.
+            AgentToolsError: If the question offers choices and none matches, or it is a
+                lookup and the answer is not a sys_id.
         """
         written = answer.strip()
+        if self.lookup_table and not _SYS_ID.match(written):
+            raise AgentToolsError(
+                f"'{self.label}' is picked from a table ({self.lookup_table}), so its answer "
+                f"is the chosen record's sys_id (32 hex characters), not '{written}'. To find "
+                "it, read an incident of yours that has it set with servicenow_get_incident "
+                f"and extra_fields=['{self.name}'], and use the value shown beside the name."
+            )
         if not self.choices:
             return written
         folded = written.casefold()
@@ -291,6 +306,9 @@ def parse_form(item: JsonObject) -> CatalogForm:
                 choices=_choices(variable),
                 default=_string(value(variable, "value")),
                 help_text=text(variable, "help_text") or "",
+                lookup_table=(text(variable, "reference") or "an unnamed table")
+                if kind in LOOKUP_KINDS
+                else "",
             )
         )
     return CatalogForm(
