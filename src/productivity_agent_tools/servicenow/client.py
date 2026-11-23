@@ -46,6 +46,8 @@ CATALOG: str = "/api/sn_sc/servicecatalog"
 PORTAL_PAGE: str = "/api/now/sp/page"
 _SYS_ID = re.compile(r"^[0-9a-f]{32}$")
 _COLUMN = re.compile(r"^[a-z][a-z0-9_]*$")
+# How a portal's page states its own sys_id: portal_id = '...'.
+_PORTAL_ID = re.compile(r"portal_id\s*=\s*['\"]([0-9a-f]{32})['\"]")
 
 
 def normalize_incident_number(number: str) -> str:
@@ -82,6 +84,7 @@ class ServiceNow:
         """
         self._api = api
         self.settings = settings
+        self._portal_id: str | None = settings.portal_id
 
     @property
     def base_url(self) -> str:
@@ -170,36 +173,70 @@ class ServiceNow:
             AgentToolsError: If the item cannot be found or read.
         """
         item_id = await self.find_catalog_item(name)
-        form = await self._portal_form(item_id)
+        form, why_not = await self._portal_form(item_id)
         if form is None:
             answer = await self._api.get(f"{CATALOG}/items/{item_id}")
-            form = parse_form(as_object(value(answer, "result"), "form"))
+            form = dataclasses.replace(
+                parse_form(as_object(value(answer, "result"), "form")),
+                source=f"catalog API (the portal page was not used: {why_not})",
+            )
         return form if form.sys_id else dataclasses.replace(form, sys_id=item_id)
 
-    async def _portal_form(self, item_id: str) -> CatalogForm | None:
+    async def portal_id(self) -> str | None:
+        """The service portal's ``sys_id``: as configured, else read from the portal's page.
+
+        With only ``portal`` (the address suffix, such as ``sp``) set, the portal's
+        own page is read once and its ``portal_id`` taken from it.
+
+        Returns:
+            The ``sys_id``, or None when neither setting is given or the page does
+            not state it.
+
+        Raises:
+            AgentToolsError: If the portal's page cannot be read.
+        """
+        suffix = self.settings.portal
+        if self._portal_id or not suffix:
+            return self._portal_id
+        html = await self._api.get_text(f"/{suffix}")
+        if found := _PORTAL_ID.search(html):
+            self._portal_id = found.group(1)
+        return self._portal_id
+
+    async def _portal_form(self, item_id: str) -> tuple[CatalogForm | None, str]:
         """Read a catalog item's form from the portal's page, as the portal shows it.
+
+        The request is the portal's own: the portal's ``sys_id`` as a parameter and as
+        the ``x-portal`` header, and the page's address as ``request_uri``.
 
         Args:
             item_id: The item's ``sys_id``.
 
         Returns:
-            The form, or None when the page cannot be read or holds no form with
-            questions; the catalog API is used then.
+            The form, or None and why not (the catalog API is used then).
 
         Raises:
             AuthenticationError: If the session has expired.
         """
         params: dict[str, str | int] = {"id": "sc_cat_item", "sys_id": item_id}
-        if self.settings.portal_id:
-            params["portal_id"] = self.settings.portal_id
+        headers: dict[str, str] = {}
         try:
-            page = await self._api.get(PORTAL_PAGE, params)
-        except ApiError, InterstitialPageError, NotFoundError, PermissionDeniedError:
-            return None
+            portal_id = await self.portal_id()
+            if portal_id:
+                params["portal_id"] = portal_id
+                headers["x-portal"] = portal_id
+            if suffix := self.settings.portal:
+                params["request_uri"] = f"/{suffix}?id=sc_cat_item&sys_id={item_id}"
+            page = await self._api.get(PORTAL_PAGE, params, headers)
+        except (ApiError, InterstitialPageError, NotFoundError, PermissionDeniedError) as exc:
+            return None, str(exc)
         form = parse_portal_form(page)
-        if form is None or not form.questions:
-            return None
-        return dataclasses.replace(form, source="portal page")
+        if form is None:
+            hint = "" if portal_id else "; set portal under [servicenow]"
+            return None, f"the page held no catalog item form{hint}"
+        if not form.questions:
+            return None, "the form on the page had no questions"
+        return dataclasses.replace(form, source="portal page"), ""
 
     async def lookup_record(self, table: str, name: str) -> str | None:
         """Find the one record in a table with this name, for a lookup question's answer.
@@ -264,7 +301,14 @@ class ServiceNow:
         Returns:
             The outcome; when sent, its response names the new record under ``result``.
         """
-        body: dict[str, JsonValue] = {"variables": dict(variables)}
+        # The portal's own body. The server's view of a form can be incomplete (on the
+        # work instance the catalog API knew one question of eleven), so, like the
+        # portal, the tool checks the answers itself and asks the server not to.
+        body: dict[str, JsonValue] = {
+            "variables": dict(variables),
+            "get_portal_messages": "true",
+            "sysparm_no_validation": "true",
+        }
         return await self._api.write("POST", f"{CATALOG}/items/{form.sys_id}/submit_producer", body)
 
     async def incident(self, number: str, extra_fields: tuple[str, ...] = ()) -> JsonObject:

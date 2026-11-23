@@ -193,9 +193,10 @@ current-sprint = "assignee = currentUser() AND sprint in openSprints() ORDER BY 
 # keep the stock form beside their own under the same name; then use the sys_id= from
 # the address of the portal's form page.
 # incident_form = "Create an incident"
-# The service portal the form is read from, as the portal shows it (its sys_id: the
-# portal_id= in the address of any of the portal's style sheets). Default: the
-# instance's default portal.
+# The service portal the form is read from, as the portal shows it: the part of its
+# address after the host, such as "sp" in https://helpdesk.example.com/sp?id=...
+# Its sys_id is read from its page; set portal_id as well to skip that.
+# portal = "sp"
 # portal_id = "<sys_id of the portal>"
 # An empty cookies table, so the top-level [cookies] are not sent to this host.
 # [servicenow.cookies]

@@ -238,12 +238,19 @@ class HttpAdapter:
         """Close the underlying connection pool."""
         await self._http.aclose()
 
-    async def get(self, path: str, params: dict[str, str | int] | None = None) -> JsonValue:
+    async def get(
+        self,
+        path: str,
+        params: dict[str, str | int] | None = None,
+        headers: dict[str, str] | None = None,
+    ) -> JsonValue:
         """Send a read request and return the parsed JSON body.
 
         Args:
             path: Request path relative to the base URL.
             params: Optional query parameters.
+            headers: Optional extra request headers; they never replace the
+                authentication headers.
 
         Returns:
             The decoded JSON body, or None for an empty response.
@@ -251,7 +258,7 @@ class HttpAdapter:
         Raises:
             AgentToolsError: For any connectivity, auth, or API failure.
         """
-        return await self._request("GET", path, params=params)
+        return await self._request("GET", path, params=params, headers=headers)
 
     async def get_text(self, path: str, params: dict[str, str | int] | None = None) -> str:
         """Send a read request for a plain-text resource and return its body.
@@ -314,6 +321,7 @@ class HttpAdapter:
         params: dict[str, str | int] | None = None,
         payload: dict[str, JsonValue] | None = None,
         as_text: bool = False,
+        headers: dict[str, str] | None = None,
     ) -> JsonValue:
         """Send one request and interpret the response.
 
@@ -323,6 +331,7 @@ class HttpAdapter:
             params: Optional query parameters.
             payload: Optional JSON body.
             as_text: Ask for plain text and return the body undecoded.
+            headers: Extra request headers; the authentication headers win over them.
 
         Returns:
             The decoded JSON body (or the text body), or None for an empty response.
@@ -330,7 +339,8 @@ class HttpAdapter:
         Raises:
             AgentToolsError: For any connectivity, auth, or API failure.
         """
-        extra: dict[str, str] = dict(await self._credentials())
+        extra: dict[str, str] = dict(headers or {})
+        extra.update(await self._credentials())
         cookies = [value for value in (extra.get("Cookie"), self._cookie_header) if value]
         if cookies:
             extra["Cookie"] = "; ".join(cookies)

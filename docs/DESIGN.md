@@ -470,7 +470,9 @@ keeps writes behind a dry-run switch that is on by default.
   fields and are enforced only in the browser, so the table write skipped them all, and
   `sys_choice` returned no rows to the user, so categories could not be checked either.
   The form's definition is read **from the portal's own page answer**
-  (`GET /api/now/sp/page?id=sc_cat_item&sys_id=...`, the request the portal makes;
+  (`GET /api/now/sp/page?id=sc_cat_item&sys_id=...`, the request the portal makes,
+  with its `portal_id`, `x-portal` header and `request_uri`; the portal's `sys_id` is
+  read from its own page, `portal_id = '...'`, given `[servicenow] portal`;
   the form model is `sc_cat_item._fields`, found wherever it sits in the answer), with
   the Service Catalog API (`GET .../items/{id}`) as the fallback. Seen live
   (2026-11-23): the catalog API returned only one of the portal form's eleven

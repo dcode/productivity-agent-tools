@@ -39,6 +39,7 @@ LAYOUT_KINDS: frozenset[str] = frozenset(
         "formatter",
         "checkbox_container",
         "sc_attachment",
+        "widget",
         "11",
         "12",
         "14",
@@ -240,6 +241,27 @@ class CatalogForm:
         except AgentToolsError as exc:
             raise AgentToolsError(f"In [servicenow.incident_defaults]: {exc}") from exc
 
+    def configured_each(self, defaults: dict[str, str]) -> tuple[dict[str, str], list[str]]:
+        """Resolve configured defaults one at a time, keeping those that fit the form.
+
+        For showing the form: one default that does not fit (a question renamed, a
+        choice removed) is reported instead of hiding the whole form.
+
+        Args:
+            defaults: Answers by question name or label, from the config.
+
+        Returns:
+            The values that fit, by question name, and a sentence for each that did not.
+        """
+        chosen: dict[str, str] = {}
+        problems: list[str] = []
+        for key, answer in defaults.items():
+            try:
+                chosen = self._chosen({key: answer}, chosen)
+            except AgentToolsError as exc:
+                problems.append(f"In [servicenow.incident_defaults]: {exc}")
+        return chosen, problems
+
     def _chosen(self, source: dict[str, str], chosen: dict[str, str]) -> dict[str, str]:
         """Apply answers over earlier ones; an empty answer clears an earlier one.
 
@@ -391,6 +413,24 @@ def _find_catalog_item(source: JsonValue) -> JsonObject | None:
     return None
 
 
+def _laid_out(sections: JsonValue) -> list[str]:
+    """List field names in the order the portal's form lays them out.
+
+    Args:
+        sections: The item's ``_sections``: containers of columns of fields.
+
+    Returns:
+        The names, section by section and column by column.
+    """
+    return [
+        name
+        for section in objects(sections)
+        for column in objects(value(section, "columns"))
+        for field in objects(value(column, "fields"))
+        if (name := text(field, "name"))
+    ]
+
+
 def parse_portal_form(page: JsonValue) -> CatalogForm | None:
     """Read a catalog item's form from the portal's page answer, as the portal shows it.
 
@@ -411,6 +451,9 @@ def parse_portal_form(page: JsonValue) -> CatalogForm | None:
     raw = item["_fields"]
     fields = objects(list(raw.values()) if isinstance(raw, dict) else raw)
     questions = [q for field in fields if (q := _portal_question(field)) is not None]
+    # _fields is keyed by name in no set order; the form's layout gives the order.
+    order = {name: place for place, name in enumerate(_laid_out(value(item, "_sections")))}
+    questions.sort(key=lambda question: order.get(question.name, len(order)))
     return CatalogForm(
         sys_id=text(item, "sys_id") or "",
         name=text(item, "name") or "",

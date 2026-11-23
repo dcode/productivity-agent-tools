@@ -77,6 +77,7 @@ INCIDENTS: list[dict[str, str]] = [
 ]
 FORM_ID = "f" * 32
 SITE_ID = "5" * 32  # the "N/A" site's record
+PORTAL_ID = "7" * 32
 CATALOG = "/api/sn_sc/servicecatalog/items"
 
 
@@ -159,6 +160,8 @@ class FakeServiceNow:
             {"sys_id": FORM_ID, "name": "create an incident"},
         ]
         self.portal_page: JsonValue = None
+        self.portal_html = f"<script>NOW.portal_id = '{PORTAL_ID}';</script>"
+        self.portal_html_reads = 0
         self.portal_status = 404
         self.sites: list[dict[str, str]] = [{"sys_id": SITE_ID, "name": "N/A"}]
         self.site_status = 200
@@ -184,6 +187,9 @@ class FakeServiceNow:
             return httpx.Response(200, headers=who, json={"result": [ME]})
         if path == CATALOG:
             return httpx.Response(200, headers=who, json={"result": self.catalog_hits})
+        if path == "/arlsp2":
+            self.portal_html_reads += 1
+            return httpx.Response(200, headers={"content-type": "text/html"}, text=self.portal_html)
         if path == "/api/now/sp/page":
             if self.portal_page is None:
                 return httpx.Response(self.portal_status, json={"error": {"message": "no"}})
@@ -450,7 +456,12 @@ async def test_doctor_names_who_is_signed_in(instance: FakeServiceNow) -> None:
 
 async def test_a_missing_user_record_is_an_error(instance: FakeServiceNow) -> None:
     class Elsewhere(ServiceNowClient):
-        async def get(self, path: str, params: dict[str, str | int] | None = None) -> JsonValue:
+        async def get(
+            self,
+            path: str,
+            params: dict[str, str | int] | None = None,
+            headers: dict[str, str] | None = None,
+        ) -> JsonValue:
             return await super().get("/api/empty-user")
 
     session = BrowserSession.collected_now(GOOD, TOKEN)
@@ -882,7 +893,12 @@ async def test_an_item_without_its_own_sys_id_keeps_the_one_it_was_found_by(
     instance: FakeServiceNow,
 ) -> None:
     class NoId(ServiceNowClient):
-        async def get(self, path: str, params: dict[str, str | int] | None = None) -> JsonValue:
+        async def get(
+            self,
+            path: str,
+            params: dict[str, str | int] | None = None,
+            headers: dict[str, str] | None = None,
+        ) -> JsonValue:
             answer = await super().get(path, params)
             if path.endswith(FORM_ID) and isinstance(answer, dict):
                 result = answer["result"]
@@ -919,7 +935,9 @@ async def test_create_incident_in_dry_run_sends_nothing(instance: FakeServiceNow
                 "network_connection": "vpn",
                 "description": "The VPN drops hourly.",
                 "watch_list": "nobody",
-            }
+            },
+            "get_portal_messages": "true",
+            "sysparm_no_validation": "true",
         },
     }
     # Search, the portal page (none here), then the catalog API's form.
@@ -1250,35 +1268,45 @@ async def test_a_form_from_the_portal_page_is_submitted_as_the_portal_does(
             "category": "Network",
             "caller_id": "u1",
             "comments": "VPN drops",
-        }
+        },
+        "get_portal_messages": "true",
+        "sysparm_no_validation": "true",
     }
 
 
+NO_FORM = "the page held no catalog item form"
+
+
 @pytest.mark.parametrize(
-    "page",
+    ("page", "settings", "why"),
     [
-        portal_page({**PORTAL_ITEM, "_fields": {}}),  # a form with no questions
-        portal_page({"sys_id": FORM_ID, "name": "No fields"}),  # not a form model
-        {"result": "nothing here"},
+        (portal_page({**PORTAL_ITEM, "_fields": {}}), {}, "the form on the page had no questions"),
+        (
+            portal_page({"sys_id": FORM_ID, "name": "No fields"}),
+            {},
+            f"{NO_FORM}; set portal under [servicenow]",
+        ),
+        ({"result": "nothing here"}, {"portal_id": "p" * 32}, NO_FORM),
     ],
 )
-async def test_a_page_without_a_usable_form_falls_back_to_the_catalog_api(
-    instance: FakeServiceNow, page: JsonValue
+async def test_a_page_without_a_usable_form_falls_back_and_says_why(
+    instance: FakeServiceNow, page: JsonValue, settings: dict[str, str], why: str
 ) -> None:
     instance.portal_page = page
-    form = await call(instance, "servicenow_get_incident_form", {})
-    assert isinstance(form, dict)
-    assert form["source"] == "catalog API"
+    form = await call_with(instance, with_settings(**settings), "servicenow_get_incident_form", {})
+    assert form["source"] == f"catalog API (the portal page was not used: {why})"
     assert form["name"] == "Create an incident"
 
 
-async def test_a_portal_page_that_fails_falls_back_to_the_catalog_api(
+async def test_a_portal_page_that_fails_falls_back_and_says_why(
     instance: FakeServiceNow,
 ) -> None:
     instance.portal_status = 500
     form = await call(instance, "servicenow_get_incident_form", {})
     assert isinstance(form, dict)
-    assert form["source"] == "catalog API"
+    assert form["source"] == (
+        "catalog API (the portal page was not used: ServiceNow returned HTTP 500. (no))"
+    )
 
 
 def test_a_portal_form_may_list_its_fields_and_lack_a_sys_id() -> None:
@@ -1305,3 +1333,100 @@ async def test_a_portal_form_without_its_sys_id_keeps_the_one_it_was_found_by(
 def test_the_portal_id_setting() -> None:
     assert parse_servicenow_settings({}).portal_id is None
     assert parse_servicenow_settings({"portal_id": " abc "}).portal_id == "abc"
+
+
+async def test_the_portal_is_found_from_its_address_and_asked_as_the_portal_asks(
+    instance: FakeServiceNow,
+) -> None:
+    instance.portal_page = portal_page(PORTAL_ITEM)
+    async with make_api(instance) as api:
+        servicenow = ServiceNow(api, parse_servicenow_settings({"portal": "/arlsp2/"}))
+        first = await servicenow.catalog_form(FORM_ID)
+        await servicenow.catalog_form(FORM_ID)
+    assert first.source == "portal page"
+    assert instance.portal_html_reads == 1  # read once, then remembered
+    page_request = instance.requests[1]
+    assert dict(page_request.url.params) == {
+        "id": "sc_cat_item",
+        "sys_id": FORM_ID,
+        "portal_id": PORTAL_ID,
+        "request_uri": f"/arlsp2?id=sc_cat_item&sys_id={FORM_ID}",
+    }
+    assert page_request.headers["x-portal"] == PORTAL_ID
+    assert page_request.headers["x-usertoken"] == TOKEN  # the session still wins
+
+
+async def test_a_portal_page_that_does_not_state_its_id_is_still_asked(
+    instance: FakeServiceNow,
+) -> None:
+    instance.portal_html = "<p>no id here</p>"
+    instance.portal_page = portal_page(PORTAL_ITEM)
+    async with make_api(instance) as api:
+        servicenow = ServiceNow(api, parse_servicenow_settings({"portal": "arlsp2"}))
+        form = await servicenow.catalog_form(FORM_ID)
+        assert await servicenow.portal_id() is None
+    assert form.source == "portal page"
+    page_request = instance.requests[1]
+    assert "portal_id" not in page_request.url.params
+    assert "x-portal" not in page_request.headers
+
+
+async def test_a_configured_portal_id_is_used_without_reading_the_portal(
+    instance: FakeServiceNow,
+) -> None:
+    instance.portal_page = portal_page(PORTAL_ITEM)
+    async with make_api(instance) as api:
+        settings = parse_servicenow_settings({"portal": "arlsp2", "portal_id": "p" * 32})
+        await ServiceNow(api, settings).catalog_form(FORM_ID)
+    assert instance.portal_html_reads == 0
+    assert instance.requests[0].headers["x-portal"] == "p" * 32
+
+
+def test_portal_questions_follow_the_forms_layout() -> None:
+    sections: JsonValue = [
+        {"columns": [{"fields": [{"name": "category"}, {"type": "field"}]}]},
+        {"columns": [{"fields": [{"name": "u_site"}, {"name": "gone"}]}]},
+    ]
+    fields = PORTAL_ITEM["_fields"]
+    assert isinstance(fields, dict)
+    widget: JsonValue = {"name": "contextual_search_results", "type": "widget"}
+    item: dict[str, JsonValue] = {
+        **PORTAL_ITEM,
+        "_sections": sections,
+        "_fields": {**fields, "IO:8": widget},
+    }
+    form = parse_portal_form(portal_page(item))
+    assert form is not None
+    assert [q.name for q in form.questions] == [
+        "category",
+        "u_site",
+        "caller_id",
+        "comments",
+        "u_where",
+    ]
+
+
+async def test_the_form_shows_defaults_that_do_not_fit_as_problems(
+    instance: FakeServiceNow,
+) -> None:
+    settings = with_settings(
+        incident_defaults={"u_colour": "red", "category": "Printers", "network_connection": "VPN"}
+    )
+    form = await call_with(instance, settings, "servicenow_get_incident_form", {})
+    problems = form["problems"]
+    assert isinstance(problems, list)
+    assert len(problems) == 2
+    assert problems[0].startswith("In [servicenow.incident_defaults]: 'u_colour' is not a question")
+    assert "'Printers' is not a choice for 'Category'" in problems[1]
+    questions = form["questions"]
+    assert isinstance(questions, list)
+    assert {q["name"]: q["default"] for q in questions}["network_connection"] == "vpn"
+    # Creating still refuses until the config is fixed.
+    with pytest.raises(ToolError, match="u_colour"):
+        await call_with(instance, settings, "servicenow_create_incident", {"answers": ANSWERS})
+
+
+def test_the_portal_settings() -> None:
+    settings = parse_servicenow_settings({"portal": " /sp/ "})
+    assert settings.portal == "sp"
+    assert parse_servicenow_settings({}).portal is None

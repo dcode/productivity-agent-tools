@@ -177,7 +177,12 @@ class RecordingApi:
     def __init__(self) -> None:
         self.reads: list[str] = []
 
-    async def get(self, path: str, params: dict[str, str | int] | None = None) -> JsonValue:
+    async def get(
+        self,
+        path: str,
+        params: dict[str, str | int] | None = None,
+        headers: dict[str, str] | None = None,
+    ) -> JsonValue:
         self.reads.append(path)
         return {"version": "10.0.0"}
 

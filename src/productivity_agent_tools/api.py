@@ -55,12 +55,19 @@ class ApiClient(Protocol):
     dry_run: bool
     username: str | None
 
-    async def get(self, path: str, params: dict[str, str | int] | None = None) -> JsonValue:
+    async def get(
+        self,
+        path: str,
+        params: dict[str, str | int] | None = None,
+        headers: dict[str, str] | None = None,
+    ) -> JsonValue:
         """Send a read request and return the parsed JSON body.
 
         Args:
             path: Request path relative to the base URL.
             params: Optional query parameters.
+            headers: Optional extra request headers, such as a portal's ``x-portal``;
+                they never replace the authentication headers.
 
         Returns:
             The decoded JSON body, or None for an empty response.

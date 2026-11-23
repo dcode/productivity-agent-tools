@@ -31,7 +31,8 @@ to check it, and restart your agent to load the tools.
 | `browser` | Chrome, then Edge | Browser `login servicenow` starts: a path or a command name |
 | `login_timeout_seconds` | `300` | How long `login servicenow` waits for you to finish |
 | `incident_form` | `"Create an incident"` | The catalog form that opens an incident: its exact name or `sys_id` (see below) |
-| `portal_id` | the default portal | The `sys_id` of the service portal the form is read from |
+| `portal` | none | The service portal the form is read from: its address suffix, such as `sp` in `/sp?id=...` |
+| `portal_id` | read from the portal's page | The portal's `sys_id`, to skip reading it |
 | `[servicenow.incident_defaults]` | none | Answers to that form's questions used when the agent gives none |
 
 ## Tools
@@ -58,8 +59,12 @@ question's name and label, whether it is required, its choices and help text,
 and the default it will get. The form is read the way the portal reads it, from
 the portal's page for the item (`/api/now/sp/page`), because the Service Catalog
 API can leave questions out: on the instance this was built against it returned
-one of eleven. If the page has no form, the catalog API is used; the result's
-`source` says which. Then `servicenow_create_incident` takes the answers.
+one of eleven. The request is the portal's own (its `portal_id`, an `x-portal`
+header and the page address), so set `portal` to the suffix in the portal's
+address. If the page has no form, the catalog API is used, and the result's
+`source` says so and why. Configured defaults that do not fit the form are listed
+under `problems`; the form is still shown, but a create refuses until they are
+fixed. Then `servicenow_create_incident` takes the answers.
 A key can be the question's name (`u_preferred_contact_phone_number`), its label
 as shown ("Network Connection", any case), or that label as an identifier in
 snake_case or camelCase (`network_connection`, `networkConnection`):
@@ -105,6 +110,7 @@ name; when the name matches more than one, the tool refuses and lists their
 ```toml
 [servicenow]
 incident_form = "10f198405863e700eb7b1e2c93eae7ca"
+portal = "sp"
 ```
 
 Like every write, nothing is sent while `dry_run` is on (the result shows the
