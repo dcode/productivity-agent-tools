@@ -133,6 +133,51 @@ class Question:
         )
 
 
+# What a client script calls when it changes the form rather than only reading it.
+_CHANGES_FORM = re.compile(
+    r"g_form\.(setMandatory|setVisible|setDisplay|setValue|clearValue|addOption|"
+    r"removeOption|clearOptions|setReadOnly)\b|\balert\("
+)
+
+
+@dataclass(frozen=True, slots=True)
+class FormScript:
+    """A client script that changes the form as the user answers it.
+
+    Attributes:
+        when: When it runs: ``onLoad``, ``onChange`` or ``onSubmit``.
+        field: For ``onChange``, the question whose change runs it.
+        code: The script.
+    """
+
+    when: str
+    field: str
+    code: str
+
+
+def parse_scripts(scripts: JsonValue) -> tuple[FormScript, ...]:
+    """Read the client scripts that change the form, from the portal's form model.
+
+    Args:
+        scripts: The item's ``client_script``: lists under ``onLoad``, ``onChange`` and
+            ``onSubmit``.
+
+    Returns:
+        The scripts that require, hide, set or limit answers (or warn), each once.
+    """
+    found: list[FormScript] = []
+    seen: set[tuple[str, str, str]] = set()
+    for when in ("onLoad", "onChange", "onSubmit"):
+        for script in objects(value(scripts, when)):
+            code = (text(script, "script") or "").strip()
+            field = text(script, "fieldName") or ""
+            if not _CHANGES_FORM.search(code) or (when, field, code) in seen:
+                continue
+            seen.add((when, field, code))
+            found.append(FormScript(when, field, code))
+    return tuple(found)
+
+
 @dataclass(frozen=True, slots=True, kw_only=True)
 class CatalogForm:
     """A catalog item and the questions on its form.
@@ -147,6 +192,9 @@ class CatalogForm:
             as answers change (read from the portal page only).
         record_class: The item's class, such as ``sc_cat_item`` (ordered) or
             ``sc_cat_item_producer`` (a form that creates a record, submitted instead).
+        scripts: The form's client scripts that change it (require, hide, set or limit
+            answers). They run in the browser and are not run here; they are shown to
+            the agent to follow.
     """
 
     sys_id: str
@@ -156,6 +204,7 @@ class CatalogForm:
     source: str = "catalog API"
     rules: tuple[Rule, ...] = ()
     record_class: str = ""
+    scripts: tuple[FormScript, ...] = ()
 
     @property
     def is_producer(self) -> bool:
@@ -535,4 +584,5 @@ def parse_portal_form(page: JsonValue) -> CatalogForm | None:
         questions=tuple(questions),
         rules=rules,
         record_class=text(item, "sys_class_name") or "",
+        scripts=parse_scripts(value(item, "client_script")),
     )

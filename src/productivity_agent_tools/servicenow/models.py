@@ -115,6 +115,14 @@ class FormQuestion(BaseModel):
     )
 
 
+class FormScript(BaseModel):
+    """A script the form runs in the browser, which these tools do not run."""
+
+    when: str = Field(description="onLoad (as the form opens), onChange or onSubmit.")
+    field: str | None = Field(default=None, description="For onChange, the question it watches.")
+    code: str = Field(description="The script (JavaScript, using g_form).")
+
+
 class FormView(BaseModel):
     """A catalog item's form: the incident form, or the form of an item to order."""
 
@@ -135,6 +143,14 @@ class FormView(BaseModel):
         "questions. servicenow_create_incident applies them to the answers given.",
     )
     questions: list[FormQuestion] = Field(description="The questions, in the form's order.")
+    scripts: list[FormScript] = Field(
+        default_factory=list,
+        description="Scripts the form runs in the browser that require, hide, set or limit "
+        "answers, or warn. These tools do not run them and the server does not check them: "
+        "read them and follow them in the answers (for example a combination a script "
+        "refuses, or a question it makes required). Calls to GlideAjax ask the server, so "
+        "their outcome is unknown here: ask the user when an answer depends on one.",
+    )
 
 
 class CatalogItem(BaseModel):
