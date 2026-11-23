@@ -1,19 +1,14 @@
 """ServiceNow client: the reads and writes the tools are built from."""
 
+import dataclasses
 import re
-from dataclasses import dataclass
-from typing import Literal
 
 from pydantic import JsonValue
 
 from productivity_agent_tools.api import ApiClient, WriteOutcome
-from productivity_agent_tools.errors import (
-    AgentToolsError,
-    ApiError,
-    NotFoundError,
-    PermissionDeniedError,
-)
-from productivity_agent_tools.payload import JsonObject, objects, text, value
+from productivity_agent_tools.errors import AgentToolsError, ApiError, NotFoundError
+from productivity_agent_tools.payload import JsonObject, as_object, objects, text, value
+from productivity_agent_tools.servicenow.forms import CatalogForm, parse_form
 from productivity_agent_tools.servicenow.settings import ServiceNowSettings
 
 USER_TABLE: str = "/api/now/table/sys_user"
@@ -36,126 +31,8 @@ INCIDENT_FIELDS: str = (
 INCIDENT_SUMMARY_FIELDS: str = (
     "sys_id,number,short_description,state,priority,opened_at,sys_updated_on"
 )
-type Level = Literal["high", "medium", "low"]
-# The out-of-the-box choice values for urgency and impact; priority follows from the two.
-LEVELS: dict[str, str] = {"high": "1", "medium": "2", "low": "3"}
-# Fields the create tool fills itself, so ``fields`` may not name them.
-OWN_FIELDS: frozenset[str] = frozenset(
-    {"caller_id", "short_description", "description", "urgency", "impact", "category"}
-)
-_FIELD_NAME = re.compile(r"^[a-z][a-z0-9_]*$")
-CHOICE_TABLE: str = "/api/now/table/sys_choice"
-CATEGORY_PARAMS: dict[str, str | int] = {
-    "sysparm_query": "name=incident^element=category^inactive=false^language=en^ORDERBYsequence",
-    "sysparm_fields": "value,label",
-    "sysparm_limit": 500,
-}
-
-
-@dataclass(frozen=True, slots=True, kw_only=True)
-class IncidentDraft:
-    """What a new incident should say. Hashable, so it can key the repeat guard.
-
-    Attributes:
-        short_description: One-line title.
-        category: The instance's category value, such as ``software``. The incident form
-            requires one, though the Table API does not.
-        description: Longer description, plain text.
-        urgency: How soon it needs fixing.
-        impact: How much it affects.
-        fields: Other fields by column name (such as site-specific ``u_`` fields), sorted.
-    """
-
-    short_description: str
-    category: str
-    description: str | None = None
-    urgency: Level | None = None
-    impact: Level | None = None
-    fields: tuple[tuple[str, str], ...] = ()
-
-    @classmethod
-    def build(
-        cls,
-        short_description: str,
-        category: str,
-        *,
-        description: str | None = None,
-        urgency: Level | None = None,
-        impact: Level | None = None,
-        fields: dict[str, str] | None = None,
-    ) -> IncidentDraft:
-        """Check and tidy what the user asked for.
-
-        Args:
-            short_description: One-line title; must not be blank.
-            category: Category value; must not be blank.
-            description: Longer description.
-            urgency: high, medium or low.
-            impact: high, medium or low.
-            fields: Other fields by column name.
-
-        Returns:
-            The draft.
-
-        Raises:
-            AgentToolsError: If the title or category is blank, or a field name is not
-                allowed.
-        """
-        title = short_description.strip()
-        if not title:
-            raise AgentToolsError("An incident needs a short_description (a one-line title).")
-        chosen = category.strip()
-        if not chosen:
-            raise AgentToolsError(
-                "An incident needs a category, as the helpdesk's form does. "
-                "servicenow_list_incident_categories lists them."
-            )
-        extra: dict[str, str] = {}
-        for name, field_value in (fields or {}).items():
-            key = name.strip()
-            if not _FIELD_NAME.match(key) or key.startswith("sys_"):
-                raise AgentToolsError(
-                    f"'{name}' is not a field this tool can set: use a column name such as "
-                    "u_location, and no sys_ fields."
-                )
-            if key in OWN_FIELDS:
-                raise AgentToolsError(
-                    f"Set '{key}' with its own parameter, not in fields."
-                    if key != "caller_id"
-                    else "The caller is always you; caller_id cannot be set."
-                )
-            extra[key] = field_value
-        return cls(
-            short_description=title,
-            description=(description or "").strip() or None,
-            urgency=urgency,
-            impact=impact,
-            category=chosen,
-            fields=tuple(sorted(extra.items())),
-        )
-
-    def payload(self, caller: str) -> dict[str, JsonValue]:
-        """Build the request body.
-
-        Args:
-            caller: ``sys_id`` of the signed-in user, who is the caller.
-
-        Returns:
-            The JSON body for the Table API.
-        """
-        body: dict[str, JsonValue] = {
-            "caller_id": caller,
-            "short_description": self.short_description,
-            "category": self.category,
-        }
-        if self.description:
-            body["description"] = self.description
-        if self.urgency:
-            body["urgency"] = LEVELS[self.urgency]
-        if self.impact:
-            body["impact"] = LEVELS[self.impact]
-        body.update(dict(self.fields))
-        return body
+CATALOG: str = "/api/sn_sc/servicecatalog"
+_SYS_ID = re.compile(r"^[0-9a-f]{32}$")
 
 
 def normalize_incident_number(number: str) -> str:
@@ -224,75 +101,62 @@ class ServiceNow:
         """
         return f"{self.base_url}/{table}.do?sys_id={sys_id}"
 
-    async def incident_categories(self) -> list[JsonObject]:
-        """Read the incident form's category choices.
-
-        Returns:
-            The active choices, each with ``value`` and ``label``, in the form's order;
-            one row per value.
-
-        Raises:
-            AgentToolsError: If the instance does not let the user read them.
-        """
-        rows = objects(value(await self._api.get(CHOICE_TABLE, CATEGORY_PARAMS), "result"))
-        seen: set[str] = set()
-        unique: list[JsonObject] = []
-        for row in rows:
-            choice = text(row, "value")
-            if choice and choice not in seen:
-                seen.add(choice)
-                unique.append(row)
-        return unique
-
-    async def incident_category(self, category: str) -> str:
-        """Match a category, by value or label in any case, against the form's choices.
-
-        When the choices cannot be read (no access, or none listed), the category is
-        sent as given, and the instance decides.
+    async def find_catalog_item(self, name: str) -> str:
+        """Find a catalog item's ``sys_id`` by its exact name (any case), or take a sys_id.
 
         Args:
-            category: The category as the user or agent wrote it.
+            name: The item's name, such as "Create an incident", or its ``sys_id``.
 
         Returns:
-            The choice's value, or the category as given (trimmed) when unchecked.
+            The item's ``sys_id``.
 
         Raises:
-            AgentToolsError: If the choices were read and none matches.
+            AgentToolsError: If no item has that name, naming the closest the search found.
         """
-        wanted = category.strip()
-        try:
-            choices = await self.incident_categories()
-        except PermissionDeniedError, NotFoundError:
+        wanted = name.strip()
+        if _SYS_ID.match(wanted):
             return wanted
-        folded = wanted.casefold()
-        for row in choices:
-            choice = text(row, "value") or ""
-            if folded in (choice.casefold(), (text(row, "label") or "").casefold()):
-                return choice
-        if not choices:
-            return wanted
-        names = ", ".join(text(row, "label") or text(row, "value") or "" for row in choices)
-        raise AgentToolsError(f"'{wanted}' is not an incident category here. Categories: {names}.")
+        params: dict[str, str | int] = {"sysparm_text": wanted, "sysparm_limit": 20}
+        found = objects(value(await self._api.get(f"{CATALOG}/items", params), "result"))
+        for item in found:
+            item_id = text(item, "sys_id")
+            if item_id and (text(item, "name") or "").strip().casefold() == wanted.casefold():
+                return item_id
+        names = "; ".join(text(item, "name") or "?" for item in found) or "none"
+        raise NotFoundError(
+            f"No catalog item is named '{wanted}'. A search for it found: {names}. Set "
+            "incident_form under [servicenow] to the form's exact name or its sys_id."
+        )
 
-    async def create_incident(self, draft: IncidentDraft) -> WriteOutcome:
-        """Open an incident with the signed-in user as its caller.
-
-        The user's own record is read first (even in dry-run) to fill the caller.
+    async def catalog_form(self, name: str) -> CatalogForm:
+        """Read a catalog item's form: its questions, choices and which are required.
 
         Args:
-            draft: What the incident says.
+            name: The item's name or ``sys_id``.
 
         Returns:
-            The outcome; when sent, its response holds the new record under ``result``.
+            The form.
 
         Raises:
-            AgentToolsError: If the session is not accepted or the instance refuses.
+            AgentToolsError: If the item cannot be found or read.
         """
-        me = await self.me()
-        caller = text(me, "sys_id")
-        if not caller:
-            raise ApiError(200, "ServiceNow returned your user record without its sys_id.")
-        return await self._api.write("POST", INCIDENT_TABLE, draft.payload(caller))
+        item_id = await self.find_catalog_item(name)
+        item = as_object(value(await self._api.get(f"{CATALOG}/items/{item_id}"), "result"), "form")
+        form = parse_form(item)
+        return form if form.sys_id else dataclasses.replace(form, sys_id=item_id)
+
+    async def submit_form(self, form: CatalogForm, variables: dict[str, str]) -> WriteOutcome:
+        """Submit a record producer's form, as the portal does.
+
+        Args:
+            form: The form, as read.
+            variables: Checked answers by variable name.
+
+        Returns:
+            The outcome; when sent, its response names the new record under ``result``.
+        """
+        body: dict[str, JsonValue] = {"variables": dict(variables)}
+        return await self._api.write("POST", f"{CATALOG}/items/{form.sys_id}/submit_producer", body)
 
     async def incident(self, number: str) -> JsonObject:
         """Read one incident by its number.

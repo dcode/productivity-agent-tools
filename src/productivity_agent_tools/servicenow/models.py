@@ -50,15 +50,41 @@ class Incident(IncidentSummary):
 
 
 class IncidentWriteResult(WriteReport):
-    """Outcome of creating an incident."""
+    """Outcome of opening an incident through the helpdesk's form."""
 
     number: str | None = Field(default=None, description="The new incident's number.")
     sys_id: str | None = Field(default=None, description="The new incident's sys_id.")
     url: str | None = Field(default=None, description="Its form in the web interface.")
 
 
-class Choice(BaseModel):
-    """One choice of a field on a ServiceNow form."""
+class QuestionChoice(BaseModel):
+    """One choice a form question offers."""
 
-    value: str = Field(description="What is stored, and what the create tool sends.")
-    label: str | None = Field(default=None, description="What the form shows.")
+    value: str = Field(description="What is sent.")
+    label: str = Field(description="What the form shows; either may be given as the answer.")
+
+
+class FormQuestion(BaseModel):
+    """One question on the incident form."""
+
+    name: str = Field(description="The question's name; answers may be keyed by it.")
+    label: str = Field(description="The question as the form shows it; also accepted as a key.")
+    kind: str = Field(description="The kind of answer, such as select_box or multi_line_text.")
+    required: bool = Field(description="True if the form requires an answer.")
+    choices: list[QuestionChoice] = Field(
+        default_factory=list, description="The choices; an answer must be one of them."
+    )
+    default: str | None = Field(
+        default=None,
+        description="The answer used when none is given: from the config's "
+        "[servicenow.incident_defaults], else the form's own.",
+    )
+    help_text: str | None = Field(default=None, description="The form's help text.")
+
+
+class IncidentForm(BaseModel):
+    """The helpdesk's form for opening an incident."""
+
+    name: str = Field(description="The form's name in the catalog.")
+    description: str | None = Field(default=None, description="The form's description.")
+    questions: list[FormQuestion] = Field(description="The questions, in the form's order.")

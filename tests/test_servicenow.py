@@ -32,7 +32,7 @@ from productivity_agent_tools.errors import (
 )
 from productivity_agent_tools.products import installed_products
 from productivity_agent_tools.server import Connected, build_server
-from productivity_agent_tools.servicenow.client import IncidentDraft, ServiceNow
+from productivity_agent_tools.servicenow.client import ServiceNow
 from productivity_agent_tools.servicenow.http import ServiceNowClient
 from productivity_agent_tools.servicenow.login import sign_in
 from productivity_agent_tools.servicenow.product import PRODUCT, doctor
@@ -74,11 +74,69 @@ INCIDENTS: list[dict[str, str]] = [
     },
     {"sys_id": "", "number": "INC0010002", "short_description": "", "state": "New"},
 ]
-CATEGORIES: list[dict[str, str]] = [
-    {"value": "software", "label": "Software"},
-    {"value": "network", "label": "Network"},
-    {"value": "software", "label": "Software"},
-]
+FORM_ID = "f" * 32
+CATALOG = "/api/sn_sc/servicecatalog/items"
+
+
+def select(name: str, label: str, *choices: tuple[str, str], mandatory: bool = True) -> dict:
+    return {
+        "name": name,
+        "label": label,
+        "friendly_type": "select_box",
+        "type": 5,
+        "mandatory": mandatory,
+        "value": "",
+        "choices": [{"value": "", "label": "-- None --"}]
+        + [{"value": v, "label": lbl} for v, lbl in choices],
+    }
+
+
+# Modelled on the work instance's "Create an incident" form (2026-11-23).
+FORM: dict = {
+    "sys_id": FORM_ID,
+    "name": "Create an incident",
+    "short_description": "Report something broken",
+    "variables": [
+        {"name": "intro", "label": "Tell us", "friendly_type": "container_start"},
+        {
+            "name": "contact_phone",
+            "label": "Preferred Contact Phone Number",
+            "friendly_type": "single_line_text",
+            "mandatory": "true",
+            "value": "",
+        },
+        select("u_site", "Site", ("na", "N/A"), ("b2", "Building 2")),
+        select("category", "Category", ("software", "Software"), ("network", "Network")),
+        select("impact", "What's the impact", ("1", ">100 users"), ("4", "< 5 users")),
+        select(
+            "urgency",
+            "What's the urgency",
+            ("1", "Business work stoppage (no workarounds)"),
+            ("5", "No / little business impact"),
+        ),
+        select("network_connection", "Network Connection", ("vpn", "VPN"), ("wired", "Wired")),
+        {
+            "name": "description",
+            "label": "Please describe your issue below",
+            "type": 2,
+            "mandatory": True,
+            "help_text": "Please include as much relevant information as possible.",
+        },
+        {"name": "watch_list", "label": "Also notify", "type": 6, "value": "nobody"},
+        {"name": "room", "label": "Room", "type": 6, "value": False},
+        {"label": "nameless"},
+        {"name": "rule", "type": 12},
+    ],
+}
+ANSWERS: dict[str, str] = {
+    "Preferred Contact Phone Number": "555-0100",
+    "Site": "n/a",
+    "category": "Software",
+    "What's the impact?": "< 5 users",
+    "urgency": "5",
+    "Network Connection": "VPN",
+    "Please describe your issue below": "The VPN drops hourly.",
+}
 ME = {"sys_id": "u1", "user_name": "pat.example", "name": "Pat Example", "email": "p@x.example"}
 
 
@@ -88,8 +146,10 @@ class FakeServiceNow:
     def __init__(self) -> None:
         self.requests: list[httpx.Request] = []
         self.accept_token = True
-        self.choices: list[dict[str, str]] = list(CATEGORIES)
-        self.choice_status = 200
+        self.catalog_hits: list[dict[str, str]] = [
+            {"sys_id": "x2", "name": "Create an incident (VIP)"},
+            {"sys_id": FORM_ID, "name": "create an incident"},
+        ]
 
     def handler(self, request: httpx.Request) -> httpx.Response:
         self.requests.append(request)
@@ -110,14 +170,13 @@ class FakeServiceNow:
             return httpx.Response(401, headers=who, json=body)
         if path == "/api/now/table/sys_user":
             return httpx.Response(200, headers=who, json={"result": [ME]})
-        if path == "/api/now/table/sys_choice":
-            if self.choice_status != 200:
-                return httpx.Response(self.choice_status, json={"error": {"message": "ACL"}})
-            return httpx.Response(200, headers=who, json={"result": self.choices})
-        if path == INCIDENT_PATH and request.method == "POST":
-            body = json.loads(request.content)
-            created = {**body, "sys_id": "i9", "number": "INC0010009", "state": "1"}
-            return httpx.Response(201, headers=who, json={"result": created})
+        if path == CATALOG:
+            return httpx.Response(200, headers=who, json={"result": self.catalog_hits})
+        if path == f"{CATALOG}/{FORM_ID}":
+            return httpx.Response(200, headers=who, json={"result": FORM})
+        if path == f"{CATALOG}/{FORM_ID}/submit_producer":
+            created = {"sys_id": "i9", "number": "INC0010009", "table": "incident"}
+            return httpx.Response(200, headers=who, json={"result": created})
         if path == INCIDENT_PATH:
             query = request.url.params.get("sysparm_query", "")
             if query.startswith("number="):
@@ -690,76 +749,175 @@ async def test_get_incident_explains_a_bad_or_unknown_number(
         await call(instance, "servicenow_get_incident", {"number": number})
 
 
+async def test_the_incident_form_lists_its_questions(instance: FakeServiceNow) -> None:
+    form = await call(instance, "servicenow_get_incident_form", {})
+    assert isinstance(form, dict)
+    assert form["name"] == "Create an incident"
+    assert form["description"] == "Report something broken"
+    questions = form["questions"]
+    assert isinstance(questions, list)
+    assert [q["name"] for q in questions] == [
+        "contact_phone",
+        "u_site",
+        "category",
+        "impact",
+        "urgency",
+        "network_connection",
+        "description",
+        "watch_list",
+        "room",
+    ]
+    by_name = {q["name"]: q for q in questions}
+    assert by_name["contact_phone"]["required"] is True
+    assert by_name["contact_phone"]["kind"] == "single_line_text"
+    assert by_name["category"]["choices"] == [
+        {"value": "software", "label": "Software"},
+        {"value": "network", "label": "Network"},
+    ]
+    assert by_name["description"]["kind"] == "2"
+    assert by_name["room"]["default"] is None
+    assert by_name["description"]["help_text"].startswith("Please include")
+    assert by_name["watch_list"] == {
+        "name": "watch_list",
+        "label": "Also notify",
+        "kind": "6",
+        "required": False,
+        "choices": [],
+        "default": "nobody",
+        "help_text": None,
+    }
+    search = instance.requests[0].url.params
+    assert search["sysparm_text"] == "Create an incident"
+
+
+def with_settings(**values: object) -> Settings:
+    return parse_settings({"servicenow": {"base_url": BASE, **values}})
+
+
+async def call_with(
+    instance: FakeServiceNow,
+    settings: Settings,
+    tool: str,
+    arguments: dict[str, object],
+    *,
+    dry_run: bool = True,
+) -> dict[str, object]:
+    async with make_api(instance, dry_run=dry_run) as api:
+        server = build_server(settings, {"servicenow": Connected(api, "x")})
+        result = await server.call_tool(tool, arguments)
+    assert isinstance(result, CallToolResult)
+    assert isinstance(result.structured_content, dict)
+    return result.structured_content
+
+
+async def test_the_form_shows_configured_defaults(instance: FakeServiceNow) -> None:
+    settings = with_settings(incident_defaults={"Site": "N/A", "contact_phone": "555-0100"})
+    form = await call_with(instance, settings, "servicenow_get_incident_form", {})
+    questions = form["questions"]
+    assert isinstance(questions, list)
+    defaults = {q["name"]: q["default"] for q in questions}
+    assert defaults["u_site"] == "na"
+    assert defaults["contact_phone"] == "555-0100"
+    assert defaults["category"] is None
+
+
+async def test_the_form_can_be_named_by_sys_id(instance: FakeServiceNow) -> None:
+    settings = with_settings(incident_form=FORM_ID)
+    await call_with(instance, settings, "servicenow_get_incident_form", {})
+    assert [r.url.path for r in instance.requests] == [f"{CATALOG}/{FORM_ID}"]
+
+
+async def test_a_form_that_is_not_found_names_what_the_search_found(
+    instance: FakeServiceNow,
+) -> None:
+    instance.catalog_hits = [{"sys_id": "x2", "name": "Create an incident (VIP)"}, {}]
+    with pytest.raises(
+        ToolError, match=r"found: Create an incident \(VIP\); \?\. Set incident_form"
+    ):
+        await call(instance, "servicenow_get_incident_form", {})
+    instance.catalog_hits = []
+    with pytest.raises(ToolError, match="found: none"):
+        await call(instance, "servicenow_get_incident_form", {})
+
+
+async def test_an_item_without_its_own_sys_id_keeps_the_one_it_was_found_by(
+    instance: FakeServiceNow,
+) -> None:
+    class NoId(ServiceNowClient):
+        async def get(self, path: str, params: dict[str, str | int] | None = None) -> JsonValue:
+            answer = await super().get(path, params)
+            if path.endswith(FORM_ID) and isinstance(answer, dict):
+                result = answer["result"]
+                assert isinstance(result, dict)
+                return {"result": {k: v for k, v in result.items() if k != "sys_id"}}
+            return answer
+
+    session = BrowserSession.collected_now(GOOD, TOKEN)
+
+    async def headers() -> dict[str, str]:
+        return session.headers()
+
+    transport = httpx.MockTransport(instance.handler)
+    async with NoId(base_url=BASE, credentials=headers, transport=transport) as api:
+        form = await ServiceNow(api, ServiceNowSettings()).catalog_form("Create an incident")
+    assert form.sys_id == FORM_ID
+
+
 async def test_create_incident_in_dry_run_sends_nothing(instance: FakeServiceNow) -> None:
-    result = await call(
-        instance,
-        "servicenow_create_incident",
-        {
-            "short_description": "  VPN client fails  ",
-            "description": "Error 809.",
-            "urgency": "high",
-            "impact": "low",
-            "category": " network ",
-            "fields": {"u_location": "Building 2"},
-        },
-    )
+    result = await call(instance, "servicenow_create_incident", {"answers": ANSWERS})
     assert isinstance(result, dict)
     assert result["sent"] is False
-    assert result["dry_run"] is True
     assert result["number"] is None
     assert result["request"] == {
         "method": "POST",
-        "path": INCIDENT_PATH,
+        "path": f"{CATALOG}/{FORM_ID}/submit_producer",
         "body": {
-            "caller_id": "u1",
-            "short_description": "VPN client fails",
-            "category": "network",
-            "description": "Error 809.",
-            "urgency": "1",
-            "impact": "3",
-            "u_location": "Building 2",
+            "variables": {
+                "contact_phone": "555-0100",
+                "u_site": "na",
+                "category": "software",
+                "impact": "4",
+                "urgency": "5",
+                "network_connection": "vpn",
+                "description": "The VPN drops hourly.",
+                "watch_list": "nobody",
+            }
         },
     }
-    # The category and the caller were looked up; nothing was posted.
     assert [r.method for r in instance.requests] == ["GET", "GET"]
 
 
-async def test_create_incident_sends_and_reports_the_new_number(
+async def test_create_incident_submits_the_form_and_reports_the_number(
     instance: FakeServiceNow,
 ) -> None:
-    result = await call(
-        instance,
-        "servicenow_create_incident",
-        {"short_description": "Laptop fan is loud", "category": "SOFTWARE", "description": "  "},
-        dry_run=False,
+    settings = with_settings(incident_defaults={"Site": "N/A", "watch_list": "nobody else"})
+    answers = {k: v for k, v in ANSWERS.items() if k != "Site"} | {"watch_list": ""}
+    result = await call_with(
+        instance, settings, "servicenow_create_incident", {"answers": answers}, dry_run=False
     )
-    assert isinstance(result, dict)
     assert result["sent"] is True
     assert result["number"] == "INC0010009"
     assert result["url"] == f"{BASE}/incident.do?sys_id=i9"
     assert result["message"] == "Opened incident INC0010009."
     posted = instance.requests[-1]
     assert posted.method == "POST"
-    assert json.loads(posted.content) == {
-        "caller_id": "u1",
-        "short_description": "Laptop fan is loud",
-        "category": "software",
-    }
+    variables = json.loads(posted.content)["variables"]
+    assert variables["u_site"] == "na"  # from the config
+    assert variables["watch_list"] == "nobody"  # cleared default falls back to the form's
 
 
 async def test_an_identical_create_is_not_sent_twice(instance: FakeServiceNow) -> None:
     async with make_api(instance, dry_run=False) as api:
         server = build_server(servicenow_settings(), {"servicenow": Connected(api, "x")})
-        arguments = {"short_description": "Printer jam", "category": "Software"}
-        await server.call_tool("servicenow_create_incident", arguments)
-        again = await server.call_tool("servicenow_create_incident", arguments)
+        await server.call_tool("servicenow_create_incident", {"answers": ANSWERS})
+        again = await server.call_tool("servicenow_create_incident", {"answers": ANSWERS})
     assert isinstance(again, CallToolResult)
     assert again.structured_content is not None
     assert again.structured_content["repeat_suppressed"] is True
     assert [r.method for r in instance.requests].count("POST") == 1
 
 
-async def test_a_create_without_a_number_in_the_answer_still_reports(
+async def test_a_submission_without_a_record_in_the_answer_still_reports(
     instance: FakeServiceNow,
 ) -> None:
     class Bare(ServiceNowClient):
@@ -776,90 +934,55 @@ async def test_a_create_without_a_number_in_the_answer_still_reports(
     transport = httpx.MockTransport(instance.handler)
     async with Bare(base_url=BASE, credentials=headers, transport=transport) as api:
         server = build_server(servicenow_settings(), {"servicenow": Connected(api, "x")})
-        result = await server.call_tool(
-            "servicenow_create_incident", {"short_description": "x", "category": "software"}
-        )
+        result = await server.call_tool("servicenow_create_incident", {"answers": ANSWERS})
     assert isinstance(result, CallToolResult)
     assert result.structured_content is not None
-    assert result.structured_content["message"] == "Opened the incident."
+    assert result.structured_content["message"] == "Submitted the incident form."
     assert result.structured_content["url"] is None
 
 
 @pytest.mark.parametrize(
-    ("arguments", "match"),
+    ("change", "match"),
     [
-        ({"short_description": "   ", "category": "software"}, "needs a short_description"),
-        ({"short_description": "x", "category": " "}, "needs a category"),
-        ({"short_description": "x", "category": "c", "fields": {"Bad Name": "1"}}, "not a field"),
-        ({"short_description": "x", "category": "c", "fields": {"sys_id": "1"}}, "no sys_"),
-        ({"short_description": "x", "category": "c", "fields": {"urgency": "1"}}, "own parameter"),
-        ({"short_description": "x", "category": "c", "fields": {"caller_id": "u"}}, "always you"),
+        (
+            {"Category": "Printers"},
+            r"'Printers' is not a choice for 'Category'\. Choices: Software; Network\.",
+        ),
+        (
+            {"Colour": "red"},
+            r"'Colour' is not a question on 'Create an incident'\. Questions: contact_phone, ",
+        ),
+        ({"Site": ""}, r"requires answers to: u_site \(Site\)\. .*Nothing was sent\."),
     ],
 )
-async def test_create_incident_refuses_bad_input(
-    instance: FakeServiceNow, arguments: dict[str, object], match: str
+async def test_create_incident_refuses_answers_the_form_would_not_take(
+    instance: FakeServiceNow, change: dict[str, str], match: str
 ) -> None:
     with pytest.raises(ToolError, match=match):
-        await call(instance, "servicenow_create_incident", arguments, dry_run=False)
-    assert instance.requests == []
-
-
-async def test_create_incident_needs_the_callers_sys_id(instance: FakeServiceNow) -> None:
-    class NoId(ServiceNowClient):
-        async def get(self, path: str, params: dict[str, str | int] | None = None) -> JsonValue:
-            return {"result": [{"user_name": "pat"}]}
-
-    session = BrowserSession.collected_now(GOOD, TOKEN)
-
-    async def headers() -> dict[str, str]:
-        return session.headers()
-
-    transport = httpx.MockTransport(instance.handler)
-    async with NoId(base_url=BASE, credentials=headers, transport=transport) as api:
-        with pytest.raises(ApiError, match="without its sys_id"):
-            await ServiceNow(api, ServiceNowSettings()).create_incident(
-                IncidentDraft.build("x", "software")
-            )
-
-
-async def test_list_incident_categories_gives_each_value_once(instance: FakeServiceNow) -> None:
-    instance.choices.append({"value": "other", "label": ""})
-    rows = await call(instance, "servicenow_list_incident_categories", {})
-    assert rows == [
-        {"value": "software", "label": "Software"},
-        {"value": "network", "label": "Network"},
-        {"value": "other", "label": None},
-    ]
-    params = instance.requests[-1].url.params
-    assert params["sysparm_query"].startswith("name=incident^element=category^inactive=false")
-
-
-async def test_an_unknown_category_is_refused_with_the_list(instance: FakeServiceNow) -> None:
-    with pytest.raises(
-        ToolError,
-        match=r"'Printers' is not an incident category here\. Categories: Software, Network\.",
-    ):
         await call(
-            instance,
-            "servicenow_create_incident",
-            {"short_description": "x", "category": "Printers"},
-            dry_run=False,
+            instance, "servicenow_create_incident", {"answers": ANSWERS | change}, dry_run=False
         )
-    assert [r.method for r in instance.requests] == ["GET"]
+    assert "POST" not in [r.method for r in instance.requests]
 
 
-@pytest.mark.parametrize("status", [403, 404, 0])
-async def test_unreadable_or_empty_categories_send_the_category_as_given(
-    instance: FakeServiceNow, status: int
+async def test_a_bad_configured_default_says_it_came_from_the_config(
+    instance: FakeServiceNow,
 ) -> None:
-    if status:
-        instance.choice_status = status
-    else:
-        instance.choices = []
-    result = await call(
-        instance, "servicenow_create_incident", {"short_description": "x", "category": " Printers "}
+    settings = with_settings(incident_defaults={"Site": "Mars"})
+    with pytest.raises(ToolError, match=r": In \[servicenow\.incident_defaults\]: 'Mars'"):
+        await call_with(instance, settings, "servicenow_create_incident", {"answers": ANSWERS})
+
+
+@pytest.mark.parametrize("bad", [["Site"], {"Site": 3}])
+def test_incident_defaults_must_be_a_table_of_strings(bad: object) -> None:
+    with pytest.raises(ConfigError, match="incident_defaults"):
+        parse_servicenow_settings({"incident_defaults": bad})
+
+
+def test_incident_form_settings() -> None:
+    assert parse_servicenow_settings({}).incident_form == "Create an incident"
+    custom = parse_servicenow_settings(
+        {"incident_form": "  Report a problem ", "incident_defaults": {"Site": "N/A"}}
     )
-    assert isinstance(result, dict)
-    request = result["request"]
-    assert isinstance(request, dict)
-    assert request["body"]["category"] == "Printers"
+    assert custom.incident_form == "Report a problem"
+    assert custom.incident_defaults == {"Site": "N/A"}
