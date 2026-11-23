@@ -1,6 +1,7 @@
 """Tests for the ServiceNow adapter, session storage, sign-in flow and product."""
 
 import dataclasses
+import json
 import sys
 from collections.abc import Callable, Generator
 from contextlib import contextmanager
@@ -15,6 +16,7 @@ from mcp.types import CallToolResult
 from pydantic import JsonValue
 
 from productivity_agent_tools import cli
+from productivity_agent_tools.api import WriteOutcome
 from productivity_agent_tools.browser import BrowserCookie
 from productivity_agent_tools.config import Connection, Settings, parse_settings
 from productivity_agent_tools.credentials import bearer_token
@@ -30,7 +32,7 @@ from productivity_agent_tools.errors import (
 )
 from productivity_agent_tools.products import installed_products
 from productivity_agent_tools.server import Connected, build_server
-from productivity_agent_tools.servicenow.client import ServiceNow
+from productivity_agent_tools.servicenow.client import IncidentDraft, ServiceNow
 from productivity_agent_tools.servicenow.http import ServiceNowClient
 from productivity_agent_tools.servicenow.login import sign_in
 from productivity_agent_tools.servicenow.product import PRODUCT, doctor
@@ -50,6 +52,28 @@ from productivity_agent_tools.transport import HttpAdapter
 BASE = "https://desk.example"
 TOKEN = "ab" * 36
 GOOD = "JSESSIONID=good"
+INCIDENT_PATH = "/api/now/table/incident"
+INCIDENTS: list[dict[str, str]] = [
+    {
+        "sys_id": "i1",
+        "number": "INC0010001",
+        "short_description": "VPN drops",
+        "description": "Every hour.",
+        "state": "In Progress",
+        "urgency": "2 - Medium",
+        "impact": "3 - Low",
+        "priority": "4 - Low",
+        "category": "Network",
+        "assignment_group": "Service Desk",
+        "assigned_to": "",
+        "opened_at": "2026-11-20 09:00:00",
+        "sys_updated_on": "2026-11-21 10:00:00",
+        "resolved_at": "",
+        "close_notes": "",
+        "comments": "2026-11-21 10:00:00 - Sam Desk (Additional comments)\nLooking.",
+    },
+    {"sys_id": "", "number": "INC0010002", "short_description": "", "state": "New"},
+]
 ME = {"sys_id": "u1", "user_name": "pat.example", "name": "Pat Example", "email": "p@x.example"}
 
 
@@ -79,6 +103,17 @@ class FakeServiceNow:
             return httpx.Response(401, headers=who, json=body)
         if path == "/api/now/table/sys_user":
             return httpx.Response(200, headers=who, json={"result": [ME]})
+        if path == INCIDENT_PATH and request.method == "POST":
+            body = json.loads(request.content)
+            created = {**body, "sys_id": "i9", "number": "INC0010009", "state": "1"}
+            return httpx.Response(201, headers=who, json={"result": created})
+        if path == INCIDENT_PATH:
+            query = request.url.params.get("sysparm_query", "")
+            if query.startswith("number="):
+                rows = [row for row in INCIDENTS if f"number={row['number']}" == query]
+            else:
+                rows = INCIDENTS
+            return httpx.Response(200, headers=who, json={"result": rows})
         if path == "/api/empty-user":
             return httpx.Response(200, headers=who, json={"result": []})
         if path == "/api/forbidden":
@@ -568,3 +603,203 @@ async def test_doctor_labels_the_session_and_reports_a_missing_one(
     output = capsys.readouterr().out
     assert "servicenow browser session found in the system keychain" in output
     assert f"authenticated to {BASE} as Pat Example" in output
+
+
+# --- incidents --------------------------------------------------------------------------
+
+
+async def call(
+    instance: FakeServiceNow, tool: str, arguments: dict[str, object], *, dry_run: bool = True
+) -> dict[str, object] | list[object]:
+    async with make_api(instance, dry_run=dry_run) as api:
+        server = build_server(servicenow_settings(), {"servicenow": Connected(api, "x")})
+        result = await server.call_tool(tool, arguments)
+    assert isinstance(result, CallToolResult)
+    assert result.structured_content is not None
+    content = result.structured_content
+    return content["result"] if set(content) == {"result"} else content
+
+
+async def test_list_incidents_asks_for_the_users_open_ones(instance: FakeServiceNow) -> None:
+    rows = await call(instance, "servicenow_list_incidents", {})
+    assert rows == [
+        {
+            "number": "INC0010001",
+            "short_description": "VPN drops",
+            "state": "In Progress",
+            "priority": "4 - Low",
+            "opened_at": "2026-11-20 09:00:00",
+            "updated_at": "2026-11-21 10:00:00",
+            "url": f"{BASE}/incident.do?sys_id=i1",
+        },
+        {
+            "number": "INC0010002",
+            "short_description": None,
+            "state": "New",
+            "priority": None,
+            "opened_at": None,
+            "updated_at": None,
+            "url": None,
+        },
+    ]
+    params = instance.requests[-1].url.params
+    assert params["sysparm_query"] == (
+        "active=true^caller_id=javascript:gs.getUserID()^ORopened_by=javascript:gs.getUserID()"
+        "^ORDERBYDESCopened_at"
+    )
+    assert params["sysparm_limit"] == "20"
+    assert params["sysparm_display_value"] == "true"
+
+
+async def test_list_incidents_can_include_closed_ones(instance: FakeServiceNow) -> None:
+    await call(instance, "servicenow_list_incidents", {"include_closed": True, "max_results": 5})
+    params = instance.requests[-1].url.params
+    assert params["sysparm_query"].startswith("caller_id=")
+    assert params["sysparm_limit"] == "5"
+
+
+async def test_get_incident_reads_one_by_number(instance: FakeServiceNow) -> None:
+    incident = await call(instance, "servicenow_get_incident", {"number": " inc0010001 "})
+    assert isinstance(incident, dict)
+    assert incident["number"] == "INC0010001"
+    assert incident["description"] == "Every hour."
+    assert incident["assignment_group"] == "Service Desk"
+    assert incident["assigned_to"] is None
+    assert incident["comments"] == "2026-11-21 10:00:00 - Sam Desk (Additional comments)\nLooking."
+    assert instance.requests[-1].url.params["sysparm_query"] == "number=INC0010001"
+
+
+@pytest.mark.parametrize(
+    ("number", "match"), [("INC0099999", "No incident INC0099999"), ("12; drop", "not an incident")]
+)
+async def test_get_incident_explains_a_bad_or_unknown_number(
+    instance: FakeServiceNow, number: str, match: str
+) -> None:
+    with pytest.raises(ToolError, match=match):
+        await call(instance, "servicenow_get_incident", {"number": number})
+
+
+async def test_create_incident_in_dry_run_sends_nothing(instance: FakeServiceNow) -> None:
+    result = await call(
+        instance,
+        "servicenow_create_incident",
+        {
+            "short_description": "  VPN client fails  ",
+            "description": "Error 809.",
+            "urgency": "high",
+            "impact": "low",
+            "category": "network",
+            "fields": {"u_location": "Building 2"},
+        },
+    )
+    assert isinstance(result, dict)
+    assert result["sent"] is False
+    assert result["dry_run"] is True
+    assert result["number"] is None
+    assert result["request"] == {
+        "method": "POST",
+        "path": INCIDENT_PATH,
+        "body": {
+            "caller_id": "u1",
+            "short_description": "VPN client fails",
+            "description": "Error 809.",
+            "urgency": "1",
+            "impact": "3",
+            "category": "network",
+            "u_location": "Building 2",
+        },
+    }
+    # The caller was looked up; nothing was posted.
+    assert [r.method for r in instance.requests] == ["GET"]
+
+
+async def test_create_incident_sends_and_reports_the_new_number(
+    instance: FakeServiceNow,
+) -> None:
+    result = await call(
+        instance,
+        "servicenow_create_incident",
+        {"short_description": "Laptop fan is loud", "description": "  "},
+        dry_run=False,
+    )
+    assert isinstance(result, dict)
+    assert result["sent"] is True
+    assert result["number"] == "INC0010009"
+    assert result["url"] == f"{BASE}/incident.do?sys_id=i9"
+    assert result["message"] == "Opened incident INC0010009."
+    posted = instance.requests[-1]
+    assert posted.method == "POST"
+    assert json.loads(posted.content) == {
+        "caller_id": "u1",
+        "short_description": "Laptop fan is loud",
+    }
+
+
+async def test_an_identical_create_is_not_sent_twice(instance: FakeServiceNow) -> None:
+    async with make_api(instance, dry_run=False) as api:
+        server = build_server(servicenow_settings(), {"servicenow": Connected(api, "x")})
+        arguments = {"short_description": "Printer jam"}
+        await server.call_tool("servicenow_create_incident", arguments)
+        again = await server.call_tool("servicenow_create_incident", arguments)
+    assert isinstance(again, CallToolResult)
+    assert again.structured_content is not None
+    assert again.structured_content["repeat_suppressed"] is True
+    assert [r.method for r in instance.requests].count("POST") == 1
+
+
+async def test_a_create_without_a_number_in_the_answer_still_reports(
+    instance: FakeServiceNow,
+) -> None:
+    class Bare(ServiceNowClient):
+        async def write(
+            self, method: str, path: str, payload: dict[str, JsonValue]
+        ) -> WriteOutcome:
+            return WriteOutcome(sent=True, method=method, path=path, payload=payload)
+
+    session = BrowserSession.collected_now(GOOD, TOKEN)
+
+    async def headers() -> dict[str, str]:
+        return session.headers()
+
+    transport = httpx.MockTransport(instance.handler)
+    async with Bare(base_url=BASE, credentials=headers, transport=transport) as api:
+        server = build_server(servicenow_settings(), {"servicenow": Connected(api, "x")})
+        result = await server.call_tool("servicenow_create_incident", {"short_description": "x"})
+    assert isinstance(result, CallToolResult)
+    assert result.structured_content is not None
+    assert result.structured_content["message"] == "Opened the incident."
+    assert result.structured_content["url"] is None
+
+
+@pytest.mark.parametrize(
+    ("arguments", "match"),
+    [
+        ({"short_description": "   "}, "needs a short_description"),
+        ({"short_description": "x", "fields": {"Bad Name": "1"}}, "not a field this tool can set"),
+        ({"short_description": "x", "fields": {"sys_id": "1"}}, "no sys_ fields"),
+        ({"short_description": "x", "fields": {"urgency": "1"}}, "with its own parameter"),
+        ({"short_description": "x", "fields": {"caller_id": "u2"}}, "caller is always you"),
+    ],
+)
+async def test_create_incident_refuses_bad_input(
+    instance: FakeServiceNow, arguments: dict[str, object], match: str
+) -> None:
+    with pytest.raises(ToolError, match=match):
+        await call(instance, "servicenow_create_incident", arguments, dry_run=False)
+    assert instance.requests == []
+
+
+async def test_create_incident_needs_the_callers_sys_id(instance: FakeServiceNow) -> None:
+    class NoId(ServiceNowClient):
+        async def get(self, path: str, params: dict[str, str | int] | None = None) -> JsonValue:
+            return {"result": [{"user_name": "pat"}]}
+
+    session = BrowserSession.collected_now(GOOD, TOKEN)
+
+    async def headers() -> dict[str, str]:
+        return session.headers()
+
+    transport = httpx.MockTransport(instance.handler)
+    async with NoId(base_url=BASE, credentials=headers, transport=transport) as api:
+        with pytest.raises(ApiError, match="without its sys_id"):
+            await ServiceNow(api, ServiceNowSettings()).create_incident(IncidentDraft.build("x"))

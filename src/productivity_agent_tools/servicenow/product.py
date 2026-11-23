@@ -18,7 +18,10 @@ INSTRUCTIONS: str = (
     "The servicenow_ tools work with the user's ServiceNow helpdesk. It is signed in with "
     "a browser session that expires after a period of inactivity. When a servicenow_ tool "
     "reports that the session has expired, do not retry: ask the user to run "
-    "'productivity-agent-tools login servicenow' in a terminal, then continue."
+    "'productivity-agent-tools login servicenow' in a terminal, then continue. "
+    "servicenow_create_incident opens a ticket the helpdesk staff will see and act on: "
+    "check servicenow_list_incidents for one already open about the same problem, and "
+    "confirm the wording with the user before creating it."
 )
 
 
