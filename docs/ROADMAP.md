@@ -3,17 +3,36 @@
 Read this first when coming back to the project. The design and the reasons behind it are in
 [DESIGN.md](DESIGN.md). Update this file in the same commit as the work it describes.
 
-Last updated: 2026-11-23.
+Last updated: 2026-11-23 (evening).
 
 ## Where things stand
 
-- **0.11.0, ServiceNow incidents (branch `claude/zealous-mendel-ny1eml`, restarted from
-  `main` after #19 merged, 2026-11-23; in review as
-  [#20](https://github.com/dcode/productivity-agent-tools/pull/20)). Start here.**
-  **Next action: merge #20, then tag `v0.11.0` on the commit it lands as on `main`.** Asked
-  for on 2026-11-23: "add the ServiceNow support to create tickets". Read as **incidents**
-  (the helpdesk's tickets), not catalog orders; ordering software stays the next ServiceNow
-  step (see "Later").
+- **0.12.0, ServiceNow catalog requests (branch `claude/zealous-mendel-ny1eml`, restarted
+  from `main` after #20 merged, 2026-11-23). Start here.** Asked for on 2026-11-23: "the
+  ability to file software requests".
+  - **Built, from the incident work and the portal script seen earlier (not yet seen
+    live):** `servicenow_search_catalog` (`GET .../servicecatalog/items?sysparm_text=`),
+    `servicenow_get_catalog_form` (any item's form, read and described as the incident
+    form is), `servicenow_order_item` (write: answers checked against the form, rules and
+    lookups included, then `POST .../items/{id}/order_now` with the portal's body
+    `sysparm_quantity`, `variables`, `get_portal_messages`, `sysparm_no_validation`; a
+    record producer is submitted instead; after a real order its RITMs are read),
+    `servicenow_list_requests` and `servicenow_get_request_item` (`sc_req_item` for the
+    user, as the probe read it: `requested_for` or `opened_by`; comments as entries).
+    `[servicenow.order_defaults]`: shared answers, used for an item only when its form has
+    the question. Smoke test: requests, a request item, a search, a form, and a dry-run
+    order (`SERVICENOW_SEARCH`, `SERVICENOW_ORDER_ITEM`, `SERVICENOW_ORDER_ANSWERS`).
+  - **Waiting on:** the user offered a sanitized HAR of searching for software, opening
+    an item and ordering it. To settle: the search request and answer (is it this API,
+    or the portal's search widget?); whether software is one item per program or one
+    "request software" form with a lookup; and whether the portal orders with
+    `order_now` or a cart (`add_to_cart`, then `submit_order`).
+  - Tests: 952 passing, 99.97% branch coverage; ruff and ty clean.
+- **0.11.0, ServiceNow incidents: merged to `main` via
+  [#20](https://github.com/dcode/productivity-agent-tools/pull/20) (2026-11-23, rebase
+  merge, 17 commits). Tagged `v0.11.0` at 3f25eb1 (the last commit; the user, 2026-11-23).**
+  Asked for on 2026-11-23: "add the ServiceNow support to create tickets". Read as
+  **incidents** (the helpdesk's tickets), not catalog orders.
   - **Tools:** `servicenow_get_incident_form` (read), `servicenow_create_incident`
     (write, behind `dry_run`, 30 s repeat guard), and the reads that go with it:
     `servicenow_list_incidents` (the user's, as caller or opener; open only by default)
@@ -351,14 +370,17 @@ Last updated: 2026-11-23.
     when this was set up. Revisit before then.
   - **Merged** as one commit, 39b34d8, which also carries the version bump, so that is
     where `v0.9.0` goes.
-- **Version:** 0.11.0 on the branch (ServiceNow incidents, #20); 0.10.0 on `main`.
+- **Version:** 0.12.0 on the branch (catalog requests); 0.11.0 on `main` (#20).
   Before that, 0.8.0, on `main` via
   [#17](https://github.com/dcode/productivity-agent-tools/pull/17) (2026-11-19, rebase
   merge, so the branch's commit ids differ from `main`'s). **To do: tag `v0.8.0` at
   f45647f** (the bump commit on `main`), from the laptop. Tags:
-  `v0.5.0` at 804f319, `v0.6.0` at 9be367b, `v0.7.0` at 0235736. Release tags go on the
-  commit that changes `__version__`; `v0.1.0`-`v0.4.0` predate that rule and stay where
-  they are. Cloud sessions cannot push tags, so tag from the laptop.
+  `v0.5.0` at 804f319, `v0.6.0` at 9be367b, `v0.7.0` at 0235736, `v0.11.0` at 3f25eb1.
+  **Tagging rule (the user, 2026-11-23): a release tag goes on the commit where that
+  release's code is complete and working, normally the last commit it lands with on
+  `main`, not the commit that changes `__version__`.** Earlier tags followed the old
+  rule (the bump commit) and stay where they are. Cloud sessions cannot push tags, so
+  tag from the laptop.
 - **0.8.0 (on `main` via #17), all confirmed live on the work laptop.
   `login microsoft` (2026-11-18):** the Outlook sign-in now works
   like `login servicenow`. It opens

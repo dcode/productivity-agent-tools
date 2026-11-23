@@ -10,7 +10,7 @@ consent-banner proxy, and it runs on the same laptop as the agent.
 | [Jira](products/jira.md) (Data Center) | reads, plus comments, transitions, worklogs, edits, new issues, links | personal access token |
 | [Bitbucket](products/bitbucket.md) (Data Center) | reads, plus branches, pull-request comments and reviews | personal access token |
 | [Confluence](products/confluence.md) (Data Center) | reads and search, plus creating and editing pages | personal access token |
-| [ServiceNow](products/servicenow.md) | status and your incidents, plus opening one | browser sign-in (`login servicenow`) |
+| [ServiceNow](products/servicenow.md) | your incidents and requests, plus opening incidents and requesting catalog items | browser sign-in (`login servicenow`) |
 | [Outlook mail and calendar](products/outlook.md) | reads only | browser sign-in (`login microsoft`) |
 | [Obsidian](products/obsidian.md) vault | task notes, meeting notes and daily notes: reads, writes and a sync from the products above | none: a folder on this machine |
 

@@ -115,8 +115,8 @@ class FormQuestion(BaseModel):
     )
 
 
-class IncidentForm(BaseModel):
-    """The helpdesk's form for opening an incident."""
+class FormView(BaseModel):
+    """A catalog item's form: the incident form, or the form of an item to order."""
 
     name: str = Field(description="The form's name in the catalog.")
     source: str = Field(
@@ -135,3 +135,67 @@ class IncidentForm(BaseModel):
         "questions. servicenow_create_incident applies them to the answers given.",
     )
     questions: list[FormQuestion] = Field(description="The questions, in the form's order.")
+
+
+class CatalogItem(BaseModel):
+    """One item found in the service catalog."""
+
+    sys_id: str = Field(description="The item's sys_id: what the form and order tools take.")
+    name: str = Field(description="The item's name.")
+    description: str | None = Field(default=None, description="Its short description.")
+    category: str | None = Field(default=None, description="Its catalog category.")
+    ordered: bool = Field(
+        description="True for an item ordered as a request (REQ/RITM); False for a form "
+        "that creates another kind of record when submitted."
+    )
+
+
+class RequestItemSummary(BaseModel):
+    """One requested item (RITM) in a list."""
+
+    number: str = Field(description="The item's number, such as RITM0012345.")
+    item: str | None = Field(default=None, description="What was requested (catalog item).")
+    short_description: str | None = Field(default=None, description="Its description.")
+    request: str | None = Field(default=None, description="The request it is part of (REQ).")
+    stage: str | None = Field(
+        default=None, description="Where it is, such as Waiting for Approval."
+    )
+    state: str | None = Field(default=None, description="State, such as Open or Closed Complete.")
+    approval: str | None = Field(
+        default=None, description="Approval, such as Requested or Approved."
+    )
+    estimated_delivery: str | None = Field(default=None, description="When it should be delivered.")
+    opened_at: str | None = Field(default=None, description="When it was requested.")
+    updated_at: str | None = Field(default=None, description="When it last changed.")
+    url: str | None = Field(default=None, description="Its form in the web interface.")
+
+
+class RequestItem(RequestItemSummary):
+    """One requested item in detail."""
+
+    quantity: str | None = Field(default=None, description="How many.")
+    requested_for: str | None = Field(default=None, description="Who it is for.")
+    due_date: str | None = Field(default=None, description="When it is due.")
+    closed_at: str | None = Field(default=None, description="When it was closed.")
+    close_notes: str | None = Field(default=None, description="How it was closed.")
+    assignment_group: str | None = Field(default=None, description="Group working on it.")
+    assigned_to: str | None = Field(default=None, description="Person working on it.")
+    comments: list[Comment] = Field(
+        default_factory=list, description="Comments visible to you, newest first."
+    )
+
+
+class OrderWriteResult(WriteReport):
+    """Outcome of ordering a catalog item."""
+
+    item: str = Field(description="The catalog item ordered.")
+    number: str | None = Field(
+        default=None,
+        description="The new request's number (REQ...), or the new record's for a form that "
+        "creates one (such as INC...).",
+    )
+    sys_id: str | None = Field(default=None, description="The new record's sys_id.")
+    url: str | None = Field(default=None, description="Its form in the web interface.")
+    items: list[str] = Field(
+        default_factory=list, description="The request's item numbers (RITM...), to follow up."
+    )

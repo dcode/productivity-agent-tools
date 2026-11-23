@@ -3,7 +3,7 @@
 # Smoke test: run every tool once against your real servers with `call`,
 # no agent and no model credits. Nothing here changes Jira, Bitbucket or Confluence:
 # every write tool it runs is forced into dry-run. The Outlook tools are read-only,
-# and the one ServiceNow write (submitting the incident form) is forced into dry-run too.
+# and the ServiceNow writes (an incident, an order) are forced into dry-run too.
 #
 # Some checks feed on earlier ones (a message id from the inbox list, say) and
 # some assert something about a result rather than only that the call worked;
@@ -48,6 +48,9 @@ fi
 : "${CONFLUENCE_PAGE:=<page-id>}"
 : "${OUTLOOK_SEARCH:=<search-text>}"
 : "${SERVICENOW_ANSWERS:=<incident-answers>}"
+: "${SERVICENOW_SEARCH:=<catalog-search>}"
+: "${SERVICENOW_ORDER_ITEM:=<catalog-item>}"
+: "${SERVICENOW_ORDER_ANSWERS:=<order-answers>}"
 OUT_DIR="$(mktemp -d "${TMPDIR:-/tmp}/productivity-smoke.XXXXXX")"
 PASSED=()
 FAILED=()
@@ -473,6 +476,23 @@ if offers servicenow_status; then
   expect "servicenow create not sent" "servicenow create incident (dry run)" \
     "dry-run shows the form submission, every required question answered" \
     'r["sent"] is False and r["request"]["path"].endswith("/submit_producer")'
+  # Requests from the catalog.
+  check "servicenow requests" -- servicenow_list_requests include_closed=true max_results=5
+  REQUEST_ITEM="$(pick "servicenow requests" result 0 number)"
+  check "servicenow request item" "$REQUEST_ITEM" -- \
+    servicenow_get_request_item "number=$REQUEST_ITEM"
+  check "servicenow catalog search" "$SERVICENOW_SEARCH" -- \
+    servicenow_search_catalog "query=$SERVICENOW_SEARCH" max_results=5
+  CATALOG_ITEM="$(pick "servicenow catalog search" result 0 sys_id)"
+  check "servicenow catalog form" "$CATALOG_ITEM" -- \
+    servicenow_get_catalog_form "item=$CATALOG_ITEM"
+  # Write tool, forced into dry-run: reads the item's form and checks the answers.
+  check "servicenow order item (dry run)" "$SERVICENOW_ORDER_ITEM" "$SERVICENOW_ORDER_ANSWERS" -- \
+    servicenow_order_item "item=$SERVICENOW_ORDER_ITEM" \
+    "answers=$SERVICENOW_ORDER_ANSWERS" --dry-run
+  expect "servicenow order not sent" "servicenow order item (dry run)" \
+    "dry-run shows the order, every required question answered" \
+    'r["sent"] is False'
 else
   printf '\n== servicenow\n   skipped: no [servicenow] table in the config\n'
   SKIPPED+=("servicenow (not configured)")
