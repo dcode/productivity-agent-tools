@@ -32,6 +32,8 @@ class ServiceNowSettings(ProductSettings):
         portal: The service portal the form is read from, as its address suffix (the
             ``sp`` in ``/sp?id=...``); its ``sys_id`` is read from its page.
         portal_id: The portal's ``sys_id``, when it should not be read from its page.
+        unlisted_item: The catalog item (name or ``sys_id``) for requesting anything the
+            catalog does not list, such as unlisted software; offered with every search.
     """
 
     browser: str | None = None
@@ -41,6 +43,7 @@ class ServiceNowSettings(ProductSettings):
     order_defaults: dict[str, str] = field(default_factory=dict)
     portal: str | None = None
     portal_id: str | None = None
+    unlisted_item: str | None = None
 
 
 def _answers(raw: dict[str, Any], table: str) -> dict[str, str]:
@@ -86,5 +89,6 @@ def parse_servicenow_settings(raw: dict[str, Any]) -> ServiceNowSettings:
         order_defaults=_answers(raw, "order_defaults"),
         portal=(as_str(raw, "portal", None) or "").strip().strip("/") or None,
         portal_id=(as_str(raw, "portal_id", None) or "").strip() or None,
+        unlisted_item=(as_str(raw, "unlisted_item", None) or "").strip() or None,
         **product_overrides(raw, "servicenow"),
     )

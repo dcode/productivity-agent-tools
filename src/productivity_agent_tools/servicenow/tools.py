@@ -13,6 +13,7 @@ from productivity_agent_tools.servicenow.forms import CatalogForm
 from productivity_agent_tools.servicenow.journal import parse_journal
 from productivity_agent_tools.servicenow.models import (
     CatalogItem,
+    CatalogSearch,
     FieldValue,
     FormQuestion,
     FormScript,
@@ -333,18 +334,23 @@ def register_servicenow_tools(
     @anticipated
     async def servicenow_search_catalog(
         query: str, max_results: Annotated[int, Field(ge=1, le=50)] = 10
-    ) -> list[CatalogItem]:
+    ) -> CatalogSearch:
         """Search the service catalog, such as for software to request.
 
         Search by what the user wants (a program's name, "license", "laptop"). Show
         the user what was found and agree which item before reading its form.
+
+        When nothing found fits (the program is not listed), use unlisted_item if
+        the result names one: the helpdesk's form for requesting anything the
+        catalog does not list, such as unlisted software. Pass it to
+        servicenow_get_catalog_form and servicenow_order_item as the item.
 
         Args:
             query: Words to look for.
             max_results: Most items to return.
         """
         rows = await servicenow.search_catalog(query, max_results)
-        return [
+        items = [
             CatalogItem(
                 sys_id=sys_id,
                 name=text(row, "name") or sys_id,
@@ -356,6 +362,7 @@ def register_servicenow_tools(
             for row in rows
             if (sys_id := text(row, "sys_id"))
         ]
+        return CatalogSearch(items=items, unlisted_item=servicenow.settings.unlisted_item)
 
     @server.tool(annotations=READ)
     @anticipated

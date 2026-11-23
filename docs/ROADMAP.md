@@ -59,11 +59,19 @@ Last updated: 2026-11-23 (evening).
     (containers, labels, a widget, an attachment) as "true" or "", which the tool leaves
     out. **Caution seen:** the cart held an earlier copy of the same item (21:20), so the
     checkout likely ordered both; the user to check REQ0094044 for a second RITM.
+  - **Software requested (user, 2026-11-23):** sops, gnupg-pkcs11-scd and OpenSC (for the
+    CAC's encryption key: macOS's `ssh-keychain.dylib` exposes only the authentication
+    and signature keys), as Non-Standard Software Requests. **Asked next:** how an agent
+    finds that form when a program is not in the catalog. Added `[servicenow]
+    unlisted_item` (name or sys_id); `servicenow_search_catalog` now returns
+    `{items, unlisted_item}` and says to use it when nothing fits. To confirm with the
+    user: whether those requests went through `servicenow_order_item` (the first real
+    `order_now`) or the portal.
   - **Still to check on the laptop:** `servicenow_search_catalog "query=macports"`;
     `servicenow_get_catalog_form` on MacPorts with `[servicenow.order_defaults]`; a
     dry-run order; then one real `servicenow_order_item` (the first through
     `order_now`), checked in the portal and cancelled.
-  - Tests: 955 passing, 99.97% branch coverage; ruff and ty clean.
+  - Tests: 956 passing, 99.97% branch coverage; ruff and ty clean.
 - **0.11.0, ServiceNow incidents: merged to `main` via
   [#20](https://github.com/dcode/productivity-agent-tools/pull/20) (2026-11-23, rebase
   merge, 17 commits). Tagged `v0.11.0` at 3f25eb1 (the last commit; the user, 2026-11-23).**
@@ -495,7 +503,7 @@ Last updated: 2026-11-23 (evening).
   spikes and version 0.4.0 (built on `claude/servicenow-credential-seam`).
 - **Also on `main`, in 0.5.0:** the Outlook REST spikes and the Microsoft
   refresh-token lifecycle (`login-microsoft`).
-- **Tests:** 955 passing, about 99.97% branch coverage. All hooks clean.
+- **Tests:** 956 passing, about 99.97% branch coverage. All hooks clean.
 - **In use:** Goose on the work laptop, against Jira 11.3.12, Bitbucket 10.2.8 and Confluence
   10.2.19. No CI
   server (Bamboo or other) reports builds or deployments to this Bitbucket.

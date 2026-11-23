@@ -1900,10 +1900,12 @@ async def test_the_catalog_is_searched_as_the_portal_searches(instance: FakeServ
         {"sys_id": FORM_ID, "name": "", "category": "", "type": "record_producer"},
         {"name": "no id"},
     ]
-    items = await call(
+    found = await call(
         instance, "servicenow_search_catalog", {"query": " vscode ", "max_results": 5}
     )
-    assert items == [
+    assert isinstance(found, dict)
+    assert found["unlisted_item"] is None
+    assert found["items"] == [
         {
             "sys_id": ITEM_ID,
             "name": "Visual Studio Code",
@@ -1921,6 +1923,16 @@ async def test_the_catalog_is_searched_as_the_portal_searches(instance: FakeServ
     ]
     params = instance.requests[-1].url.params
     assert (params["sysparm_text"], params["sysparm_limit"]) == ("vscode", "5")
+
+
+async def test_a_search_offers_the_item_for_anything_unlisted(
+    instance: FakeServiceNow,
+) -> None:
+    instance.catalog_hits = []
+    settings = with_settings(unlisted_item=" Non-Standard Software Request ")
+    found = await call_with(instance, settings, "servicenow_search_catalog", {"query": "sops"})
+    assert found == {"items": [], "unlisted_item": "Non-Standard Software Request"}
+    assert parse_servicenow_settings({"unlisted_item": "  "}).unlisted_item is None
 
 
 async def test_a_blank_catalog_search_is_refused(instance: FakeServiceNow) -> None:
