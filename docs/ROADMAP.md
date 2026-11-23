@@ -8,7 +8,9 @@ Last updated: 2026-11-23.
 ## Where things stand
 
 - **0.11.0, ServiceNow incidents (branch `claude/zealous-mendel-ny1eml`, restarted from
-  `main` after #19 merged, 2026-11-23). Start here.** Asked for on 2026-11-23: "add the
+  `main` after #19 merged, 2026-11-23; in review as
+  [#20](https://github.com/dcode/productivity-agent-tools/pull/20)). Start here.**
+  **Next action: merge #20, then tag `v0.11.0` on the commit it lands as on `main`.** Asked for on 2026-11-23: "add the
   ServiceNow support to create tickets". Read as **incidents** (the helpdesk's tickets),
   not catalog orders; ordering software stays the next ServiceNow step (see "Later").
   - **Tools:** `servicenow_get_incident_form` (read), `servicenow_create_incident`
@@ -348,7 +350,7 @@ Last updated: 2026-11-23.
     when this was set up. Revisit before then.
   - **Merged** as one commit, 39b34d8, which also carries the version bump, so that is
     where `v0.9.0` goes.
-- **Version:** 0.11.0 on the branch (ServiceNow incidents); 0.10.0 on `main`.
+- **Version:** 0.11.0 on the branch (ServiceNow incidents, #20); 0.10.0 on `main`.
   Before that, 0.8.0, on `main` via
   [#17](https://github.com/dcode/productivity-agent-tools/pull/17) (2026-11-19, rebase
   merge, so the branch's commit ids differ from `main`'s). **To do: tag `v0.8.0` at
