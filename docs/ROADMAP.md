@@ -64,13 +64,16 @@ Last updated: 2026-11-23 (evening).
     and signature keys), as Non-Standard Software Requests. **Asked next:** how an agent
     finds that form when a program is not in the catalog. Added `[servicenow]
     unlisted_item` (name or sys_id); `servicenow_search_catalog` now returns
-    `{items, unlisted_item}` and says to use it when nothing fits. To confirm with the
-    user: whether those requests went through `servicenow_order_item` (the first real
-    `order_now`) or the portal.
-  - **Still to check on the laptop:** `servicenow_search_catalog "query=macports"`;
-    `servicenow_get_catalog_form` on MacPorts with `[servicenow.order_defaults]`; a
-    dry-run order; then one real `servicenow_order_item` (the first through
-    `order_now`), checked in the portal and cancelled.
+    `{items, unlisted_item}` and says to use it when nothing fits.
+  - **Confirmed by the user (2026-11-23): all three requests were ordered through
+    `servicenow_order_item` with `--no-dry-run`, the first real orders through
+    `order_now`.** Ordering works end to end.
+  - **Still open:** that a catalog search finds a listed item by name (such as
+    "macports"); the smoke test with `SERVICENOW_SEARCH`, `SERVICENOW_ORDER_ITEM` and
+    `SERVICENOW_ORDER_ANSWERS`; whether to have the tool make the item scripts' two
+    lookups (`CatItemModelOptions`, `ToGetLicenseRequiredInfo`) to enforce an item's
+    real platform choices and license requirement (asked, not yet answered).
+  - **Next action: open the pull request for 0.12.0.**
   - Tests: 956 passing, 99.97% branch coverage; ruff and ty clean.
 - **0.11.0, ServiceNow incidents: merged to `main` via
   [#20](https://github.com/dcode/productivity-agent-tools/pull/20) (2026-11-23, rebase
