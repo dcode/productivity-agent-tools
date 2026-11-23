@@ -166,6 +166,18 @@ class CatalogItem(BaseModel):
     )
 
 
+class CatalogSearch(BaseModel):
+    """What a catalog search found, and where to turn when nothing fits."""
+
+    items: list[CatalogItem] = Field(description="The items found, best first.")
+    unlisted_item: str | None = Field(
+        default=None,
+        description="The item (name or sys_id) for requesting anything the catalog does not "
+        "list, from the user's config; use it as the item when nothing found fits. None when "
+        "the user has not named one.",
+    )
+
+
 class RequestItemSummary(BaseModel):
     """One requested item (RITM) in a list."""
 

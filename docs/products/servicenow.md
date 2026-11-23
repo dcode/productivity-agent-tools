@@ -32,6 +32,7 @@ to check it, and restart your agent to load the tools.
 | `login_timeout_seconds` | `300` | How long `login servicenow` waits for you to finish |
 | `incident_form` | `"Create an incident"` | The catalog form that opens an incident: its exact name or `sys_id` (see below) |
 | `portal` | none | The service portal the form is read from: its address suffix, such as `sp` in `/sp?id=...` |
+| `unlisted_item` | none | The item for requesting what the catalog does not list (name or `sys_id`); searches offer it |
 | `portal_id` | read from the portal's page | The portal's `sys_id`, to skip reading it |
 | `[servicenow.order_defaults]` | none | Answers used when ordering any catalog item whose form has the question |
 | `[servicenow.incident_defaults]` | none | Answers to that form's questions used when the agent gives none |
@@ -160,7 +161,11 @@ still reflects them.
 ### Requesting from the catalog
 
 The agent finds an item with `servicenow_search_catalog` (each result has its
-`sys_id`, and `ordered` is false for a form that creates another kind of record),
+`sys_id`, and `ordered` is false for a form that creates another kind of record).
+Many helpdesks have one form for anything not listed, such as a "Non-Standard
+Software Request"; name it as `unlisted_item` under `[servicenow]` and every search
+offers it, so the agent knows where to turn when a program is not in the catalog.
+It then
 reads its form with `servicenow_get_catalog_form`, and requests it with
 `servicenow_order_item`. The form is read and checked exactly as the incident
 form is, rules and lookups included, and the order is sent as the portal's

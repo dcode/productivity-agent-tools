@@ -197,6 +197,9 @@ current-sprint = "assignee = currentUser() AND sprint in openSprints() ORDER BY 
 # address after the host, such as "sp" in https://helpdesk.example.com/sp?id=...
 # Its sys_id is read from its page; set portal_id as well to skip that.
 # portal = "sp"
+# The catalog item for requesting anything the catalog does not list (name or sys_id),
+# such as a non-standard software request. Searches offer it when nothing fits.
+# unlisted_item = "Non-Standard Software Request"
 # portal_id = "<sys_id of the portal>"
 # An empty cookies table, so the top-level [cookies] are not sent to this host.
 # [servicenow.cookies]

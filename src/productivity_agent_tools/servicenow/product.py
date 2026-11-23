@@ -24,7 +24,8 @@ INSTRUCTIONS: str = (
     "the form's questions with servicenow_get_incident_form, ask the user for required "
     "answers you do not know, and confirm the answers with them before creating it. "
     "servicenow_order_item requests a catalog item (such as software) for the user: find "
-    "it with servicenow_search_catalog, agree the item with the user, check "
+    "it with servicenow_search_catalog (or, when nothing listed fits, use the result's "
+    "unlisted_item), agree the item with the user, check "
     "servicenow_list_requests for one already open, read its questions with "
     "servicenow_get_catalog_form, and confirm the answers before ordering."
 )

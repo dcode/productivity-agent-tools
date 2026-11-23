@@ -483,7 +483,7 @@ if offers servicenow_status; then
     servicenow_get_request_item "number=$REQUEST_ITEM"
   check "servicenow catalog search" "$SERVICENOW_SEARCH" -- \
     servicenow_search_catalog "query=$SERVICENOW_SEARCH" max_results=5
-  CATALOG_ITEM="$(pick "servicenow catalog search" result 0 sys_id)"
+  CATALOG_ITEM="$(pick "servicenow catalog search" items 0 sys_id)"
   check "servicenow catalog form" "$CATALOG_ITEM" -- \
     servicenow_get_catalog_form "item=$CATALOG_ITEM"
   # Write tool, forced into dry-run: reads the item's form and checks the answers.
