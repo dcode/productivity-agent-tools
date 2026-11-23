@@ -7,7 +7,12 @@ from typing import Literal
 from pydantic import JsonValue
 
 from productivity_agent_tools.api import ApiClient, WriteOutcome
-from productivity_agent_tools.errors import AgentToolsError, ApiError, NotFoundError
+from productivity_agent_tools.errors import (
+    AgentToolsError,
+    ApiError,
+    NotFoundError,
+    PermissionDeniedError,
+)
 from productivity_agent_tools.payload import JsonObject, objects, text, value
 from productivity_agent_tools.servicenow.settings import ServiceNowSettings
 
@@ -39,6 +44,12 @@ OWN_FIELDS: frozenset[str] = frozenset(
     {"caller_id", "short_description", "description", "urgency", "impact", "category"}
 )
 _FIELD_NAME = re.compile(r"^[a-z][a-z0-9_]*$")
+CHOICE_TABLE: str = "/api/now/table/sys_choice"
+CATEGORY_PARAMS: dict[str, str | int] = {
+    "sysparm_query": "name=incident^element=category^inactive=false^language=en^ORDERBYsequence",
+    "sysparm_fields": "value,label",
+    "sysparm_limit": 500,
+}
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
@@ -47,50 +58,58 @@ class IncidentDraft:
 
     Attributes:
         short_description: One-line title.
+        category: The instance's category value, such as ``software``. The incident form
+            requires one, though the Table API does not.
         description: Longer description, plain text.
         urgency: How soon it needs fixing.
         impact: How much it affects.
-        category: The instance's category value, such as ``software``.
         fields: Other fields by column name (such as site-specific ``u_`` fields), sorted.
     """
 
     short_description: str
+    category: str
     description: str | None = None
     urgency: Level | None = None
     impact: Level | None = None
-    category: str | None = None
     fields: tuple[tuple[str, str], ...] = ()
 
     @classmethod
     def build(
         cls,
         short_description: str,
+        category: str,
         *,
         description: str | None = None,
         urgency: Level | None = None,
         impact: Level | None = None,
-        category: str | None = None,
         fields: dict[str, str] | None = None,
     ) -> IncidentDraft:
         """Check and tidy what the user asked for.
 
         Args:
             short_description: One-line title; must not be blank.
+            category: Category value; must not be blank.
             description: Longer description.
             urgency: high, medium or low.
             impact: high, medium or low.
-            category: Category value.
             fields: Other fields by column name.
 
         Returns:
             The draft.
 
         Raises:
-            AgentToolsError: If the title is blank or a field name is not allowed.
+            AgentToolsError: If the title or category is blank, or a field name is not
+                allowed.
         """
         title = short_description.strip()
         if not title:
             raise AgentToolsError("An incident needs a short_description (a one-line title).")
+        chosen = category.strip()
+        if not chosen:
+            raise AgentToolsError(
+                "An incident needs a category, as the helpdesk's form does. "
+                "servicenow_list_incident_categories lists them."
+            )
         extra: dict[str, str] = {}
         for name, field_value in (fields or {}).items():
             key = name.strip()
@@ -111,7 +130,7 @@ class IncidentDraft:
             description=(description or "").strip() or None,
             urgency=urgency,
             impact=impact,
-            category=(category or "").strip() or None,
+            category=chosen,
             fields=tuple(sorted(extra.items())),
         )
 
@@ -127,6 +146,7 @@ class IncidentDraft:
         body: dict[str, JsonValue] = {
             "caller_id": caller,
             "short_description": self.short_description,
+            "category": self.category,
         }
         if self.description:
             body["description"] = self.description
@@ -134,8 +154,6 @@ class IncidentDraft:
             body["urgency"] = LEVELS[self.urgency]
         if self.impact:
             body["impact"] = LEVELS[self.impact]
-        if self.category:
-            body["category"] = self.category
         body.update(dict(self.fields))
         return body
 
@@ -205,6 +223,56 @@ class ServiceNow:
             The URL.
         """
         return f"{self.base_url}/{table}.do?sys_id={sys_id}"
+
+    async def incident_categories(self) -> list[JsonObject]:
+        """Read the incident form's category choices.
+
+        Returns:
+            The active choices, each with ``value`` and ``label``, in the form's order;
+            one row per value.
+
+        Raises:
+            AgentToolsError: If the instance does not let the user read them.
+        """
+        rows = objects(value(await self._api.get(CHOICE_TABLE, CATEGORY_PARAMS), "result"))
+        seen: set[str] = set()
+        unique: list[JsonObject] = []
+        for row in rows:
+            choice = text(row, "value")
+            if choice and choice not in seen:
+                seen.add(choice)
+                unique.append(row)
+        return unique
+
+    async def incident_category(self, category: str) -> str:
+        """Match a category, by value or label in any case, against the form's choices.
+
+        When the choices cannot be read (no access, or none listed), the category is
+        sent as given, and the instance decides.
+
+        Args:
+            category: The category as the user or agent wrote it.
+
+        Returns:
+            The choice's value, or the category as given (trimmed) when unchecked.
+
+        Raises:
+            AgentToolsError: If the choices were read and none matches.
+        """
+        wanted = category.strip()
+        try:
+            choices = await self.incident_categories()
+        except PermissionDeniedError, NotFoundError:
+            return wanted
+        folded = wanted.casefold()
+        for row in choices:
+            choice = text(row, "value") or ""
+            if folded in (choice.casefold(), (text(row, "label") or "").casefold()):
+                return choice
+        if not choices:
+            return wanted
+        names = ", ".join(text(row, "label") or text(row, "value") or "" for row in choices)
+        raise AgentToolsError(f"'{wanted}' is not an incident category here. Categories: {names}.")
 
     async def create_incident(self, draft: IncidentDraft) -> WriteOutcome:
         """Open an incident with the signed-in user as its caller.

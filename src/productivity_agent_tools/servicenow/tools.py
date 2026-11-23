@@ -1,5 +1,6 @@
 """MCP tool definitions for ServiceNow: status, the user's incidents, and opening one."""
 
+import dataclasses
 from typing import Annotated
 
 from mcp.server.mcpserver import MCPServer
@@ -10,6 +11,7 @@ from productivity_agent_tools.products import ToolContext
 from productivity_agent_tools.repeats import RepeatGuard
 from productivity_agent_tools.servicenow.client import IncidentDraft, Level, ServiceNow
 from productivity_agent_tools.servicenow.models import (
+    Choice,
     Incident,
     IncidentSummary,
     IncidentWriteResult,
@@ -128,14 +130,28 @@ def register_servicenow_tools(
             comments=_blank_to_none(row, "comments"),
         )
 
+    @server.tool(annotations=READ)
+    @anticipated
+    async def servicenow_list_incident_categories() -> list[Choice]:
+        """List the categories the helpdesk's incident form offers.
+
+        servicenow_create_incident needs one; pick the closest to the problem and
+        confirm it with the user.
+        """
+        rows = await servicenow.incident_categories()
+        return [
+            Choice(value=text(row, "value") or "", label=_blank_to_none(row, "label"))
+            for row in rows
+        ]
+
     @server.tool(annotations=WRITE)
     @anticipated
     async def servicenow_create_incident(
         short_description: str,
+        category: str,
         description: str | None = None,
         urgency: Level | None = None,
         impact: Level | None = None,
-        category: str | None = None,
         fields: dict[str, str] | None = None,
     ) -> IncidentWriteResult:
         """Open a helpdesk incident (a ticket) with the user as the caller.
@@ -145,25 +161,32 @@ def register_servicenow_tools(
         about the same problem. Leave urgency and impact out unless the user
         says how urgent it is; the instance then uses its defaults.
 
+        A category is required, as on the helpdesk's form (the API alone would
+        accept none). servicenow_list_incident_categories lists them; a label or
+        value is accepted in any case, and an unknown one is refused with the list.
+
         In dry-run mode nothing is sent and the result shows the request that
         would have been made. An identical create within 30 seconds is not sent again.
 
         Args:
             short_description: One-line title, such as "VPN client fails to connect".
+            category: Category label or value, such as Software or Network.
             description: What happened, what was tried, and any error text. Plain text.
             urgency: How soon it needs fixing: high, medium or low.
             impact: How much it affects: high (many people), medium or low (just the user).
-            category: The instance's category value, such as software, hardware or network.
             fields: Other fields by column name, such as {"u_location": "Building 2"}, for
                 fields the instance requires that have no parameter here.
         """
         draft = IncidentDraft.build(
             short_description,
+            category,
             description=description,
             urgency=urgency,
             impact=impact,
-            category=category,
             fields=fields,
+        )
+        draft = dataclasses.replace(
+            draft, category=await servicenow.incident_category(draft.category)
         )
 
         async def send() -> IncidentWriteResult:

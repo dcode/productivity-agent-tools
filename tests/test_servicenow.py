@@ -74,6 +74,11 @@ INCIDENTS: list[dict[str, str]] = [
     },
     {"sys_id": "", "number": "INC0010002", "short_description": "", "state": "New"},
 ]
+CATEGORIES: list[dict[str, str]] = [
+    {"value": "software", "label": "Software"},
+    {"value": "network", "label": "Network"},
+    {"value": "software", "label": "Software"},
+]
 ME = {"sys_id": "u1", "user_name": "pat.example", "name": "Pat Example", "email": "p@x.example"}
 
 
@@ -83,6 +88,8 @@ class FakeServiceNow:
     def __init__(self) -> None:
         self.requests: list[httpx.Request] = []
         self.accept_token = True
+        self.choices: list[dict[str, str]] = list(CATEGORIES)
+        self.choice_status = 200
 
     def handler(self, request: httpx.Request) -> httpx.Response:
         self.requests.append(request)
@@ -103,6 +110,10 @@ class FakeServiceNow:
             return httpx.Response(401, headers=who, json=body)
         if path == "/api/now/table/sys_user":
             return httpx.Response(200, headers=who, json={"result": [ME]})
+        if path == "/api/now/table/sys_choice":
+            if self.choice_status != 200:
+                return httpx.Response(self.choice_status, json={"error": {"message": "ACL"}})
+            return httpx.Response(200, headers=who, json={"result": self.choices})
         if path == INCIDENT_PATH and request.method == "POST":
             body = json.loads(request.content)
             created = {**body, "sys_id": "i9", "number": "INC0010009", "state": "1"}
@@ -688,7 +699,7 @@ async def test_create_incident_in_dry_run_sends_nothing(instance: FakeServiceNow
             "description": "Error 809.",
             "urgency": "high",
             "impact": "low",
-            "category": "network",
+            "category": " network ",
             "fields": {"u_location": "Building 2"},
         },
     )
@@ -702,15 +713,15 @@ async def test_create_incident_in_dry_run_sends_nothing(instance: FakeServiceNow
         "body": {
             "caller_id": "u1",
             "short_description": "VPN client fails",
+            "category": "network",
             "description": "Error 809.",
             "urgency": "1",
             "impact": "3",
-            "category": "network",
             "u_location": "Building 2",
         },
     }
-    # The caller was looked up; nothing was posted.
-    assert [r.method for r in instance.requests] == ["GET"]
+    # The category and the caller were looked up; nothing was posted.
+    assert [r.method for r in instance.requests] == ["GET", "GET"]
 
 
 async def test_create_incident_sends_and_reports_the_new_number(
@@ -719,7 +730,7 @@ async def test_create_incident_sends_and_reports_the_new_number(
     result = await call(
         instance,
         "servicenow_create_incident",
-        {"short_description": "Laptop fan is loud", "description": "  "},
+        {"short_description": "Laptop fan is loud", "category": "SOFTWARE", "description": "  "},
         dry_run=False,
     )
     assert isinstance(result, dict)
@@ -732,13 +743,14 @@ async def test_create_incident_sends_and_reports_the_new_number(
     assert json.loads(posted.content) == {
         "caller_id": "u1",
         "short_description": "Laptop fan is loud",
+        "category": "software",
     }
 
 
 async def test_an_identical_create_is_not_sent_twice(instance: FakeServiceNow) -> None:
     async with make_api(instance, dry_run=False) as api:
         server = build_server(servicenow_settings(), {"servicenow": Connected(api, "x")})
-        arguments = {"short_description": "Printer jam"}
+        arguments = {"short_description": "Printer jam", "category": "Software"}
         await server.call_tool("servicenow_create_incident", arguments)
         again = await server.call_tool("servicenow_create_incident", arguments)
     assert isinstance(again, CallToolResult)
@@ -764,7 +776,9 @@ async def test_a_create_without_a_number_in_the_answer_still_reports(
     transport = httpx.MockTransport(instance.handler)
     async with Bare(base_url=BASE, credentials=headers, transport=transport) as api:
         server = build_server(servicenow_settings(), {"servicenow": Connected(api, "x")})
-        result = await server.call_tool("servicenow_create_incident", {"short_description": "x"})
+        result = await server.call_tool(
+            "servicenow_create_incident", {"short_description": "x", "category": "software"}
+        )
     assert isinstance(result, CallToolResult)
     assert result.structured_content is not None
     assert result.structured_content["message"] == "Opened the incident."
@@ -774,11 +788,12 @@ async def test_a_create_without_a_number_in_the_answer_still_reports(
 @pytest.mark.parametrize(
     ("arguments", "match"),
     [
-        ({"short_description": "   "}, "needs a short_description"),
-        ({"short_description": "x", "fields": {"Bad Name": "1"}}, "not a field this tool can set"),
-        ({"short_description": "x", "fields": {"sys_id": "1"}}, "no sys_ fields"),
-        ({"short_description": "x", "fields": {"urgency": "1"}}, "with its own parameter"),
-        ({"short_description": "x", "fields": {"caller_id": "u2"}}, "caller is always you"),
+        ({"short_description": "   ", "category": "software"}, "needs a short_description"),
+        ({"short_description": "x", "category": " "}, "needs a category"),
+        ({"short_description": "x", "category": "c", "fields": {"Bad Name": "1"}}, "not a field"),
+        ({"short_description": "x", "category": "c", "fields": {"sys_id": "1"}}, "no sys_"),
+        ({"short_description": "x", "category": "c", "fields": {"urgency": "1"}}, "own parameter"),
+        ({"short_description": "x", "category": "c", "fields": {"caller_id": "u"}}, "always you"),
     ],
 )
 async def test_create_incident_refuses_bad_input(
@@ -802,4 +817,49 @@ async def test_create_incident_needs_the_callers_sys_id(instance: FakeServiceNow
     transport = httpx.MockTransport(instance.handler)
     async with NoId(base_url=BASE, credentials=headers, transport=transport) as api:
         with pytest.raises(ApiError, match="without its sys_id"):
-            await ServiceNow(api, ServiceNowSettings()).create_incident(IncidentDraft.build("x"))
+            await ServiceNow(api, ServiceNowSettings()).create_incident(
+                IncidentDraft.build("x", "software")
+            )
+
+
+async def test_list_incident_categories_gives_each_value_once(instance: FakeServiceNow) -> None:
+    instance.choices.append({"value": "other", "label": ""})
+    rows = await call(instance, "servicenow_list_incident_categories", {})
+    assert rows == [
+        {"value": "software", "label": "Software"},
+        {"value": "network", "label": "Network"},
+        {"value": "other", "label": None},
+    ]
+    params = instance.requests[-1].url.params
+    assert params["sysparm_query"].startswith("name=incident^element=category^inactive=false")
+
+
+async def test_an_unknown_category_is_refused_with_the_list(instance: FakeServiceNow) -> None:
+    with pytest.raises(
+        ToolError,
+        match=r"'Printers' is not an incident category here\. Categories: Software, Network\.",
+    ):
+        await call(
+            instance,
+            "servicenow_create_incident",
+            {"short_description": "x", "category": "Printers"},
+            dry_run=False,
+        )
+    assert [r.method for r in instance.requests] == ["GET"]
+
+
+@pytest.mark.parametrize("status", [403, 404, 0])
+async def test_unreadable_or_empty_categories_send_the_category_as_given(
+    instance: FakeServiceNow, status: int
+) -> None:
+    if status:
+        instance.choice_status = status
+    else:
+        instance.choices = []
+    result = await call(
+        instance, "servicenow_create_incident", {"short_description": "x", "category": " Printers "}
+    )
+    assert isinstance(result, dict)
+    request = result["request"]
+    assert isinstance(request, dict)
+    assert request["body"]["category"] == "Printers"

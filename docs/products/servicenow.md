@@ -38,22 +38,34 @@ to check it, and restart your agent to load the tools.
 | `servicenow_status` | read | Who is signed in, when they signed in, dry-run |
 | `servicenow_list_incidents` | read | Your incidents (you are the caller or opened them), open ones by default, newest first |
 | `servicenow_get_incident` | read | One incident by number: state, who has it, comments, resolution |
+| `servicenow_list_incident_categories` | read | The categories the incident form offers |
 | `servicenow_create_incident` | write | Open an incident with you as the caller |
 
 ### Opening an incident
 
-`servicenow_create_incident` takes a one-line `short_description` and,
-optionally, a `description`, `urgency` and `impact` (`high`, `medium` or `low`,
-the instance's standard 1-3 values; priority follows from the two), and a
-`category` (your instance's value, such as `software`). The caller is always
-you: the tool reads your own user record first, even in dry-run, to fill it.
+`servicenow_create_incident` takes a one-line `short_description`, a
+`category`, and optionally a `description`, `urgency` and `impact` (`high`,
+`medium` or `low`, the instance's standard 1-3 values; priority follows from the
+two). The caller is always you: the tool reads your own user record first, even
+in dry-run, to fill it.
+
+The category is required because the helpdesk's form requires it. The API does
+not enforce that, since the form's mandatory fields are checked in the browser,
+so the tool does instead. It reads the form's categories
+(`servicenow_list_incident_categories`), accepts a label or value in any case,
+sends the value, and refuses one that is not listed, naming those that are. If
+your account cannot read the list, the category is sent as written.
+
+`servicenow_get_incident` can show urgency and impact as empty even when they
+were set: your account may not be allowed to read those fields. The priority
+still reflects them.
 
 If your instance requires a field with no parameter (a site-specific `u_`
 field, say), pass it in `fields`, by column name:
 
 ```bash
 uv run productivity-agent-tools call servicenow_create_incident \
-  "short_description=VPN client fails to connect" urgency=medium \
+  "short_description=VPN client fails to connect" category=Network urgency=medium \
   'fields={"u_location": "Building 2"}' --dry-run
 ```
 

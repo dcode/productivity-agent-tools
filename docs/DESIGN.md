@@ -454,8 +454,11 @@ keeps writes behind a dry-run switch that is on by default.
   dry-run; a `javascript:` value is not evaluated in a field being set). Urgency and
   impact take the out-of-the-box 1-3 values; site-specific required fields go in
   `fields` by column name, which refuses `sys_` fields, `caller_id` and anything with its
-  own parameter. Incidents were chosen over ordering from the catalog for the first write
-  because they need no form: an order has to read the item's variables first.
+  own parameter. A category is required and matched against the form's `sys_choice`
+  rows, because the form requires it and the API does not (a browser-side UI policy);
+  if the choices cannot be read, it is sent as written. Incidents were chosen over
+  ordering from the catalog for the first write because they need no form: an order has
+  to read the item's variables first.
 - Dry-run is on by default and returns the would-be request. This was chosen over relying on
   the agent's approval prompt alone, or a two-step confirm tool that the agent could call
   itself.
