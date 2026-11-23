@@ -68,12 +68,37 @@ Last updated: 2026-11-23 (evening).
   - **Confirmed by the user (2026-11-23): all three requests were ordered through
     `servicenow_order_item` with `--no-dry-run`, the first real orders through
     `order_now`.** Ordering works end to end.
-  - **Still open:** that a catalog search finds a listed item by name (such as
-    "macports"); the smoke test with `SERVICENOW_SEARCH`, `SERVICENOW_ORDER_ITEM` and
-    `SERVICENOW_ORDER_ANSWERS`; whether to have the tool make the item scripts' two
-    lookups (`CatItemModelOptions`, `ToGetLicenseRequiredInfo`) to enforce an item's
-    real platform choices and license requirement (asked, not yet answered).
-  - **Next action: open the pull request for 0.12.0.**
+  - **Confirmed (user, 2026-11-23):** searching "macports" finds the item (with
+    `unlisted_item` beside it).
+  - **Still open:** the smoke test's catalog checks (`SERVICENOW_SEARCH`,
+    `SERVICENOW_ORDER_ITEM`, `SERVICENOW_ORDER_ANSWERS` in `.env`); the user will run
+    them later.
+  - **Decided (user, 2026-11-23): the tool should run the item scripts' server lookups,
+    so submissions match the web form.** Not started; planned as the next ServiceNow
+    work, after #21 (0.12.0) merges. The plan:
+    1. An adapter read for a form-encoded POST that returns text (`/xmlhttp.do`, as
+       GlideAjax sends: `sysparm_processor`, `sysparm_name`, parameters; the answer is
+       the XML `answer` attribute). Check live whether the session's `X-UserToken` is
+       enough or `sysparm_ck` must be in the body too.
+    2. `servicenow/scripts.py`: a small evaluator for the script shapes seen (not a
+       JavaScript engine): `var x = g_form.getValue('f')`, `newValue`,
+       `g_form.getUniqueValue()` (the item), literals; `if (a == 'x' && b == 'y') {...}
+       else {...}`; `setVisible`/`setDisplay`/`setMandatory` with true/false;
+       `removeOption`, and `addOption` from a `JSON.parse(answer)` list; `alert(...)`
+       with `setValue(f, '')` meaning the combination is refused; GlideAjax answers bound
+       through `getXMLAnswer(function (answer) ...)` or
+       `responseXML.documentElement.getAttribute('answer')`. Anything else stays listed
+       for the agent as not checked.
+    3. Order: onLoad scripts (with their lookups) set the starting choices and states
+       (platform list, license fields); then answers, rules, and the onChange scripts of
+       answered fields (`isLoading`/empty guards skipped), which can override states or
+       refuse. The form view marks each script checked or not.
+    Seen on the work instance: `CatItemModelOptions.getOptions(sysparm_cat_item)` ->
+    `[{"label": "Mac", "value": "mac"}]`; `ToGetLicenseRequiredInfo.filter_data(sysparm_id)`
+    -> `0` (MacPorts); onChange: classified + mac refused; classified Yes hides and frees
+    `hostname`, requires `barcode_asset_tag`; No requires `hostname`.
+  - **Next action: merge the 0.12.0 pull request, tag it on its last commit, then the
+    script lookups above.**
   - Tests: 956 passing, 99.97% branch coverage; ruff and ty clean.
 - **0.11.0, ServiceNow incidents: merged to `main` via
   [#20](https://github.com/dcode/productivity-agent-tools/pull/20) (2026-11-23, rebase
