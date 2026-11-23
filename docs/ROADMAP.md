@@ -51,9 +51,10 @@ Last updated: 2026-11-23 (evening).
     terraform; REQ0094044):** the portal used the cart: `POST .../items/{id}/add_to_cart`
     with `sysparm_quantity`, `variables`, `sysparm_item_guid`, `sysparm_no_validation`,
     then checkout through the cart widget (`checkout_two`), not `order_now`. The request
-    came back approved at once, stage Requested. The tool keeps `order_now` (allowed on
-    every item seen, and the portal's own script supports it; it never touches the
-    user's cart). The variables matched the tool's questions; `platform_oms` "Mac" is
+    came back approved at once, stage Requested. The tool keeps `order_now`: the user
+    confirmed the portal also offers ordering a single item directly ("Checkout now",
+    no cart), which is the portal script's `order_now` path, and it never touches the
+    user's cart. The variables matched the tool's questions; `platform_oms` "Mac" is
     `mac_oms`, which the tool sends. The portal also sent 18 layout variables
     (containers, labels, a widget, an attachment) as "true" or "", which the tool leaves
     out. **Caution seen:** the cart held an earlier copy of the same item (21:20), so the
