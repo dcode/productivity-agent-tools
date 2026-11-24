@@ -23,8 +23,8 @@ uv run pre-commit run --all-files
 uv run pytest
 ```
 
-`pytest` measures branch coverage and fails below 90%; the suite covers every
-line and branch (100%), so a change should keep it there. Tests run against
+`pytest` measures branch coverage and fails below 100%: every line and branch
+is covered, and a change that leaves one untested fails. Tests run against
 fakes of each server (and a stand-in browser); nothing in them contacts a real
 server.
 
@@ -124,7 +124,7 @@ manage their own environments:
 
 | Command | What it runs |
 |---|---|
-| `hatch test` | The test suite with branch coverage and the 90% threshold |
+| `hatch test` | The test suite with branch coverage and the 100% threshold |
 | `hatch test -k name --no-cov` | A subset of tests, without the coverage threshold |
 | `hatch fmt` | ruff lint (with fixes) and format, using this project's settings |
 | `hatch fmt --check` | The same, reporting only |
