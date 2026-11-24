@@ -101,6 +101,19 @@ Signs in through the browser and stores the result in the system keychain.
 
 Registers the server with your agent; see [Agents](agents.md).
 
+## `budget`
+
+```bash
+uv run productivity-agent-tools budget --tools
+```
+
+Shows what the products in your config cost the model: per product, the bytes
+of tool names, descriptions and input schemas plus the server's instructions
+that are sent on every turn, an estimate in tokens (bytes divided by four), and
+the bytes of output schemas, which reach the model only if the agent forwards
+them. `--tools` adds each tool, largest first. It builds the server without
+connecting to anything, so it needs no token and no network. Takes `--config`.
+
 ## `export-ca`
 
 ```bash

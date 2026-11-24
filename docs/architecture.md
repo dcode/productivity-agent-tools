@@ -81,27 +81,31 @@ works, after a fashion, and every step of it costs tokens:
 
 ## What it costs: the tool definitions
 
-Typed tools are not free. Their names, descriptions and parameter schemas are
-sent to the model with every request, so they are a fixed cost per turn
-(usually cached by the model provider, which makes repeats cheap). Measured on
-version 0.12.0:
+Typed tools are not free. Each tool's name, description and input schema, and the
+server's instructions, are sent to the model with every request, so they are a
+fixed cost per turn (usually cached by the model provider, which makes repeats
+cheap). Each tool also has an output schema, which reaches the model only if the
+agent forwards it. Measured on version 0.12.0 with `budget` (see
+[Command line](cli.md#budget)):
 
-| Product | Tools | Definitions (bytes) |
-|---|---|---|
-| Jira (with the Jira and Bitbucket integration) | 18 | 51,529 |
-| Bitbucket | 21 | 64,399 |
-| Confluence | 8 | 23,052 |
-| ServiceNow | 10 | 34,531 |
-| Outlook mail and calendar | 11 | 36,686 |
-| Obsidian | 9 | 34,642 |
-| Everything | 77 | 244,839 |
+| Product | Tools | Every turn (bytes) | Output schemas (bytes) |
+|---|---|---|---|
+| Jira (with the Jira and Bitbucket integration) | 18 | 18,340 | 30,806 |
+| Bitbucket | 21 | 21,221 | 39,936 |
+| Confluence | 8 | 9,998 | 12,423 |
+| ServiceNow | 10 | 9,204 | 24,220 |
+| Outlook mail and calendar | 11 | 12,249 | 23,251 |
+| Obsidian | 9 | 11,914 | 21,396 |
+| Everything | 77 | 82,926 | 152,032 |
 
-At roughly four bytes to a token, every product switched on is about 60,000
-tokens of definitions. That is why **only the products in your config are
-offered**: a server with just Confluence and ServiceNow costs under a quarter of that,
-and one with Jira and Bitbucket about half.
-Leave out the products a given agent does not need, and the definitions shrink
-with them.
+At roughly four bytes to a token, every product switched on costs about 21,000
+tokens a turn, and about 59,000 if the agent forwards output schemas. That is why
+**only the products in your config are offered**: a server with just Confluence
+and ServiceNow costs under a quarter of that, and one with Jira and Bitbucket
+about half. Leave out the products a given agent does not need, and the
+definitions shrink with them. Each product also has a budget in the tests, so a
+change that makes its tools noticeably larger has to raise the budget in the
+same commit, where a reviewer sees it.
 
 The trade is still a good one for daily work. The definitions are paid once per
 turn and are usually cached; the answers a naïve agent would read are paid

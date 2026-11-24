@@ -955,6 +955,8 @@ keeps writes behind a dry-run switch that is on by default.
 - `export-ca` (macOS): exports the Keychain's trusted roots to a PEM file (default
   `~/ca-bundle.pem`).
 - `call [tool] [name=value ...] [--field NAME]`: runs a tool directly.
+- `budget [--tools] [--config]`: what the configured products' tools cost the model per
+  turn, measured from a server built with an adapter that sends nothing (`budget.py`).
 - `configure-agent [--agent goose] [--name productivity] [--config] [--agent-config]
   [--show]`: registers the server with Goose by absolute path, using `ruamel.yaml` to keep
   comments, with a startup timeout of 300 seconds.
@@ -979,6 +981,33 @@ keeps writes behind a dry-run switch that is on by default.
 
 Designed for but deferred. [ROADMAP.md](ROADMAP.md) has the ordered backlog and status.
 
+- **Context budget: toolsets loaded on demand, with skills as the index** (planned
+  2026-11-14, revived 2026-11-24). Every product on is 77 tools, about 21k tokens a turn
+  (59k if output schemas are forwarded), past the point where tool choice gets
+  unreliable as more products arrive. Decisions:
+  - **Measure first.** `budget.py` measures each product's model-visible bytes;
+    `tests/test_budget.py` holds a budget per product, so growth is a reviewed change.
+  - **Toolsets, not a gateway tool.** Each tool is tagged with a group when registered
+    (`jira.core`, `jira.worklog`, ...), config picks the groups loaded at start, and
+    `toolset_enable(name)` adds a group mid-session and sends
+    `notifications/tools/list_changed`. A single `search_tools` + `call_tool(name, args)`
+    gateway was rejected: the agent would lose per-tool schemas, read/write annotations
+    and per-tool approval prompts.
+  - **Handshake-only mode while upstream is fixed.** Goose does not open
+    `subscriptions/listen` on the 2026-07-28 protocol, so the notification never arrives
+    there (aaif-goose/goose#13055). On the 2025-11-25 handshake it works (probe run 2),
+    but the Python SDK locks a stdio connection to 2026-07-28 after Goose's
+    `server/discover` and then refuses the fallback `initialize`
+    (modelcontextprotocol/python-sdk#3851), and `ctx.notify_tools_changed()` is a no-op on
+    the handshake with `tools.listChanged` advertised as false
+    (modelcontextprotocol/python-sdk#3862). The workaround serves only the handshake era
+    through the SDK's private `mcp.server.runner._serve_legacy_stream`, advertises
+    `NotificationOptions(tools_changed=True)` and sends
+    `session.send_tool_list_changed()`. It leans on a private function, so the SDK
+    version stays pinned while it is in use, and it is removed once both fixes ship.
+  - **Skills as the index:** one per toolset or workflow, whose description says when to
+    enable the toolset; delivered as folders by `configure-agent`, later through the
+    MCP Skills extension when Goose supports it.
 - **Writing links between the products:** for example a remote link from an issue to a
   pull request. Bitbucket and Jira link them by key automatically, so this waits for a
   need.

@@ -18,6 +18,7 @@ from rich.console import Console
 from rich.syntax import Syntax
 
 from productivity_agent_tools import __version__
+from productivity_agent_tools import budget as tool_budget
 from productivity_agent_tools.agents import (
     DEFAULT_EXTENSION_NAME,
     SUPPORTED_AGENTS,
@@ -592,6 +593,32 @@ def call(
 
     try:
         _show(asyncio.run(run()), field)
+    except AgentToolsError as exc:
+        _fail(exc)
+
+
+@app.command(name="budget")
+def budget(
+    *,
+    config: ConfigOption = DEFAULT_CONFIG_PATH,
+    tools: Annotated[
+        bool,
+        Parameter(name="--tools", help="Also list each product's tools, largest first."),
+    ] = False,
+) -> None:
+    """Show what the configured products' tools cost the model on every turn.
+
+    Builds the server without connecting to anything, so it needs no token or network.
+    """
+
+    async def run() -> str:
+        settings = await load_settings(config)
+        if not settings.products:
+            raise ConfigError(_no_products())
+        return tool_budget.report(await tool_budget.measure(settings), per_tool=tools)
+
+    try:
+        print(asyncio.run(run()))
     except AgentToolsError as exc:
         _fail(exc)
 

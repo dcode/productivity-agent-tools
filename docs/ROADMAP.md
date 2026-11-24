@@ -3,12 +3,33 @@
 Read this first when coming back to the project. The design and the reasons behind it are in
 [DESIGN.md](DESIGN.md). Update this file in the same commit as the work it describes.
 
-Last updated: 2026-11-23 (evening).
+Last updated: 2026-11-24.
 
 ## Where things stand
 
+- **Context budget revived (branch `claude/zealous-mendel-ny1eml`, 2026-11-24). Start
+  here.** The plan, the Goose probe and the upstream reports from 2026-11-14 lived only on
+  the unmerged branch `claude/beautiful-hamilton-k4u2un` and had dropped out of this file;
+  the user asked to bring them back and move on. Brought over: `scripts/list_changed_probe.py`
+  (still runs on `mcp` 2.3.0) and `docs/upstream/` (kept off the site and out of rumdl).
+  The plan is under "Later" (Context budget), the upstream bugs under "Upstream".
+  - **Step 1 done: the budget check.** `budget.py` builds the server with an adapter that
+    sends nothing and measures, per product, the bytes the model gets every turn (tool
+    names, descriptions, input schemas, instructions) and the output schemas apart;
+    `productivity-agent-tools budget [--tools]` prints it for your config;
+    `tests/test_budget.py` holds a budget per product (measured, rounded up to the next
+    thousand) and one for all output schemas. Measured on 0.12.0: 77 tools, 82,926 bytes
+    (~21k tokens) every turn, 152,032 bytes (~38k tokens) more of output schemas. Largest:
+    `jira_edit_issue` (4.1k), `jira_create_issue` (3.4k), `bitbucket_create_branch` (2.3k).
+    `architecture.md` and `cli.md` updated. 985 tests, 100% coverage.
+  - **Open question for step 2:** does Goose forward output schemas to the model? It
+    decides whether 38k tokens matter. Check in Goose's source (or its debug log of a
+    request) before choosing what to trim.
+  - **Next action: step 2, toolsets** (tag tools with groups, `toolsets = [...]` per
+    product in the config). Then step 3, on-demand toolsets with the handshake-only mode.
+
 - **Docs, logo and a plugin guide (branch `claude/zealous-mendel-ny1eml`, from `main` after
-  #21, 2026-11-24). Start here.** Asked for on 2026-11-24: use the user's responsive SVG
+  #21, 2026-11-24).** Asked for on 2026-11-24: use the user's responsive SVG
   as the repo icon and in the docs, review all the docs, add an architecture page (token
   use, agent versus a naïve implementation) and a contributing guide with a plugin
   example.
@@ -855,6 +876,59 @@ Rough order. Each item is one pull request. API references: the Jira 11.0.2 and 
 
 ## Later
 
+- **Context budget: toolsets loaded on demand, with skills as the index.** Planned
+  2026-11-14 at 48 tools; revived 2026-11-24 at 77 tools, about 21k tokens every turn
+  (see `budget` and `architecture.md`). Graph and more ServiceNow push further past the
+  60–100 tools where tool choice gets unreliable. Rejected: a single gateway tool
+  (`search_tools` + `call_tool(name, args)`), because the client would lose per-tool
+  schemas, read/write annotations and permission prompts. Planned order:
+  1. [x] **Budget check** (2026-11-24): `budget.py`, the `budget` command and
+     `tests/test_budget.py`; see the top of this file.
+  2. [ ] **Toolsets:** tag each tool with a group when registered (`jira.core`,
+     `jira.agile`, `jira.worklog`, `bitbucket.review`, `bitbucket.builds`,
+     `confluence.write`, `servicenow.catalog`, `outlook_mail.read`, `obsidian.sync`, ...);
+     config picks which load at start (`toolsets = [...]` per product), so a client
+     without dynamic tools still gets a trimmed list. `budget` should report per toolset.
+  3. [ ] **On-demand toolsets:** `toolsets_list` and `toolset_enable(name)` (maybe
+     `toolset_disable`). Enabling calls `MCPServer.add_tool` for the group, then announces
+     it. On 2026-07-28 that is `ctx.notify_tools_changed()` (the `subscriptions/listen`
+     bus), which Goose never opens (see "Upstream"). So until that is fixed the server
+     needs a **handshake-only mode**: serve only the 2025-11-25 era through the private
+     `mcp.server.runner._serve_legacy_stream` (it refuses Goose's `server/discover` with
+     -32600, and Goose falls back to `initialize`), advertise
+     `NotificationOptions(tools_changed=True)`, and send
+     `session.send_tool_list_changed()`. Pin `mcp` to the tested version while it is in
+     use. `scripts/list_changed_probe.py` is the working reference.
+  4. [ ] **Skills, one per toolset or workflow,** kept once in the package
+     (`src/productivity_agent_tools/skills/<name>/SKILL.md`). The frontmatter description
+     is the index entry; the body says which toolset to enable and the workflow, and takes
+     over most of the server `instructions` and the long tool descriptions. Delivered by
+     `configure-agent` as folders: Goose discovers skills only from `~/.agents/skills/`
+     and `<project>/.agents/skills/` (its source, 2026-11-13). Also served as `skill://`
+     resources, which Goose reaches only through `extensionmanager__read_resource`.
+  5. [ ] **The full Skills extension (SEP-2640, `io.modelcontextprotocol/skills`):** serve
+     the same files through `skills/list` and `skills/get` with the SDK's
+     `mcp.server.skills.Skills`. **Waiting on Goose**
+     ([aaif-goose/goose#12068](https://github.com/aaif-goose/goose/issues/12068)). The
+     Python module landed in the SDK at `9a754b0aabb873d9707d52dc165b569fb442ec8c`
+     (2026-10-11), after release 2.3.0 (2026-10-02).
+  6. [ ] **Plugin bundle for Claude Code:** the server plus the skills. Claude Code
+     already defers MCP tool schemas behind a search, so this mostly helps installation.
+
+  Probe results (`scripts/list_changed_probe.py`, 2026-11-14, Goose 1.57.0):
+  - **Run 1 (code mode on, `--protocol auto`): failed.** Goose negotiated 2026-07-28 and
+    never opened `subscriptions/listen`; `tools/list` was fetched once per session, and
+    the added tool stayed "Unknown tool" across turns.
+  - **Run 2 (code mode off, `--protocol handshake`): passed.** 2025-11-25 negotiated; the
+    added tool was called in the same turn, with an approval prompt naming it, so per-tool
+    permissions carry over; a removed tool was gone from the next listing; the model found
+    the `skill://` resource through `extensionmanager__list_resources` unprompted.
+  - **Code mode:** with it on, Goose shows the model `list_functions` (names plus
+    descriptions cut to about 240 characters) and calls tools from JavaScript, so it
+    already defers schemas. It is off on the work laptop, which puts every schema in
+    context. Keep each tool's first sentence self-sufficient: that is what code mode shows.
+  - **Headless runs:** `goose run -t ...` stops at the first tool that needs approval
+    under `smart_approve` ("Use GooseMode::Auto for headless sessions").
 - **Delta queries for the calendar (and mail), with Graph** — discussed 2026-11-19, kept
   for later by the user. Microsoft's recommended way to see changed and deleted events is
   `calendarView/delta`, repeating the returned token. Not done now because the token is
@@ -1181,6 +1255,29 @@ Rough order. Each item is one pull request. API references: the Jira 11.0.2 and 
 - **More Bitbucket writes:** comments on a file or line of the diff (needs the anchor's
   path, line, line type and file type), resolving and reopening tasks, editing or deleting
   the user's own comments.
+
+## Upstream
+
+Bugs found in other projects that this one works around or waits on. Texts and
+reproductions are in `docs/upstream/` (see its README). Check these when upgrading `mcp`
+or Goose: `uv run pytest docs/upstream/test_notify_tools_changed_handshake.py --no-cov`
+passes once #3862 is fixed (it still fails on `mcp` 2.3.0, 2026-11-24).
+
+- [aaif-goose/goose#13055](https://github.com/aaif-goose/goose/issues/13055) (open,
+  2026-11-24; our comment posted): Goose never opens `subscriptions/listen`, so
+  `tools/list_changed` never arrives on 2026-07-28. **Workaround:** handshake-only mode.
+  When fixed, on-demand toolsets can drop it.
+- [modelcontextprotocol/python-sdk#3851](https://github.com/modelcontextprotocol/python-sdk/issues/3851)
+  (open, 2026-11-24; our comment posted): a stdio connection is locked to 2026-07-28 by
+  the first request, even a failed one, so the fallback `initialize` is refused.
+  **Workaround:** call the private `mcp.server.runner._serve_legacy_stream`.
+- [modelcontextprotocol/python-sdk#3862](https://github.com/modelcontextprotocol/python-sdk/issues/3862)
+  (open, ours, 2026-11-24): on 2025-11-25 connections `MCPServer` advertises
+  `tools.listChanged: false` and `ctx.notify_tools_changed()` sends nothing.
+  **Workaround:** `NotificationOptions(tools_changed=True)` and
+  `ctx.request_context.session.send_tool_list_changed()`.
+- Not a gap: rmcp's client has `Peer::listen()`
+  ([modelcontextprotocol/rust-sdk#1402](https://github.com/modelcontextprotocol/rust-sdk/pull/1402)).
 
 ## Open questions
 
