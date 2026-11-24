@@ -23,8 +23,8 @@ uv run pre-commit run --all-files
 uv run pytest
 ```
 
-`pytest` measures branch coverage and fails below 90%; the suite sits just under
-100%. Tests run against fakes of each server (and a stand-in browser); nothing
+`pytest` measures branch coverage and fails below 90%; the suite covers every
+line and branch (100%), so a change should keep it there. Tests run against fakes of each server (and a stand-in browser); nothing
 in them contacts a real server.
 
 `scripts/smoke-test.sh` is the opposite: it runs every tool once against your

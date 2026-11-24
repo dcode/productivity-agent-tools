@@ -32,6 +32,12 @@ Last updated: 2026-11-23 (evening).
     `extra-paths`); the guide's code is read from it by `pymdownx.snippets`. Checked: it
     installs beside the server (`uv pip install -e`), `call` lists its tools, `doctor`
     passes, and a live call returned the next German holidays.
+  - **Coverage at 100% (asked for, 2026-11-24):** the two gaps were tests that never
+    called the `bitbucket_search_code` tool itself, and the `set-token` picker without
+    the Outlook products installed (a plugin-only install). Both are tested now; 968
+    tests. The threshold in `pyproject.toml` is still 90%.
+  - **CI fix:** the `ruff-format` hook (ruff 0.17.4) formats Python blocks in Markdown
+    and broke the plugin guide's `--8<--` markers; the page is excluded from that hook.
 - **0.12.0, ServiceNow catalog requests (branch `claude/zealous-mendel-ny1eml`, restarted
   from `main` after #20 merged, 2026-11-23). Start here.** Asked for on 2026-11-23: "the
   ability to file software requests".
@@ -556,7 +562,7 @@ Last updated: 2026-11-23 (evening).
   spikes and version 0.4.0 (built on `claude/servicenow-credential-seam`).
 - **Also on `main`, in 0.5.0:** the Outlook REST spikes and the Microsoft
   refresh-token lifecycle (`login-microsoft`).
-- **Tests:** 956 passing, about 99.97% branch coverage. All hooks clean.
+- **Tests:** 968 passing, 100% branch coverage. All hooks clean.
 - **In use:** Goose on the work laptop, against Jira 11.3.12, Bitbucket 10.2.8 and Confluence
   10.2.19. No CI
   server (Bamboo or other) reports builds or deployments to this Bitbucket.

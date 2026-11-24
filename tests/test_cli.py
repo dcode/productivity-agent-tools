@@ -571,3 +571,20 @@ async def test_no_configured_product_is_reported_not_served(
         await cli._call(empty, None, ())
     assert await cli._doctor(Path("/cfg.toml"), empty) is False
     assert "[fail] No product is configured" in capsys.readouterr().out
+
+
+def test_set_token_lists_no_microsoft_token_without_the_outlook_products(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # A plugin-only install, or one with the Outlook products removed.
+    from productivity_agent_tools.products import remote_products as installed_remote
+
+    without = {
+        name: product
+        for name, product in installed_remote().items()
+        if not name.startswith("outlook_")
+    }
+    monkeypatch.setattr(cli, "remote_products", lambda: without)
+    targets = cli._token_targets()
+    assert "microsoft" not in targets
+    assert targets["jira"] == "Jira personal access token"
