@@ -7,6 +7,31 @@ Last updated: 2026-11-23 (evening).
 
 ## Where things stand
 
+- **Docs, logo and a plugin guide (branch `claude/zealous-mendel-ny1eml`, from `main` after
+  #21, 2026-11-24). Start here.** Asked for on 2026-11-24: use the user's responsive SVG
+  as the repo icon and in the docs, review all the docs, add an architecture page (token
+  use, agent versus a naïve implementation) and a contributing guide with a plugin
+  example.
+  - **Logo:** `docs/assets/logo.svg` (the user's SVG with a `<title>`; it switches colours
+    with `prefers-color-scheme`), the site's logo and favicon (header now white in light
+    mode so it reads), and the README. `docs/assets/social-preview.png` (1280×640) is
+    for GitHub's Settings → Social preview, which only the user can upload.
+  - **Review:** every tool (77, from a server built with all products on) is on its
+    product page and no page names a missing one; every settings key is documented
+    except Outlook's `default_max_results` (added); every CLI option except `export-ca
+    --output` (added). Stale text fixed in `development.md` (Obsidian is a local product
+    and was missing from the package list; the release steps now follow the tagging
+    rule; the `ApiClient` methods). Not re-read line by line: getting-started,
+    configuration and workflow beyond those checks.
+  - **New pages:** `architecture.md` (layers, a naïve agent versus typed tools, measured
+    tool-definition sizes: 77 tools, 244,839 bytes with every product on),
+    `contributing/index.md`, `contributing/plugin.md`.
+  - **Example plugin:** `examples/holidays-plugin` (public holidays from Nager.Date:
+    `holidays_list`, `holidays_next`), a separately installable package with its entry
+    point; tested by `tests/test_example_plugin.py` (on `pytest`'s `pythonpath` and ty's
+    `extra-paths`); the guide's code is read from it by `pymdownx.snippets`. Checked: it
+    installs beside the server (`uv pip install -e`), `call` lists its tools, `doctor`
+    passes, and a live call returned the next German holidays.
 - **0.12.0, ServiceNow catalog requests (branch `claude/zealous-mendel-ny1eml`, restarted
   from `main` after #20 merged, 2026-11-23). Start here.** Asked for on 2026-11-23: "the
   ability to file software requests".

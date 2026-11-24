@@ -49,8 +49,9 @@ record facts about the deployment this was built against.
 ## How the code is laid out
 
 Product modules never make HTTP calls themselves. They talk to an `ApiClient`
-(a protocol in `api.py`: `get`, `write`, `aclose`, plus `base_url` and
-`dry_run`), and each kind of service has one adapter that implements it.
+(a protocol in `api.py`: `get`, `get_text`, `query` for reads that must be
+POSTed, `write`, `aclose`, plus `base_url` and `dry_run`), and each kind of
+service has one adapter that implements it.
 `HttpAdapter` in `transport.py` holds what every adapter shares: TLS trust,
 extra cookies, dry-run, logging and connectivity errors. `AtlassianClient` in
 `http.py`, `ServiceNowClient` in `servicenow/http.py` and `OutlookClient` in
@@ -66,19 +67,22 @@ products do not change. Every adapter must honor `dry_run` in `write`.
 The shared core is `transport.py`, `http.py`, `config.py`, `tokens.py`,
 `credentials.py`, `browser.py` (the DevTools driver both browser sign-ins use)
 and `products.py`. Each product lives in a sub-package (`jira/`, `bitbucket/`,
-`confluence/`, `servicenow/`, and `microsoft/` for the two Outlook products)
+`confluence/`, `servicenow/`, `microsoft/` for the two Outlook products, and
+`obsidian/`)
 whose product module exposes a product object, listed under the
 `productivity_agent_tools.products` entry-point group in `pyproject.toml`.
 A product is one of two kinds. A `RemoteProduct` is served by an API: it has a
-connection, a credential and an adapter, and every product so far is one. A
-`LocalProduct` works on local data, such as a folder of notes: its `open` builds
+connection, a credential and an adapter; all but Obsidian are. A
+`LocalProduct` works on local data, such as the Obsidian vault: its `open` builds
 its client straight from its settings (a `LocalProductSettings`), with no
 `base_url` or credential, and the `set-token` and `login` commands ignore it.
 Nothing in the shared core names a product: `server.py`, `config.py` and the CLI
 find them through the entry points. Tools that need two products at once are an
 `Integration` (`links.py`), listed under `productivity_agent_tools.integrations`.
 To add a product, write the sub-package, add its entry point, and run `uv sync`
-so the entry point is installed.
+so the entry point is installed. A product can also be a separate package:
+[Writing a product plugin](contributing/plugin.md) builds one step by step, and
+`examples/holidays-plugin/` is the tested result.
 
 ## Continuous integration
 
@@ -98,9 +102,11 @@ updates.
 ## Releasing
 
 1. Bump the version: `hatch version minor` (or `patch`, `major`), then commit.
-2. Once it is on `main`, tag that commit with the same version, prefixed with
-   `v`, and push the tag. A pull request merged by rebase gets new commit ids on
-   `main`, so tag the commit there, not the one on the branch.
+2. Once the release is on `main`, tag the commit where its code is complete,
+   normally the last commit it landed with, with the version prefixed by `v`, and
+   push the tag. The version string may have changed earlier in the branch; the
+   tag marks working code, not the bump. A pull request merged by rebase gets new
+   commit ids on `main`, so tag the commit there, not the one on the branch.
 
 ```bash
 git tag v0.2.0 <commit-on-main> && git push origin v0.2.0
