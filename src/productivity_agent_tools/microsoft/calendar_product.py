@@ -28,6 +28,7 @@ from productivity_agent_tools.microsoft.reads import status
 from productivity_agent_tools.payload import text
 from productivity_agent_tools.products import RemoteProduct, ToolContext
 from productivity_agent_tools.tooling import READ, anticipated
+from productivity_agent_tools.toolsets import toolset
 
 INSTRUCTIONS: str = (
     "The outlook_calendar_ tools read the user's Microsoft 365 calendar (events and "
@@ -96,7 +97,7 @@ def register_calendar_tools(
         """
         return await calendar.list_events(start, end, calendar_id, max_results)
 
-    @server.tool(annotations=READ)
+    @server.tool(annotations=READ, meta=toolset("query"))
     @anticipated
     async def outlook_calendar_query_events(
         filter: str | None = None,
@@ -190,6 +191,9 @@ PRODUCT: RemoteProduct[OutlookSettings, OutlookCalendarClient] = RemoteProduct(
     parse_settings=lambda raw: parse_outlook_settings(raw, "outlook_calendar"),
     make_client=OutlookCalendarClient,
     register_tools=register_calendar_tools,
+    toolsets={
+        "query": "Filter and sort events with an OData query.",
+    },
     doctor=doctor,
     token_name="microsoft",
     resolve_credential=microsoft_token,

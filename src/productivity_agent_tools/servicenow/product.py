@@ -57,6 +57,10 @@ PRODUCT: RemoteProduct[ServiceNowSettings, ServiceNow] = RemoteProduct(
     parse_settings=parse_servicenow_settings,
     make_client=ServiceNow,
     register_tools=register_servicenow_tools,
+    toolsets={
+        "incidents": "Open an incident through the helpdesk's form.",
+        "catalog": "Search the service catalog and order an item.",
+    },
     doctor=doctor,
     resolve_credential=browser_session,
     login=sign_in,

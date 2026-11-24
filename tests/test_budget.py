@@ -98,17 +98,16 @@ async def test_the_jira_and_bitbucket_integration_counts_toward_jira(
     assert jira.instructions > len(_own_products()["jira"].instructions)
 
 
+async def test_every_toolset_a_product_declares_has_tools(costs: list[ProductCost]) -> None:
+    products = _own_products()
+    for cost in costs:
+        assert {tool.toolset for tool in cost.tools} == {"core", *products[cost.name].toolsets}
+
+
 async def test_tools_are_listed_largest_first(costs: list[ProductCost]) -> None:
     for cost in costs:
         sizes = [tool.definition for tool in cost.tools]
         assert sizes == sorted(sizes, reverse=True)
-
-
-def test_owner_is_the_longest_matching_product_name() -> None:
-    names = ["outlook", "outlook_mail", "jira"]
-    assert budget.owner_of("outlook_mail_search", names) == "outlook_mail"
-    assert budget.owner_of("outlook_status", names) == "outlook"
-    assert budget.owner_of("jirax_search", names) == OTHER
 
 
 @pytest.mark.parametrize(("size", "expected"), [(0, 0), (1, 1), (4, 1), (5, 2)])
@@ -232,7 +231,9 @@ def test_a_tool_without_an_output_schema_costs_nothing_for_it() -> None:
 
 def test_report_lists_products_tools_and_a_total() -> None:
     costs = [
-        ProductCost("jira", 100, (ToolCost("jira_big", 3000, 40), ToolCost("jira_small", 20, 0))),
+        ProductCost(
+            "jira", 100, (ToolCost("jira_big", 3000, 40), ToolCost("jira_small", 20, 0, "edit"))
+        ),
         ProductCost(OTHER, 0, (ToolCost("stray", 8, 0),)),
     ]
     short = budget.report(costs)
@@ -242,9 +243,17 @@ def test_report_lists_products_tools_and_a_total() -> None:
     assert total.split() == ["Total", "3", "3,128", "782", "40"]
     full = budget.report(costs, per_tool=True).splitlines()
     assert full[1].split() == ["jira", "2", "3,120", "780", "40"]
-    assert full[2].split() == ["jira_big", "3,000", "750", "40"]
-    assert full[4].split() == ["(instructions)", "100", "25", "0"]
-    assert full[6].split() == ["stray", "8", "2", "0"]
+    assert [line.split() for line in full[2:10]] == [
+        ["core", "1", "3,000", "750", "40"],
+        ["jira_big", "3,000", "750", "40"],
+        ["edit", "1", "20", "5", "0"],
+        ["jira_small", "20", "5", "0"],
+        ["(instructions)", "100", "25", "0"],
+        ["(no", "product)", "1", "8", "2", "0"],
+        ["core", "1", "8", "2", "0"],
+        ["stray", "8", "2", "0"],
+    ]
+    assert full[3].startswith("    jira_big")
 
 
 def test_budget_command_prints_the_report(
@@ -255,7 +264,19 @@ def test_budget_command_prints_the_report(
     cli.budget(config=config, tools=True)
     out = capsys.readouterr().out
     assert out.startswith("Product")
-    assert "  confluence_search" in out
+    assert "    confluence_search" in out
+    assert "  write " in out
+
+
+def test_budget_command_measures_left_out_toolsets_when_asked(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    config = tmp_path / "config.toml"
+    config.write_text('base_url = "https://h.example"\n[confluence]\ntoolsets = ["core"]\n')
+    cli.budget(config=config, tools=True)
+    assert "confluence_update_page" not in capsys.readouterr().out
+    cli.budget(config=config, tools=True, all_toolsets=True)
+    assert "confluence_update_page" in capsys.readouterr().out
 
 
 def test_budget_command_needs_a_product(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:

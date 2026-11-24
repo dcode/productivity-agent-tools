@@ -85,7 +85,9 @@ Typed tools are not free. Each tool's name, description and input schema, and th
 server's instructions, are sent to the model with every request, so they are a
 fixed cost per turn (usually cached by the model provider, which makes repeats
 cheap). Each tool also has an output schema, which reaches the model only if the
-agent forwards it. Measured on version 0.12.0 with `budget` (see
+agent forwards it; Goose does not (it sends name, description and input schema
+to every provider, and output schemas only through code mode's
+`get_function_details`, for tools the model names). Measured on version 0.12.0 with `budget` (see
 [Command line](cli.md#budget)):
 
 | Product | Tools | Every turn (bytes) | Output schemas (bytes) |
@@ -99,13 +101,14 @@ agent forwards it. Measured on version 0.12.0 with `budget` (see
 | Everything | 77 | 82,926 | 152,032 |
 
 At roughly four bytes to a token, every product switched on costs about 21,000
-tokens a turn, and about 59,000 if the agent forwards output schemas. That is why
-**only the products in your config are offered**: a server with just Confluence
-and ServiceNow costs under a quarter of that, and one with Jira and Bitbucket
-about half. Leave out the products a given agent does not need, and the
-definitions shrink with them. Each product also has a budget in the tests, so a
-change that makes its tools noticeably larger has to raise the budget in the
-same commit, where a reviewer sees it.
+tokens a turn, and about 59,000 with an agent that forwards output schemas. That
+is why **only the products in your config are offered**: a server with just
+Confluence and ServiceNow costs under a quarter of that, and one with Jira and
+Bitbucket about half. Within a product, [toolsets](configuration.md#toolsets)
+trim further: Jira with only `core` is 6,779 bytes instead of 18,340. Each
+product also has a budget in the tests, so a change that makes its tools
+noticeably larger has to raise the budget in the same commit, where a reviewer
+sees it.
 
 The trade is still a good one for daily work. The definitions are paid once per
 turn and are usually cached; the answers a naïve agent would read are paid

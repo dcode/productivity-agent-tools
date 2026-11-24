@@ -103,5 +103,9 @@ PRODUCT: LocalProduct[ObsidianSettings, Vault] = LocalProduct(
     parse_settings=parse_obsidian_settings,
     open=open_vault,
     register_tools=register_obsidian_tools,
+    toolsets={
+        "tasks": "Create and update task notes.",
+        "planning": "Sync tasks and meetings into the vault and write sections of the daily note.",
+    },
     doctor=doctor,
 )

@@ -25,6 +25,7 @@ from productivity_agent_tools.tooling import (
     LOCAL_WRITE,
     anticipated,
 )
+from productivity_agent_tools.toolsets import toolset
 
 
 def register_obsidian_tools(server: MCPServer, vault: Vault, context: ToolContext) -> None:
@@ -168,7 +169,7 @@ def register_obsidian_tools(server: MCPServer, vault: Vault, context: ToolContex
         """
         return await vault.get_daily_note(day, max_chars)
 
-    @server.tool(annotations=LOCAL_WRITE)
+    @server.tool(annotations=LOCAL_WRITE, meta=toolset("tasks"))
     @anticipated
     async def obsidian_create_task(
         title: str,
@@ -237,7 +238,7 @@ def register_obsidian_tools(server: MCPServer, vault: Vault, context: ToolContex
                 )
             )
 
-    @server.tool(annotations=LOCAL_IDEMPOTENT_WRITE)
+    @server.tool(annotations=LOCAL_IDEMPOTENT_WRITE, meta=toolset("tasks"))
     @anticipated
     async def obsidian_update_task(
         task: Annotated[
@@ -294,7 +295,7 @@ def register_obsidian_tools(server: MCPServer, vault: Vault, context: ToolContex
                 )
             )
 
-    @server.tool(annotations=LOCAL_IDEMPOTENT_WRITE)
+    @server.tool(annotations=LOCAL_IDEMPOTENT_WRITE, meta=toolset("planning"))
     @anticipated
     async def obsidian_write_section(
         section: Annotated[
@@ -327,7 +328,7 @@ def register_obsidian_tools(server: MCPServer, vault: Vault, context: ToolContex
                 lambda: editor.write_section(section=section, markdown=markdown, note=note, day=day)
             )
 
-    @server.tool(annotations=LOCAL_IDEMPOTENT_WRITE)
+    @server.tool(annotations=LOCAL_IDEMPOTENT_WRITE, meta=toolset("planning"))
     @anticipated
     async def obsidian_sync(
         days_ahead: Annotated[

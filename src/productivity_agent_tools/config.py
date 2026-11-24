@@ -97,6 +97,9 @@ class ProductSettings:
             or None for the top-level defaults only.
         dry_run: The product's own dry-run setting, or None to use the top-level one. The
             command line's ``--dry-run`` / ``--no-dry-run`` overrides it.
+        toolsets: The product's toolsets to offer, from its ``toolsets`` key; None (the key
+            left out) offers every toolset. Checked against the product's toolsets when
+            the server is built.
         remote: Class-level: False for the settings of a product that reaches no server
             (``LocalProduct``), whose table needs no ``base_url``.
     """
@@ -111,6 +114,7 @@ class ProductSettings:
     token_cmd: tuple[str, ...] | None = None
     group: str | None = None
     dry_run: bool | None = None
+    toolsets: tuple[str, ...] | None = None
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
@@ -681,6 +685,28 @@ def dry_run_override(raw: dict[str, Any], table: str) -> bool | None:
     return as_bool({f"{table}.dry_run": raw["dry_run"]}, f"{table}.dry_run", True)
 
 
+def _toolsets(raw: object, table: str) -> tuple[str, ...]:
+    """Read a product's ``toolsets`` key.
+
+    Args:
+        raw: The key's value.
+        table: Name of the product's table, for error messages.
+
+    Returns:
+        The toolset names, without repeats, in the order given. Empty is allowed: the
+        product then offers no tool.
+
+    Raises:
+        ConfigError: If the value is not a list of names.
+    """
+    if not isinstance(raw, list) or not all(isinstance(item, str) and item.strip() for item in raw):
+        raise ConfigError(
+            f"Config key '{table}.toolsets' must be a list of toolset names, such as "
+            '["core"]. `productivity-agent-tools budget --tools` lists them.'
+        )
+    return tuple(dict.fromkeys(item.strip() for item in raw))
+
+
 def product_overrides(raw: dict[str, Any], table: str) -> dict[str, Any]:
     """Read the connection values, group and dry-run a product's table sets for itself.
 
@@ -755,6 +781,10 @@ def parse_settings(
             if not isinstance(table, dict):
                 raise ConfigError(f"Config key '{name}' must be a table.")
             products[name] = parsers[name](table)
+            if "toolsets" in table:
+                products[name] = replace(
+                    products[name], toolsets=_toolsets(table["toolsets"], name)
+                )
         elif isinstance(table, dict):
             known = ", ".join(sorted(parsers)) or "none"
             raise ConfigError(

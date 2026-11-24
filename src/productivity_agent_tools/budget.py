@@ -14,7 +14,7 @@ own tokenizer will differ a little.
 import contextlib
 import json
 from collections.abc import Iterable, Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Any
 
 from mcp_types import Tool
@@ -31,11 +31,12 @@ from productivity_agent_tools.products import (
     installed_products,
 )
 from productivity_agent_tools.server import Connected, Opened, build_server
+from productivity_agent_tools.toolsets import CORE, NO_OWNER, owner_of, toolset_of
 
 BYTES_PER_TOKEN = 4
 """Rough bytes per token, for estimates only."""
 
-OTHER = ""
+OTHER = NO_OWNER
 """Owner of a tool whose name starts with no measured product's name."""
 
 
@@ -140,11 +141,13 @@ class ToolCost:
         definition: Bytes of its name, description and input schema, sent every turn.
         output_schema: Bytes of its output schema, sent only by hosts that forward it;
             0 when it has none.
+        toolset: Its toolset within its product.
     """
 
     name: str
     definition: int
     output_schema: int
+    toolset: str = CORE
 
     @classmethod
     def of(cls, tool: Tool) -> ToolCost:
@@ -166,6 +169,7 @@ class ToolCost:
                 }
             ),
             output_schema=_size(tool.output_schema) if tool.output_schema else 0,
+            toolset=toolset_of(tool.meta),
         )
 
 
@@ -211,25 +215,12 @@ def tokens(size: int) -> int:
     return -(-size // BYTES_PER_TOKEN)
 
 
-def owner_of(tool: str, products: Iterable[str]) -> str:
-    """Find the product a tool belongs to, by the longest product name its name starts with.
-
-    Args:
-        tool: The tool's name.
-        products: The names of the measured products.
-
-    Returns:
-        The product's name, or ``OTHER``.
-    """
-    matches = [name for name in products if tool.startswith(f"{name}_")]
-    return max(matches, key=len, default=OTHER)
-
-
 async def measure(
     settings: Settings,
     *,
     products: Mapping[str, Product[Any, Any]] | None = None,
     integrations: Iterable[Integration] | None = None,
+    all_toolsets: bool = False,
 ) -> list[ProductCost]:
     """Build the server for the configured products, with nothing connected, and measure it.
 
@@ -241,11 +232,19 @@ async def measure(
         settings: Settings naming the products to measure.
         products: The known products; None uses the installed ones.
         integrations: The known integrations; None uses the installed ones.
+        all_toolsets: Measure every toolset, as if no product's table chose any.
 
     Returns:
         One entry per product, in config order, then ``OTHER`` if any tool fit no product.
     """
     known = installed_products() if products is None else products
+    if all_toolsets:
+        settings = replace(
+            settings,
+            products={
+                name: replace(item, toolsets=None) for name, item in settings.products.items()
+            },
+        )
     joined = tuple(installed_integrations() if integrations is None else integrations)
     names = [name for name in settings.products if name in known]
     async with contextlib.AsyncExitStack() as stack:
@@ -300,7 +299,8 @@ def report(costs: Iterable[ProductCost], *, per_tool: bool = False) -> str:
 
     Args:
         costs: What ``measure`` returned.
-        per_tool: Also list each product's tools, largest first, under it.
+        per_tool: Also list each product's toolsets under it, ``core`` first, each with
+            its tools, largest first.
 
     Returns:
         The table and a note on what is counted.
@@ -311,10 +311,21 @@ def report(costs: Iterable[ProductCost], *, per_tool: bool = False) -> str:
         label = cost.name or "(no product)"
         lines.append(_row(label, len(cost.tools), cost.every_turn, cost.output_schemas))
         if per_tool:
-            lines.extend(
-                _row(f"  {tool.name}", "", tool.definition, tool.output_schema)
-                for tool in cost.tools
-            )
+            groups = sorted({tool.toolset for tool in cost.tools}, key=lambda g: (g != CORE, g))
+            for group in groups:
+                members = [tool for tool in cost.tools if tool.toolset == group]
+                lines.append(
+                    _row(
+                        f"  {group}",
+                        len(members),
+                        sum(tool.definition for tool in members),
+                        sum(tool.output_schema for tool in members),
+                    )
+                )
+                lines.extend(
+                    _row(f"    {tool.name}", "", tool.definition, tool.output_schema)
+                    for tool in members
+                )
             if cost.instructions:
                 lines.append(_row("  (instructions)", "", cost.instructions, 0))
     lines.append(
@@ -328,7 +339,8 @@ def report(costs: Iterable[ProductCost], *, per_tool: bool = False) -> str:
     lines.append("")
     lines.append(
         "Sizes are bytes of JSON. Every turn: tool names, descriptions and input schemas,\n"
-        f"plus the server's instructions. ~Tokens is bytes / {BYTES_PER_TOKEN}. Output schemas\n"
-        "reach the model only if the agent forwards them."
+        f"plus the server's instructions. ~Tokens is bytes / {BYTES_PER_TOKEN}.\n"
+        "Output schemas reach the model only if the agent forwards them. Goose does not,\n"
+        "except when code mode's get_function_details asks for a tool by name."
     )
     return "\n".join(lines)

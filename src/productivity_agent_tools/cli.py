@@ -603,7 +603,17 @@ def budget(
     config: ConfigOption = DEFAULT_CONFIG_PATH,
     tools: Annotated[
         bool,
-        Parameter(name="--tools", help="Also list each product's tools, largest first."),
+        Parameter(
+            name="--tools",
+            help="Also list each product's toolsets and their tools, largest first.",
+        ),
+    ] = False,
+    all_toolsets: Annotated[
+        bool,
+        Parameter(
+            name="--all-toolsets",
+            help="Measure every toolset, including those the config leaves off.",
+        ),
     ] = False,
 ) -> None:
     """Show what the configured products' tools cost the model on every turn.
@@ -615,7 +625,8 @@ def budget(
         settings = await load_settings(config)
         if not settings.products:
             raise ConfigError(_no_products())
-        return tool_budget.report(await tool_budget.measure(settings), per_tool=tools)
+        costs = await tool_budget.measure(settings, all_toolsets=all_toolsets)
+        return tool_budget.report(costs, per_tool=tools)
 
     try:
         print(asyncio.run(run()))

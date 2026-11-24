@@ -28,6 +28,7 @@ from productivity_agent_tools.servicenow.models import (
     ServiceNowStatus,
 )
 from productivity_agent_tools.tooling import READ, WRITE, anticipated
+from productivity_agent_tools.toolsets import toolset
 from productivity_agent_tools.writes import once, report
 
 
@@ -265,7 +266,7 @@ def register_servicenow_tools(
             },
         )
 
-    @server.tool(annotations=READ)
+    @server.tool(annotations=READ, meta=toolset("incidents"))
     @anticipated
     async def servicenow_get_incident_form() -> FormView:
         """Show the helpdesk's incident form: its questions, what is required, the choices.
@@ -284,7 +285,7 @@ def register_servicenow_tools(
         form = await servicenow.catalog_form(servicenow.settings.incident_form)
         return await _form_view(servicenow, form, servicenow.settings.incident_defaults)
 
-    @server.tool(annotations=WRITE)
+    @server.tool(annotations=WRITE, meta=toolset("incidents"))
     @anticipated
     async def servicenow_create_incident(answers: dict[str, str]) -> IncidentWriteResult:
         """Open a helpdesk incident (a ticket) by submitting the "Create an incident" form.
@@ -330,7 +331,7 @@ def register_servicenow_tools(
 
         return await once(guard, ("create_incident", form.sys_id, tuple(variables.items())), send)
 
-    @server.tool(annotations=READ)
+    @server.tool(annotations=READ, meta=toolset("catalog"))
     @anticipated
     async def servicenow_search_catalog(
         query: str, max_results: Annotated[int, Field(ge=1, le=50)] = 10
@@ -364,7 +365,7 @@ def register_servicenow_tools(
         ]
         return CatalogSearch(items=items, unlisted_item=servicenow.settings.unlisted_item)
 
-    @server.tool(annotations=READ)
+    @server.tool(annotations=READ, meta=toolset("catalog"))
     @anticipated
     async def servicenow_get_catalog_form(item: str) -> FormView:
         """Show a catalog item's form: its questions, what is required, the choices, its rules.
@@ -385,7 +386,7 @@ def register_servicenow_tools(
             servicenow, form, _on_form(form, servicenow.settings.order_defaults)
         )
 
-    @server.tool(annotations=WRITE)
+    @server.tool(annotations=WRITE, meta=toolset("catalog"))
     @anticipated
     async def servicenow_order_item(
         item: str,

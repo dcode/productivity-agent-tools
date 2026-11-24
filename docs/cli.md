@@ -111,8 +111,11 @@ Shows what the products in your config cost the model: per product, the bytes
 of tool names, descriptions and input schemas plus the server's instructions
 that are sent on every turn, an estimate in tokens (bytes divided by four), and
 the bytes of output schemas, which reach the model only if the agent forwards
-them. `--tools` adds each tool, largest first. It builds the server without
-connecting to anything, so it needs no token and no network. Takes `--config`.
+them (Goose does not, except through code mode's `get_function_details`).
+`--tools` adds each product's [toolsets](configuration.md#toolsets) with their
+tools, largest first; `--all-toolsets` measures the toolsets your config leaves
+off too. It builds the server without connecting to anything, so it needs no
+token and no network. Takes `--config`.
 
 ## `export-ca`
 

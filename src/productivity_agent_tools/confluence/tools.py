@@ -27,6 +27,7 @@ from productivity_agent_tools.payload import number, text
 from productivity_agent_tools.products import ToolContext
 from productivity_agent_tools.repeats import RepeatGuard
 from productivity_agent_tools.tooling import READ, SESSION_SETTING, WRITE, anticipated
+from productivity_agent_tools.toolsets import toolset
 from productivity_agent_tools.writes import once, report
 
 
@@ -192,7 +193,7 @@ def register_confluence_tools(
         """
         return await confluence.child_pages(page_id, max_results)
 
-    @server.tool(annotations=WRITE)
+    @server.tool(annotations=WRITE, meta=toolset("write"))
     @anticipated
     async def confluence_create_page(
         title: str,
@@ -245,7 +246,7 @@ def register_confluence_tools(
         signature = ("create_page", key, clean_title, body, parent_id, body_format)
         return await once(guard, signature, send)
 
-    @server.tool(annotations=WRITE)
+    @server.tool(annotations=WRITE, meta=toolset("write"))
     @anticipated
     async def confluence_update_page(
         page_id: str,

@@ -28,6 +28,7 @@ from productivity_agent_tools.microsoft.reads import status
 from productivity_agent_tools.payload import text
 from productivity_agent_tools.products import RemoteProduct, ToolContext
 from productivity_agent_tools.tooling import READ, anticipated
+from productivity_agent_tools.toolsets import toolset
 
 INSTRUCTIONS: str = (
     "The outlook_mail_ tools read the user's Microsoft 365 mailbox (list, search and read "
@@ -90,7 +91,7 @@ def register_mail_tools(server: MCPServer, mail: OutlookMailClient, context: Too
         """
         return await mail.search_messages(query, max_results)
 
-    @server.tool(annotations=READ)
+    @server.tool(annotations=READ, meta=toolset("query"))
     @anticipated
     async def outlook_mail_query_messages(
         filter: str | None = None,
@@ -210,6 +211,9 @@ PRODUCT: RemoteProduct[OutlookSettings, OutlookMailClient] = RemoteProduct(
     parse_settings=lambda raw: parse_outlook_settings(raw, "outlook_mail"),
     make_client=OutlookMailClient,
     register_tools=register_mail_tools,
+    toolsets={
+        "query": "Filter and sort messages with an OData query.",
+    },
     doctor=doctor,
     token_name="microsoft",
     resolve_credential=microsoft_token,

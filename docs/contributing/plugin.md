@@ -99,6 +99,15 @@ good tool:
 Tool names start with the product's name and an underscore. That keeps them
 apart from other products' and lets an agent's approval rules match a product.
 
+A product with more than a handful of tools can group them into toolsets, so a
+config can offer only some (see [Toolsets](../configuration.md#toolsets)).
+Untagged tools are in `core`. Tag the others with
+`@server.tool(annotations=READ, meta=toolset("history"))`, using `toolset` from
+`productivity_agent_tools.toolsets`, and declare each extra toolset with a
+sentence on the product: `toolsets={"history": "Holidays in past years."}`. A
+tool tagged with a toolset its product does not declare fails when the server
+starts.
+
 ### The product
 
 The product object ties it together. `instructions` is added to the server's

@@ -52,5 +52,9 @@ PRODUCT: RemoteProduct[JiraSettings, JiraClient] = RemoteProduct(
     parse_settings=parse_jira_settings,
     make_client=JiraClient,
     register_tools=register_jira_tools,
+    toolsets={
+        "edit": "Create and edit issues, read their create and edit screens, and link issues.",
+        "worklog": "Log work on an issue and list its worklogs.",
+    },
     doctor=doctor,
 )

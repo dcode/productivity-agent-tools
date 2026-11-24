@@ -30,6 +30,7 @@ from productivity_agent_tools.tooling import LOCAL_READ as _LOCAL_READ
 from productivity_agent_tools.tooling import READ as _READ
 from productivity_agent_tools.tooling import WRITE as _WRITE
 from productivity_agent_tools.tooling import anticipated as _anticipated
+from productivity_agent_tools.toolsets import toolset as _toolset
 from productivity_agent_tools.writes import once as _once
 from productivity_agent_tools.writes import report
 
@@ -224,7 +225,7 @@ def register_jira_tools(
             send,
         )
 
-    @server.tool(annotations=_READ)
+    @server.tool(annotations=_READ, meta=_toolset("worklog"))
     @_anticipated
     async def jira_list_worklogs(key: str, max_results: int = 10) -> WorklogList:
         """List the time logged on an issue, with the total across all worklogs.
@@ -235,7 +236,7 @@ def register_jira_tools(
         """
         return await jira.list_worklogs(key, max_results)
 
-    @server.tool(annotations=_WRITE)
+    @server.tool(annotations=_WRITE, meta=_toolset("worklog"))
     @_anticipated
     async def jira_log_work(
         key: str, time_spent: str, comment: str | None = None, started: str | None = None
@@ -302,7 +303,7 @@ def register_jira_tools(
 
         return await _once(guard, ("assign_issue", issue_key, who.username), send)
 
-    @server.tool(annotations=_READ)
+    @server.tool(annotations=_READ, meta=_toolset("edit"))
     @_anticipated
     async def jira_get_edit_fields(key: str) -> EditFields:
         """List the fields an issue can be edited with, and the values they accept.
@@ -315,7 +316,7 @@ def register_jira_tools(
         """
         return await jira.edit_fields(key)
 
-    @server.tool(annotations=_WRITE)
+    @server.tool(annotations=_WRITE, meta=_toolset("edit"))
     @_anticipated
     async def jira_edit_issue(
         key: str,
@@ -404,7 +405,7 @@ def register_jira_tools(
 
         return await _once(guard, ("edit_issue", issue_key, repr(changes)), send)
 
-    @server.tool(annotations=_READ)
+    @server.tool(annotations=_READ, meta=_toolset("edit"))
     @_anticipated
     async def jira_get_create_fields(project: str, issue_type: str | None = None) -> CreateFields:
         """List the issue types a project offers and, for one of them, the fields to fill.
@@ -418,7 +419,7 @@ def register_jira_tools(
         """
         return await jira.create_fields(project, issue_type)
 
-    @server.tool(annotations=_WRITE)
+    @server.tool(annotations=_WRITE, meta=_toolset("edit"))
     @_anticipated
     async def jira_create_issue(
         project: str,
@@ -514,13 +515,13 @@ def register_jira_tools(
             send,
         )
 
-    @server.tool(annotations=_READ)
+    @server.tool(annotations=_READ, meta=_toolset("edit"))
     @_anticipated
     async def jira_list_link_types() -> list[LinkType]:
         """List the kinds of links between issues, with both of their wordings."""
         return await jira.link_types()
 
-    @server.tool(annotations=_WRITE)
+    @server.tool(annotations=_WRITE, meta=_toolset("edit"))
     @_anticipated
     async def jira_link_issues(
         key: str, relation: str, other_key: str, comment: str | None = None

@@ -126,6 +126,8 @@ class _ProductBase[S: ProductSettings, C]:
         register_tools: Adds the product's tools to a server.
         doctor: Runs read-only checks, yielding a line per check that passed. A failure is
             raised as an ``AgentToolsError``.
+        toolsets: Its toolsets beyond ``core``, each with a sentence saying what its tools
+            are for. A tool names its toolset with ``meta=toolset(name)``.
     """
 
     name: str
@@ -135,6 +137,7 @@ class _ProductBase[S: ProductSettings, C]:
     parse_settings: Callable[[dict[str, Any]], S]
     register_tools: Callable[[MCPServer, C, ToolContext], None]
     doctor: Callable[[C], AsyncIterator[str]]
+    toolsets: Mapping[str, str] = field(default_factory=dict)
 
     def _bind(self, client: C, settings: ProductSettings) -> ActiveProduct:
         """Pair the product with its client, once the settings are known to be its own.

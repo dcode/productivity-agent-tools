@@ -52,5 +52,11 @@ PRODUCT: RemoteProduct[BitbucketSettings, BitbucketClient] = RemoteProduct(
     parse_settings=parse_bitbucket_settings,
     make_client=BitbucketClient,
     register_tools=register_bitbucket_tools,
+    toolsets={
+        "review": "Read a pull request's diff, changes, commits, activity, tasks and merge "
+        "checks; comment and review.",
+        "builds": "Build results, required builds and deployments.",
+        "code": "Search code and create branches.",
+    },
     doctor=doctor,
 )

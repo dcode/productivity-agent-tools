@@ -55,5 +55,8 @@ PRODUCT: RemoteProduct[ConfluenceSettings, ConfluenceClient] = RemoteProduct(
     parse_settings=parse_confluence_settings,
     make_client=ConfluenceClient,
     register_tools=register_confluence_tools,
+    toolsets={
+        "write": "Create and edit pages.",
+    },
     doctor=doctor,
 )

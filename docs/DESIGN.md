@@ -987,6 +987,26 @@ Designed for but deferred. [ROADMAP.md](ROADMAP.md) has the ordered backlog and 
   unreliable as more products arrive. Decisions:
   - **Measure first.** `budget.py` measures each product's model-visible bytes;
     `tests/test_budget.py` holds a budget per product, so growth is a reviewed change.
+  - **Output schemas do not count for Goose** (its source, 2026-11-24): every provider
+    format sends a tool's name, description and input schema only. Output schemas reach
+    the model only through code mode's `get_function_details`, for tools it names. So the
+    per-turn cost to trim is the 21k, not the 59k; output schemas stay as they are.
+  - **Toolsets (step 2, 2026-11-24).** A tool names its toolset in its metadata,
+    `meta=toolset("worklog")` (key `productivity-agent-tools/toolset`); a tool that names
+    none is in `core`, so plugins without toolsets need no change. The product owning a
+    tool is found from its name prefix, as for budgets, so integration tools follow the
+    config of the product whose name they carry. Each product declares its extra
+    toolsets with a sentence (`Product.toolsets`); a tag it does not declare fails at
+    registration. A product's table picks them with `toolsets = [...]` (read for every
+    product in `parse_settings`, so plugins get it too); **without the key every toolset
+    is on**, so existing configs keep every tool until step 3 changes the defaults. An
+    unknown name is a `ConfigError` naming the right ones. `ToolsetServer` (an
+    `MCPServer` subclass overriding the public `add_tool`, which the `@tool` decorator
+    calls) holds back the tools of toolsets that are off, as registered, for step 3 to
+    add later. Middleware was considered and rejected: it sees only wire requests, not
+    `server.list_tools()` as used by `call`, `budget` and the tests. The server's
+    instructions name the toolsets that are off and say how to switch one on.
+    Bitbucket's older `ci = false` still skips registering the `builds` tools.
   - **Toolsets, not a gateway tool.** Each tool is tagged with a group when registered
     (`jira.core`, `jira.worklog`, ...), config picks the groups loaded at start, and
     `toolset_enable(name)` adds a group mid-session and sends

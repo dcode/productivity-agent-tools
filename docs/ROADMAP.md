@@ -22,11 +22,31 @@ Last updated: 2026-11-24.
     (~21k tokens) every turn, 152,032 bytes (~38k tokens) more of output schemas. Largest:
     `jira_edit_issue` (4.1k), `jira_create_issue` (3.4k), `bitbucket_create_branch` (2.3k).
     `architecture.md` and `cli.md` updated. 985 tests, 100% coverage.
-  - **Open question for step 2:** does Goose forward output schemas to the model? It
-    decides whether 38k tokens matter. Check in Goose's source (or its debug log of a
-    request) before choosing what to trim.
-  - **Next action: step 2, toolsets** (tag tools with groups, `toolsets = [...]` per
-    product in the config). Then step 3, on-demand toolsets with the handshake-only mode.
+  - **Answered (2026-11-24, Goose's source at 03a343f): Goose does not forward output
+    schemas.** Every provider format sends name, description and input schema only;
+    output schemas reach the model only through code mode's `get_function_details`. The
+    cost to trim is the ~21k tokens a turn. (Recorded in DESIGN.md.)
+  - **Step 2 done: toolsets** (asked for 2026-11-24). `toolsets.py`: tag a tool with
+    `meta=toolset("name")` (untagged is `core`), declare extra toolsets with a sentence
+    on the product, pick them per product with `toolsets = [...]` (every toolset on
+    without the key, so nothing changes for existing configs). `ToolsetServer` holds
+    back the tools of toolsets that are off, ready for step 3; the instructions name the
+    toolsets that are off. Groups: jira `edit`, `worklog`; bitbucket `review`, `builds`,
+    `code`; confluence `write`; servicenow `incidents`, `catalog`; outlook_calendar and
+    outlook_mail `query`; obsidian `tasks`, `planning`. `budget --tools` groups tools by
+    toolset, `--all-toolsets` measures the ones left off. Docs: configuration.md
+    (Toolsets), the plugin guide, cli.md, architecture.md. 1000 tests, 100% coverage.
+    Jira with `core` only: 6,779 bytes a turn instead of 18,340.
+  - **Not done in step 2, on purpose:** the instructions and long tool descriptions still
+    mention tools that may be off (skills, step 4, take those over); Bitbucket's `ci =
+    false` is not folded into `builds` (fold it, with a deprecation note, when step 3
+    changes the defaults); `doctor` does not check `toolsets` names (the server does).
+  - **To try on the work laptop:** set `toolsets` for the products Goose uses (the
+    recipes need jira `worklog`, bitbucket `review`, obsidian `tasks` and `planning`),
+    run `budget --tools`, then a recipe, and see whether tool choice holds up.
+  - **Next action: step 3, on-demand toolsets** (`toolsets_list`, `toolset_enable`) with
+    the handshake-only mode; `scripts/list_changed_probe.py` is the reference, and
+    `ToolsetServer.held` already has what `toolset_enable` adds back.
 
 - **Docs, logo and a plugin guide (branch `claude/zealous-mendel-ny1eml`, from `main` after
   #21, 2026-11-24).** Asked for on 2026-11-24: use the user's responsive SVG
@@ -884,11 +904,9 @@ Rough order. Each item is one pull request. API references: the Jira 11.0.2 and 
   schemas, read/write annotations and permission prompts. Planned order:
   1. [x] **Budget check** (2026-11-24): `budget.py`, the `budget` command and
      `tests/test_budget.py`; see the top of this file.
-  2. [ ] **Toolsets:** tag each tool with a group when registered (`jira.core`,
-     `jira.agile`, `jira.worklog`, `bitbucket.review`, `bitbucket.builds`,
-     `confluence.write`, `servicenow.catalog`, `outlook_mail.read`, `obsidian.sync`, ...);
-     config picks which load at start (`toolsets = [...]` per product), so a client
-     without dynamic tools still gets a trimmed list. `budget` should report per toolset.
+  2. [x] **Toolsets** (2026-11-24): each tool tagged with a toolset, config picks which
+     load at start (`toolsets = [...]` per product), so a client without dynamic tools
+     still gets a trimmed list; `budget` reports per toolset. See the top of this file.
   3. [ ] **On-demand toolsets:** `toolsets_list` and `toolset_enable(name)` (maybe
      `toolset_disable`). Enabling calls `MCPServer.add_tool` for the group, then announces
      it. On 2026-07-28 that is `ctx.notify_tools_changed()` (the `subscriptions/listen`

@@ -111,6 +111,41 @@ dry_run = false
 `--dry-run` and `--no-dry-run` on the command line override every table for that
 run. `doctor` prints a product's setting when it differs from the top level.
 
+## Toolsets
+
+Each product's tools come in toolsets: `core` (its status, everyday reads and
+light writes) and a few named groups. Every toolset is on unless the product's
+table names the ones to offer with `toolsets`. An agent pays for every offered
+tool's description and parameters on every turn (see
+[Architecture](architecture.md#what-it-costs-the-tool-definitions)), so offering
+only what a given agent needs makes it cheaper and helps it choose the right tool.
+
+```toml
+[jira]
+toolsets = ["core", "worklog"]   # no create/edit screens
+
+[bitbucket]
+toolsets = ["core", "review"]    # no builds, code search or branches
+```
+
+| Product | Toolsets beyond `core` |
+|---|---|
+| `jira` | `edit` (create and edit issues, their screens, links), `worklog` |
+| `bitbucket` | `review` (diff, changes, commits, activity, tasks, merge checks, comment, review), `builds` (builds and deployments), `code` (code search, branches) |
+| `confluence` | `write` (create and edit pages) |
+| `servicenow` | `incidents` (the incident form, opening one), `catalog` (search and order) |
+| `outlook_calendar` | `query` (OData filtering and sorting) |
+| `outlook_mail` | `query` (OData filtering and sorting) |
+| `obsidian` | `tasks` (create and update tasks), `planning` (sync, write daily-note sections) |
+
+`productivity-agent-tools budget --tools` lists every toolset with its tools and
+what it costs; add `--all-toolsets` to include the ones you left off. A name the
+product does not have stops the server with a message listing the right ones.
+The server's instructions tell the agent which toolsets are off, so it can tell
+you to switch one on rather than look for a tool that is not there. The recipes
+in `contrib/goose/` use Obsidian's `planning` and `tasks`, Jira's `worklog` and
+Bitbucket's `review` toolsets.
+
 ## TLS
 
 TLS is always verified. By default it uses the operating system's trust store,
@@ -158,7 +193,8 @@ Top level:
 | `[cookies]` | empty | Extra cookies for every request |
 | `[group.<name>]` | none | Shared values for the products that join the group |
 
-Every product table also accepts `base_url`, `ca_bundle`, `timeout_seconds`,
+Every product table also accepts `toolsets` (see [Toolsets](#toolsets)),
+`base_url`, `ca_bundle`, `timeout_seconds`,
 `token_cmd`, `token_env_file`, `group` and its own cookie table (such as
 `[jira.cookies]`), and most accept `default_max_results` (25; at most 100 rows
 are returned per call). Each product's own keys are on its page under

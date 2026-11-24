@@ -46,6 +46,7 @@ from productivity_agent_tools.tooling import (
     WRITE,
     anticipated,
 )
+from productivity_agent_tools.toolsets import toolset
 from productivity_agent_tools.writes import once, report
 
 _REVIEW_WORDS: dict[str, str] = {
@@ -96,7 +97,7 @@ def register_bitbucket_tools(
             extra_cookies=list(context.cookie_names),
         )
 
-    @server.tool(annotations=READ)
+    @server.tool(annotations=READ, meta=toolset("code"))
     @anticipated
     async def bitbucket_search_code(
         query: str,
@@ -222,7 +223,7 @@ def register_bitbucket_tools(
         """
         return await bitbucket.get_pull_request(repository, pull_request_id, project, max_comments)
 
-    @server.tool(annotations=READ)
+    @server.tool(annotations=READ, meta=toolset("review"))
     @anticipated
     async def bitbucket_get_pull_request_commits(
         repository: str,
@@ -242,7 +243,7 @@ def register_bitbucket_tools(
             repository, pull_request_id, project, max_results
         )
 
-    @server.tool(annotations=READ)
+    @server.tool(annotations=READ, meta=toolset("review"))
     @anticipated
     async def bitbucket_get_pull_request_changes(
         repository: str,
@@ -262,7 +263,7 @@ def register_bitbucket_tools(
             repository, pull_request_id, project, max_results
         )
 
-    @server.tool(annotations=READ)
+    @server.tool(annotations=READ, meta=toolset("review"))
     @anticipated
     async def bitbucket_get_pull_request_diff(
         repository: str,
@@ -288,7 +289,7 @@ def register_bitbucket_tools(
             repository, pull_request_id, project, context_lines, max_chars
         )
 
-    @server.tool(annotations=READ)
+    @server.tool(annotations=READ, meta=toolset("review"))
     @anticipated
     async def bitbucket_get_pull_request_merge_status(
         repository: str, pull_request_id: int, project: str | None = None
@@ -306,7 +307,7 @@ def register_bitbucket_tools(
         """
         return await bitbucket.get_merge_status(repository, pull_request_id, project)
 
-    @server.tool(annotations=READ)
+    @server.tool(annotations=READ, meta=toolset("review"))
     @anticipated
     async def bitbucket_get_pull_request_activity(
         repository: str,
@@ -330,7 +331,7 @@ def register_bitbucket_tools(
             repository, pull_request_id, project, max_results
         )
 
-    @server.tool(annotations=READ)
+    @server.tool(annotations=READ, meta=toolset("review"))
     @anticipated
     async def bitbucket_list_pull_request_tasks(
         repository: str,
@@ -393,7 +394,7 @@ def register_bitbucket_tools(
 
     if bitbucket.settings.ci:
 
-        @server.tool(annotations=READ)
+        @server.tool(annotations=READ, meta=toolset("builds"))
         @anticipated
         async def bitbucket_get_commit_builds(
             commit_id: str, max_results: int | None = None
@@ -411,7 +412,7 @@ def register_bitbucket_tools(
             """
             return await bitbucket.get_commit_builds(commit_id, max_results)
 
-        @server.tool(annotations=READ)
+        @server.tool(annotations=READ, meta=toolset("builds"))
         @anticipated
         async def bitbucket_list_required_builds(
             repository: str, project: str | None = None, max_results: int | None = None
@@ -425,7 +426,7 @@ def register_bitbucket_tools(
             """
             return await bitbucket.list_required_builds(repository, project, max_results)
 
-        @server.tool(annotations=READ)
+        @server.tool(annotations=READ, meta=toolset("builds"))
         @anticipated
         async def bitbucket_get_deployment(
             repository: str,
@@ -453,7 +454,7 @@ def register_bitbucket_tools(
                 repository, commit_id, deployment_key, environment_key, sequence_number, project
             )
 
-    @server.tool(annotations=WRITE)
+    @server.tool(annotations=WRITE, meta=toolset("code"))
     @anticipated
     async def bitbucket_create_branch(
         repository: str,
@@ -542,7 +543,7 @@ def register_bitbucket_tools(
         signature = ("create_branch", key, slug, branch_type, issue, name, summary, start_point)
         return await once(branch_guard, signature, send)
 
-    @server.tool(annotations=WRITE)
+    @server.tool(annotations=WRITE, meta=toolset("review"))
     @anticipated
     async def bitbucket_add_pull_request_comment(
         repository: str,
@@ -597,7 +598,7 @@ def register_bitbucket_tools(
 
         return await once(guard, ("add_comment", key, slug, number, reply_to, task, text), send)
 
-    @server.tool(annotations=IDEMPOTENT_WRITE)
+    @server.tool(annotations=IDEMPOTENT_WRITE, meta=toolset("review"))
     @anticipated
     async def bitbucket_review_pull_request(
         repository: str,
