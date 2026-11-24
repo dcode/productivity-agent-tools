@@ -24,8 +24,9 @@ uv run pytest
 ```
 
 `pytest` measures branch coverage and fails below 90%; the suite covers every
-line and branch (100%), so a change should keep it there. Tests run against fakes of each server (and a stand-in browser); nothing
-in them contacts a real server.
+line and branch (100%), so a change should keep it there. Tests run against
+fakes of each server (and a stand-in browser); nothing in them contacts a real
+server.
 
 `scripts/smoke-test.sh` is the opposite: it runs every tool once against your
 real servers through `call`, read-only or in dry-run, and checks what comes back.
