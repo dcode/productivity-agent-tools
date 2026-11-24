@@ -35,7 +35,9 @@ Last updated: 2026-11-23 (evening).
   - **Coverage at 100% (asked for, 2026-11-24):** the two gaps were tests that never
     called the `bitbucket_search_code` tool itself, and the `set-token` picker without
     the Outlook products installed (a plugin-only install). Both are tested now; 968
-    tests. The threshold in `pyproject.toml` is still 90%.
+    tests. **The threshold is now 100%** (`fail_under`, asked for the same day).
+  - **Repository settings (user, 2026-11-24):** social preview uploaded. Description and
+    homepage to set with `gh repo edit` (the cloud session's `gh` is search-only).
   - **CI fix:** the `ruff-format` hook (ruff 0.17.4) formats Python blocks in Markdown
     and broke the plugin guide's `--8<--` markers; the page is excluded from that hook.
 - **0.12.0, ServiceNow catalog requests (branch `claude/zealous-mendel-ny1eml`, restarted

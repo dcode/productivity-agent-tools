@@ -967,7 +967,7 @@ keeps writes behind a dry-run switch that is on by default.
 - ruff (lint and format, line length 100), ty (type check, warnings are errors), rumdl
   (Markdown), taplo (TOML), all through pre-commit. Settings live in `pyproject.toml`, except
   taplo's, which live in `.taplo.toml`.
-- pytest with branch coverage and a 90% floor, aiming for 100%. hatch scripts: `hatch test`,
+- pytest with branch coverage and a 100% floor (90% until 2026-11-24). hatch scripts: `hatch test`,
   `hatch fmt`, `hatch run types`, `hatch run hooks`, `hatch run check`, `hatch run doctor`,
   `hatch build`.
 - American English everywhere. Conventional-commit messages.
@@ -1075,8 +1075,8 @@ Designed for but deferred. [ROADMAP.md](ROADMAP.md) has the ordered backlog and 
 - Automated tests run against in-process fakes of Jira and Bitbucket and an intercepting
   proxy that serves a banner page until a cookie is present. Nothing in the suite contacts a
   real server.
-- The coverage floor is 90% (branch coverage). The suite is currently at about 99.9% (271
-  tests).
+- The coverage floor is 100% (branch coverage), raised from 90% on 2026-11-24 once the
+  suite reached it (968 tests).
 - The live servers cannot be reached from development or CI, so verification against them is
   manual. The user runs `doctor`, `call`, or `scripts/smoke-test.sh` on the work laptop and
   pastes the output back.

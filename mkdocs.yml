@@ -2,8 +2,8 @@
 # GitHub Pages by .github/workflows/docs.yml.
 site_name: productivity-agent-tools
 site_description: >-
-  An MCP server that gives an AI agent tools for Jira, Bitbucket, Confluence,
-  ServiceNow and Outlook.
+  An MCP server that gives an AI agent typed tools for Jira, Bitbucket,
+  Confluence, ServiceNow, Outlook and Obsidian.
 site_url: https://dcode.github.io/productivity-agent-tools/
 repo_url: https://github.com/dcode/productivity-agent-tools
 repo_name: dcode/productivity-agent-tools

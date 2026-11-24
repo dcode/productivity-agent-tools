@@ -1,7 +1,7 @@
 [project]
 name = "productivity-agent-tools"
 dynamic = ["version"]
-description = "MCP server giving an agent daily-productivity tools: Jira, Bitbucket and Confluence (Data Center), ServiceNow, and Outlook mail and calendar."
+description = "MCP server giving an AI agent typed tools for daily work: Jira, Bitbucket and Confluence (Data Center), ServiceNow, Outlook mail and calendar, and an Obsidian vault."
 readme = "README.md"
 license = "AGPL-3.0-or-later"
 license-files = ["LICENSE"]
@@ -126,7 +126,8 @@ source = ["productivity_agent_tools"]
 branch = true
 
 [tool.coverage.report]
-fail_under = 90
+# Every line and branch is covered; a change that leaves one untested fails.
+fail_under = 100
 show_missing = true
 exclude_also = ["if TYPE_CHECKING:"]
 
