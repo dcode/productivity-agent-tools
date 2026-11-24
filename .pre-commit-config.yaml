@@ -6,6 +6,9 @@ repos:
       - id: ruff-check
         args: [--fix]
       - id: ruff-format
+        # The plugin guide's Python blocks hold only snippet markers (--8<--), which
+        # the docs build fills from files ruff already formats.
+        exclude: ^docs/contributing/plugin\.md$
 
   - repo: https://github.com/rvben/rumdl-pre-commit
     rev: v0.3.2
