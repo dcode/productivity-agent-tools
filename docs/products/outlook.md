@@ -68,6 +68,13 @@ Run `doctor`, then restart your agent to load the tools.
 | `browser` | Chrome, then Edge | Browser `login microsoft` starts |
 | `login_timeout_seconds` | `300` | How long `login microsoft` waits |
 
+`[outlook_mail]` and `[outlook_calendar]` keys, besides the
+[shared connection keys](../configuration.md):
+
+| Key | Default | Meaning |
+|---|---|---|
+| `default_max_results` | `25` | Items a list or search tool returns when the call names no limit |
+
 ## How long a sign-in lasts
 
 The tools renew their access token silently for as long as the tenant's sign-in

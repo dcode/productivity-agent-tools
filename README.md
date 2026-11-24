@@ -1,5 +1,7 @@
 # productivity-agent-tools
 
+![productivity-agent-tools logo](docs/assets/logo.svg)
+
 An MCP server that gives an AI agent (Goose first, Claude Code later) typed tools
 for daily work, built for an enterprise network where those tools sit behind a
 VPN, single sign-on and a consent-banner proxy. Each product is switched on by
@@ -68,7 +70,9 @@ these products, with Goose recipes for each step), see the
 More in the documentation: [getting started](docs/getting-started.md),
 [configuration](docs/configuration.md) (one host or several, groups, cookies,
 TLS, logging), [authentication](docs/authentication.md) (token sources,
-`token_cmd`, the browser sign-ins) and the [command line](docs/cli.md).
+`token_cmd`, the browser sign-ins), the [command line](docs/cli.md), and the
+[architecture](docs/architecture.md): why typed tools cost an agent far fewer
+tokens than raw APIs.
 
 ## Data handling
 
@@ -85,7 +89,8 @@ uv run pytest
 ```
 
 See [development](docs/development.md) for the code layout, CI, the docs site
-and releasing. [docs/DESIGN.md](docs/DESIGN.md) records the design and the
+and releasing, and [writing a product plugin](docs/contributing/plugin.md) to add
+a service of your own. [docs/DESIGN.md](docs/DESIGN.md) records the design and the
 reasons for it; [docs/ROADMAP.md](docs/ROADMAP.md) tracks what is done, what
 still needs checking against real servers, and what comes next.
 

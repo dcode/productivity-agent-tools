@@ -117,6 +117,8 @@ dependencies = ["ruff>=0.17"]
 asyncio_mode = "auto"
 asyncio_default_fixture_loop_scope = "function"
 testpaths = ["tests"]
+# The example plugin (docs/contributing/plugin.md) is tested without installing it.
+pythonpath = ["examples/holidays-plugin/src"]
 addopts = ["--cov", "--cov-report=term-missing:skip-covered"]
 
 [tool.coverage.run]
@@ -144,9 +146,10 @@ convention = "google"
 
 [tool.ty.environment]
 python-version = "3.14"
+extra-paths = ["examples/holidays-plugin/src"]
 
 [tool.ty.src]
-include = ["src", "tests"]
+include = ["src", "tests", "examples"]
 
 [tool.ty.terminal]
 error-on-warning = true

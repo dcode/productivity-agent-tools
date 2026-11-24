@@ -41,6 +41,10 @@ products you configure are offered to the agent.
   sign-ins.
 - [Products](products/index.md): what each product's tools do.
 - [Command line](cli.md): `doctor`, `call`, `set-token`, `login` and the rest.
+- [Architecture](architecture.md): how the tools are shaped, and how that keeps
+  an agent's token use down compared with handing it raw APIs.
+- [Contributing](contributing/index.md): development, and writing a product
+  plugin of your own.
 
 ## Data handling
 

@@ -32,16 +32,22 @@ theme:
   palette:
     - media: "(prefers-color-scheme: light)"
       scheme: default
+      # A white header, so the logo's indigo and amber read against it.
+      primary: white
       toggle:
         icon: material/weather-night
         name: Switch to dark mode
     - media: "(prefers-color-scheme: dark)"
       scheme: slate
+      primary: black
       toggle:
         icon: material/weather-sunny
         name: Switch to light mode
   icon:
     repo: fontawesome/brands/github
+  # The logo switches between its light and dark colours with the system setting.
+  logo: assets/logo.svg
+  favicon: assets/logo.svg
 
 markdown_extensions:
   - admonition
@@ -54,6 +60,10 @@ markdown_extensions:
   - pymdownx.inlinehilite
   - pymdownx.superfences
   - pymdownx.details
+  # Code in the plugin guide is read from the tested example, so it cannot drift.
+  - pymdownx.snippets:
+      base_path: ["."]
+      check_paths: true
 
 # Fail the build (CI runs it with --strict) on a broken link or a page left out.
 validation:
@@ -81,4 +91,8 @@ nav:
   - Daily workflow in Obsidian: workflow.md
   - Command line: cli.md
   - Agents: agents.md
-  - Development: development.md
+  - Architecture: architecture.md
+  - Contributing:
+      - contributing/index.md
+      - Development: development.md
+      - Writing a product plugin: contributing/plugin.md

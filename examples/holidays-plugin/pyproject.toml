@@ -1,0 +1,24 @@
+# An example product plugin for productivity-agent-tools: public holidays from the
+# free Nager.Date API. Installed beside the server, it adds holidays_ tools when the
+# config has a [holidays] table. See docs/contributing/plugin.md.
+[project]
+name = "productivity-agent-tools-holidays"
+version = "0.1.0"
+description = "Example plugin: public holidays for productivity-agent-tools."
+requires-python = ">=3.14"
+license = "AGPL-3.0-or-later"
+dependencies = ["productivity-agent-tools"]
+
+# --8<-- [start:entry-point]
+# The server finds products through this entry-point group. The name on the left
+# must equal the product's name: it is the config table and the tool prefix.
+[project.entry-points."productivity_agent_tools.products"]
+holidays = "pat_holidays.product:PRODUCT"
+# --8<-- [end:entry-point]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/pat_holidays"]

@@ -107,6 +107,7 @@ Registers the server with your agent; see [Agents](agents.md).
 uv run productivity-agent-tools export-ca ~/ca-bundle.pem
 ```
 
-macOS only. Writes the Keychain's trusted root certificates to a PEM file, for
+macOS only. Writes the Keychain's trusted root certificates to a PEM file
+(`--output`, or the path as the only argument; default `~/ca-bundle.pem`), for
 `ca_bundle` in the config. You rarely need it: TLS uses the system trust store by
 default.
