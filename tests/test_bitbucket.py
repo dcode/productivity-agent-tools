@@ -7,6 +7,7 @@ import httpx
 import pytest
 from mcp.server.mcpserver import MCPServer
 from mcp.server.mcpserver.exceptions import ToolError
+from mcp.types import CallToolResult
 
 from productivity_agent_tools import cli
 from productivity_agent_tools.bitbucket.branches import (
@@ -1534,3 +1535,18 @@ async def test_create_branch_tool_works_without_jira_and_suppresses_repeats(
     again = _structured(await live.call_tool("bitbucket_create_branch", ask))
     assert again["repeat_suppressed"] is True
     assert len(_writes(bitbucket)) == 1
+
+
+async def test_the_code_search_tool_reaches_the_search(
+    bitbucket: FakeBitbucket, make_api: Callable[..., AtlassianClient]
+) -> None:
+    server = build_server(_bitbucket_only(), {"bitbucket": Connected(make_api())})
+    result = await server.call_tool(
+        "bitbucket_search_code", {"query": "retry", "project": "OPS", "max_results": 5}
+    )
+    assert isinstance(result, CallToolResult)
+    assert isinstance(result.structured_content, dict)
+    assert result.structured_content["query"] == "retry project:OPS"
+    search = bitbucket.requests[-1]
+    assert search.url.path == "/bitbucket/rest/search/1.0/search"
+    assert json.loads(search.content)["query"] == "retry project:OPS"

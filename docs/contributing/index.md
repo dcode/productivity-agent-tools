@@ -19,7 +19,7 @@ product. This section covers how the project works and how to extend it.
   [DESIGN.md](https://github.com/dcode/productivity-agent-tools/blob/main/docs/DESIGN.md)
   records decisions and the reasons for them.
 - **Every change keeps the checks green:** ruff, ty, rumdl and taplo through the
-  pre-commit hooks, the test suite at its coverage threshold (it sits near
+  pre-commit hooks, the test suite at full line and branch coverage (it is at
   100%), and the strict docs build. See [Development](../development.md#checks).
 - **Tests use fakes, never real servers.** A tool is tested against a fake of its
   service built on `httpx.MockTransport`. What a fake cannot prove (does the
