@@ -157,4 +157,5 @@ error-on-warning = true
 
 [tool.rumdl]
 line-length = 100
-exclude = [".venv", "LICENSE", "contrib/obsidian"]
+# docs/upstream/*-*.md are GitHub issue and comment bodies, kept unwrapped as posted.
+exclude = [".venv", "LICENSE", "contrib/obsidian", "docs/upstream/*-*.md"]

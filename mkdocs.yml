@@ -12,10 +12,12 @@ copyright: Licensed under the AGPL-3.0-or-later.
 
 # DESIGN.md and ROADMAP.md are the project's working documents. They record facts
 # about the deployment this was built against, so they stay in the repository and
-# off the published site; site pages link to them on GitHub instead.
+# off the published site; site pages link to them on GitHub instead. upstream/ holds
+# bug reports for other projects, kept as they were posted.
 exclude_docs: |
   DESIGN.md
   ROADMAP.md
+  upstream/
 
 theme:
   name: material
