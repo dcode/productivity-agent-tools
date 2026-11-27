@@ -3,10 +3,22 @@
 Read this first when coming back to the project. The design and the reasons behind it are in
 [DESIGN.md](DESIGN.md). Update this file in the same commit as the work it describes.
 
-Last updated: 2026-11-23 (evening).
+Last updated: 2026-11-27.
 
 ## Where things stand
 
+- **Release workflow fix (branch `claude/release-dispatch-latest`, 2026-11-27).** The
+  `v0.11.0` release never published: its macOS test job was never given a runner by
+  GitHub and was cancelled after 15 minutes, so the publish job was skipped (not a bug
+  here; `v0.12.0` released normally the next day). The Pages failures before 2026-11-24
+  were Pages being off; the docs have deployed since it was turned on.
+  - **Changed:** `release.yml` can be started by hand with an existing tag
+    (`gh workflow run release.yml --ref main -f tag=v0.11.0`), which tests and builds
+    that tag's code with today's workflow (`ci.yml` takes a `ref` input for this), and a
+    release is marked Latest only when its tag is the newest, so publishing an older tag
+    late no longer takes Latest from a newer one.
+  - **Next:** publish `v0.11.0` with the command above once this is on `main` (the user
+    decides). No new tag or 0.11.1 is needed.
 - **Docs, logo and a plugin guide (branch `claude/zealous-mendel-ny1eml`, from `main` after
   #21, 2026-11-24). Start here.** Asked for on 2026-11-24: use the user's responsive SVG
   as the repo icon and in the docs, review all the docs, add an architecture page (token

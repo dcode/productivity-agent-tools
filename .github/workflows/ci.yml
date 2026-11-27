@@ -6,6 +6,12 @@ on:
   pull_request:
   # Lets the release workflow run the same checks before publishing.
   workflow_call:
+    inputs:
+      ref:
+        description: Git ref to check out; empty means the ref that triggered the run.
+        type: string
+        required: false
+        default: ""
 
 permissions:
   contents: read
@@ -20,6 +26,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
+        with:
+          ref: ${{ inputs.ref }}
       - uses: astral-sh/setup-uv@v10.3.3
         with:
           enable-cache: true
@@ -37,6 +45,8 @@ jobs:
         os: [ubuntu-latest, macos-latest]
     steps:
       - uses: actions/checkout@v7
+        with:
+          ref: ${{ inputs.ref }}
       - uses: astral-sh/setup-uv@v10.3.3
         with:
           enable-cache: true
@@ -50,6 +60,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
+        with:
+          ref: ${{ inputs.ref }}
       - uses: astral-sh/setup-uv@v10.3.3
         with:
           enable-cache: true
@@ -63,6 +75,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
+        with:
+          ref: ${{ inputs.ref }}
       - uses: astral-sh/setup-uv@v10.3.3
         with:
           enable-cache: true

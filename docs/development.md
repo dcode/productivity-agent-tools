@@ -115,7 +115,17 @@ git tag v0.2.0 <commit-on-main> && git push origin v0.2.0
 
 The release workflow checks that the tag matches `__version__`, runs the full
 CI suite, and publishes a GitHub release with the sdist and wheel attached and
-generated release notes. It does not publish to PyPI.
+generated release notes. It does not publish to PyPI. A release is marked Latest
+only when its tag is the newest version tag.
+
+If a tag's release run fails or is cancelled for a reason outside the code (a runner
+that never started, say), publish the tag that is already pushed by starting the
+workflow by hand from `main`. That tests, builds and publishes the tag's code with the
+current workflow; re-running the old run would replay the workflow as it was at the tag.
+
+```bash
+gh workflow run release.yml --ref main -f tag=v0.11.0
+```
 
 ## With hatch
 
