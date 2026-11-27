@@ -2,22 +2,47 @@ name: Release
 
 # Push a tag like v0.2.0 (matching __version__) to test, build and publish a
 # GitHub release with the sdist and wheel attached.
+#
+# To publish a tag that is already pushed (its run failed or was cancelled),
+# start this workflow by hand from main with that tag:
+#   gh workflow run release.yml --ref main -f tag=v0.11.0
+# That runs today's workflow against the tag's code. Re-running the old run
+# instead replays the workflow as it was at the tag.
 on:
   push:
     tags: ["v*.*.*"]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Existing tag to publish, like v0.11.0
+        type: string
+        required: true
 
 permissions:
   contents: read
+
+env:
+  TAG: ${{ inputs.tag || github.ref_name }}
 
 jobs:
   verify-version:
     name: Tag matches package version
     runs-on: ubuntu-latest
+    outputs:
+      tag: ${{ steps.tag.outputs.tag }}
     steps:
+      - name: Check the tag's name
+        id: tag
+        run: |
+          if ! [[ "${TAG}" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "::error::${TAG} is not a release tag like v1.2.3"
+            exit 1
+          fi
+          echo "tag=${TAG}" >> "${GITHUB_OUTPUT}"
       - uses: actions/checkout@v7
+        with:
+          ref: refs/tags/${{ env.TAG }}
       - name: Compare tag with __version__
-        env:
-          TAG: ${{ github.ref_name }}
         run: |
           version="$(sed -nE 's/^__version__ = "([^"]+)"$/\1/p' src/productivity_agent_tools/__init__.py)"
           if [ "v${version}" != "${TAG}" ]; then
@@ -29,6 +54,8 @@ jobs:
     name: CI
     needs: verify-version
     uses: ./.github/workflows/ci.yml
+    with:
+      ref: refs/tags/${{ needs.verify-version.outputs.tag }}
 
   release:
     name: Publish GitHub release
@@ -38,12 +65,31 @@ jobs:
       contents: write
     steps:
       - uses: actions/checkout@v7
+        with:
+          ref: refs/tags/${{ env.TAG }}
+          # Every tag, so the next step can tell whether this one is the newest.
+          fetch-depth: 0
       - uses: actions/download-artifact@v8
         with:
           name: dist
           path: dist/
+      - name: Decide whether this release becomes Latest
+        id: latest
+        # GitHub marks every new release Latest unless told otherwise, so a release
+        # published late for an older tag would take Latest from a newer one.
+        run: |
+          newest="$(git tag --list 'v*.*.*' --sort=-version:refname | head -n 1)"
+          if [ "${newest}" = "${TAG}" ]; then
+            echo "latest=true" >> "${GITHUB_OUTPUT}"
+          else
+            echo "latest=false" >> "${GITHUB_OUTPUT}"
+            echo "::notice::${TAG} is older than ${newest}, so it is not marked Latest"
+          fi
       - name: Create release with build artifacts
         env:
           GH_TOKEN: ${{ github.token }}
-          TAG: ${{ github.ref_name }}
-        run: gh release create "${TAG}" dist/* --title "${TAG}" --generate-notes --verify-tag
+          LATEST: ${{ steps.latest.outputs.latest }}
+        run: >-
+          gh release create "${TAG}" dist/*
+          --title "${TAG}" --generate-notes --verify-tag
+          --latest="${LATEST}"
